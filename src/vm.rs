@@ -23,15 +23,36 @@ pub enum Vcode {
     /// 
     /// Return a row whose values are registers[P1@P2]
     Row,
+    ///
+    /// `RETURN * * * *`
+    /// 
+    /// Return from the program.
+    Return,
 }
 
 /// Vop is a virtual machine instruction.
 pub struct Vop {
     code: Vcode,
-    p1: u8,
-    p2: u8,
-    p3: u8,
-    p4: Value,
+    p1: usize,
+    p2: usize,
+    p3: usize,
+    p4: Option<Value>,
+}
+
+impl Vop {
+
+    pub fn next(p1: usize, p2: usize) -> Vop {
+        Vop { code: Vcode::Next, p1, p2, p3: 0, p4: None }
+    }
+
+    pub fn row(p1: usize, p2: usize) -> Vop {
+        Vop { code: Vcode::Row, p1, p2, p3: 0, p4: None }
+    }
+
+    pub fn return_() -> Vop {
+        Vop { code: Vcode::Return, p1: 0, p2: 0, p3: 0, p4: None }
+    }
+    
 }
 
 /// Vcursor holds a position and table.
@@ -42,11 +63,11 @@ pub struct Vcursor {
 }
 
 impl Vcursor {
-    pub fn new(table: Box<Table>) -> Vcursor {
+    pub fn new(table: Table) -> Vcursor {
         Vcursor {
             pos: 0,
-            end: table.len() - 1,
-            table,
+            end: &table.len() - 1,
+            table: Box::new(table),
         }
     }
 
@@ -60,28 +81,44 @@ impl Vcursor {
     }
 
     /// Return the current row.
-    pub fn row(&self) -> Option<&Row> {
-        self.table.row(self.pos)
+    pub fn row(&self) -> &Row {
+        self.table.row(self.pos).expect("Illegal cursor position")
     }
 }
 
 /// Vm holds the state of the virtual machine.
-pub struct Vm {}
+pub struct Vm {
+    pub cursor: Vcursor,
+    pub sink: Box<dyn Vsink>,
+}
 
 impl Vm {
 
-    pub fn execute(table: &Table, program: &Program) {
+    pub fn execute(&mut self, program: &Program) {
         let mut pc: usize = 0;
         loop {
             let op = &program[pc];
             pc += 1;
             match op.code {
                 Vcode::Next => {
+                    if self.cursor.next() {
+                        pc = op.p2;
+                    }
                 }
                 Vcode::Row => {
-                    return;
+                    let row = self.cursor.row();
+                    self.sink.write(row);
                 },
+                Vcode::Return => {
+                    // consider some kind of return code
+                    return;
+                }
             }
         }
     }
+}
+
+// TEMPORARY – How to handle output??
+pub trait Vsink {
+    fn write(&self, row: &Row);
 }

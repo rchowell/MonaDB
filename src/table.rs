@@ -1,15 +1,35 @@
+use std::fmt::Display;
+
+
+// #[macro_export]
+// macro_rules! row {
+//     ($($json:tt)+) => {
+//         Value::new(json!($($json)+))
+//     };
+// }
+
 pub struct Value(serde_json::Value);
 
 impl Value {
+
+    pub fn new(value: serde_json::Value) -> Value {
+        Value(value)
+    }
 
     pub fn next(&self) -> Value {
         todo!()
     }
 }
 
+impl Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0.to_string())
+    }
+}
+
 // A table (for now) is a vector of rows.
 pub struct Table {
-    rows: Vec<Row>,
+    pub rows: Vec<Row>,
 }
 
 // A row (for now) is just a JSON value
@@ -33,6 +53,7 @@ impl Table {
     }
 }
 
+/// TODO THIS GOES IN REVERSE ORDER
 impl Iterator for Table {
     type Item = Row;
 
