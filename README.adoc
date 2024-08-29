@@ -1,0 +1,27 @@
+= Rho
+
+What if SQLite were a xref:DESIGN.adoc[JSON Database]?
+
+== Worklog
+
+_This section contains various mini-goals to drive the project._
+
+=== G1 Aug 2024
+
+.Goals
+- [x] Load jsonlines into an in-memory "table".
+- [x] Run a scan against the in-memory "table".
+- [x] Send results to stdout.
+- [ ] Make the most rudimentary file format!
+
+.Notes
+* I have a VM loop and cursor.
+* Start with loading jsonlines from stdin.
+* Figure out a projection operator
+
+=== G2 Sep 2024
+
+- [ ] Basic DDL and DML.
+
+.Goals
+- _PLACEHOLDER_

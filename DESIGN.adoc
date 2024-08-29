@@ -1,0 +1,50 @@
+== File Format
+
+_This section will describe the file format._
+
+.Notes
+- Should probably store as BSON or CBOR?
+
+== Types
+
+.link:https://www.json.org/json-en.html[JSON Reference]
+* object
+* string
+* number
+* boolean
+* null
+
+== Schemas
+
+_This section will describe how schemas are stored and modified._
+
+Schemas are stored in a table called _schemas_ defined by the following RQL (SQL-ish).
+
+[source,sql]
+----
+CREATE TABLE _schemas (
+    type string,    /* TABLE, VIEW, INDEX, etc. */
+    name string,    /* Object name */
+    rql string,     /* Object schema */
+    ptr number,     /* Pointer to root table page */
+)
+----
+
+.Notes
+- Consider "objects" rather than "schemas".
+- Consider prefixing with _ to avoid conflicts with user tables.
+
+== RQL
+
+_This section will describe the RQL language._
+
+RQL is SQL (ish).
+
+== Other
+
+- Website with playground and dead simple language documentation.
+- REPL
+- Insert semantics?
+    - If you insert an object into a "closed" table, the extra fields are ignored.
+    - If you insert an object into an "open" table, the extra fields are stored in a hidden object column.
+- Notes optimizations such as page compaction.

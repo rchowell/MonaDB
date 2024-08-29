@@ -1,4 +1,6 @@
-use serde_json::json;
+use std::io;
+use std::str::FromStr;
+
 use table::Table;
 use table::Value;
 use vm::{Vcursor, Vm, Vop, Vsink};
@@ -7,7 +9,6 @@ mod table;
 mod vm;
 
 macro_rules! row {
-    // Hide distracting implementation details from the generated rustdoc.
     ($($json:tt)+) => {
         Value::new(json!($($json)+))
     };
@@ -15,20 +16,15 @@ macro_rules! row {
 
 fn main() {
 
-    // CREATE TABLE
+    // CREATE TABLE ... stdin
     let mut table = Table::new();
-    table.insert(row!("a"));
-    table.insert(row!("123"));
-    table.insert(row!("false"));
-    table.insert(row!({ "a": 1, "b": 2 }));
-    table.insert(row!([1, 2, 3]));
-
-
-    // testing...
-    // let sink = Box::new(Printer {});
-    // for row in table.rows {
-    //     sink.write(&row);
-    // }
+    let lines = io::stdin().lines();
+    for line in lines {
+        let l = line.unwrap();
+        let str = l.as_str();
+        let row = serde_json::Value::from_str(str).unwrap();
+        table.insert(Value::new(row));
+    }
 
     // Initialize the virtual machine.
     let mut vm = Vm {
@@ -42,8 +38,10 @@ fn main() {
         Vop::next(0, 0), // 1
         Vop::return_(),  // 2
     ];
-
     vm.execute(&program);
+
+    println!();
+    println!("Done")
 }
 
 struct Printer {}
