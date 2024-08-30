@@ -1,4 +1,4 @@
-use crate::table::{Row, Table, Value};
+use crate::{table::{Row, Table}, value::Value};
 
 /// Program is a sequence of virtual machine instructions.
 pub type Program = Vec<Vop>;
@@ -56,18 +56,18 @@ impl Vop {
 }
 
 /// Vcursor holds a position and table.
-pub struct Vcursor {
+pub struct Vcursor<'a> {
     pos: usize,
     end: usize,
-    table: Box<Table>,
+    table: &'a Table,
 }
 
-impl Vcursor {
-    pub fn new(table: Table) -> Vcursor {
+impl <'a> Vcursor<'a> {
+    pub fn new(table: &'a Table) -> Vcursor<'a> {
         Vcursor {
             pos: 0,
             end: &table.len() - 1,
-            table: Box::new(table),
+            table,
         }
     }
 
@@ -87,12 +87,12 @@ impl Vcursor {
 }
 
 /// Vm holds the state of the virtual machine.
-pub struct Vm {
-    pub cursor: Vcursor,
+pub struct Vm<'a> {
+    pub cursor: Vcursor<'a>,
     pub sink: Box<dyn Vsink>,
 }
 
-impl Vm {
+impl <'a> Vm<'a> {
 
     pub fn execute(&mut self, program: &Program) {
         let mut pc: usize = 0;

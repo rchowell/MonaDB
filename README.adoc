@@ -22,6 +22,7 @@ _This section contains various mini-goals to drive the project._
 === G2 Sep 2024
 
 - [ ] Basic DDL and DML.
+- [ ] Store schemas in a table.
 
 .Goals
 - _PLACEHOLDER_

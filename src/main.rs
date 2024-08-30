@@ -1,53 +1,29 @@
-use std::io;
-use std::str::FromStr;
+use std::env;
+use std::path::PathBuf;
 
-use table::Table;
-use table::Value;
-use vm::{Vcursor, Vm, Vop, Vsink};
-
-mod table;
-mod vm;
-
-macro_rules! row {
-    ($($json:tt)+) => {
-        Value::new(json!($($json)+))
-    };
-}
+use rho::table::Table;
+use rho::{row, Rho};
 
 fn main() {
-
-    // CREATE TABLE ... stdin
-    let mut table = Table::new();
-    let lines = io::stdin().lines();
-    for line in lines {
-        let l = line.unwrap();
-        let str = l.as_str();
-        let row = serde_json::Value::from_str(str).unwrap();
-        table.insert(Value::new(row));
+    let args: Vec<String> = env::args().collect();
+    if args.len() < 2 {
+        eprintln!("Usage: {} <table>", args[0]);
+        std::process::exit(1);
     }
+    let path: PathBuf = PathBuf::from(&args[1]);
 
-    // Initialize the virtual machine.
-    let mut vm = Vm {
-        cursor: Vcursor::new(table),
-        sink: Box::new(Printer {}),
-    };
-
-    // Hardcoded scan.
-    let program = vec![
-        Vop::row(0, 0),  // 0
-        Vop::next(0, 0), // 1
-        Vop::return_(),  // 2
-    ];
-    vm.execute(&program);
+    // let rho = Rho::open(&path).expect("Could not open rho");
+    // rho.exec("rql..".to_string());
 
     println!();
-    println!("Done")
-}
+    println!("Done");
 
-struct Printer {}
-
-impl Vsink for Printer {
-    fn write(&self, row: &table::Row) {
-        println!("{}", row);
-    }
+    println!("opening table..");
+    let mut table = Table::open(&path).expect("Could not open table");
+    table.insert(row!({"name": "Alice", "age": 25}));
+    table.insert(row!({"name": "Bob", "age": 25}));
+    println!("closing table..");
+    table.close().expect("Could not close table");
+    println!();
+    println!("Done");
 }
