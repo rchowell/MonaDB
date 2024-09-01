@@ -26,14 +26,14 @@ For now, ignore a db header and let's focus on a single table.
 
 == Schemas
 
-_This section will describe how schemas are stored and modified._
+_This section will describe how tables schemas are stored and modified._
 
-Schemas are stored in a table called _schema_ defined by the following RQL (SQL-ish).
+Schemas are stored in a table called _catalog_ defined by the following RQL (SQL-ish).
 
 [source,sql]
 ----
-CREATE TABLE schema (
-    type string,    /* TABLE, VIEW, INDEX, etc. */
+CREATE TABLE catalog (
+    kind string,    /* TABLE, VIEW, INDEX, etc. */
     name string,    /* Object name */
     rql string,     /* Object schema */
     ptr number,     /* Pointer to root table page */
@@ -52,7 +52,7 @@ _This section will describe the RQL language._
 RQL is SQL (ish).
 
 .Notes
-- When deciding on language features, I will lean on JS before SQL.
+- When deciding on language features, I will lean on JS and Lua before SQL.
 
 == Other
 
@@ -62,3 +62,18 @@ RQL is SQL (ish).
     - If you insert an object into a "closed" table, the extra fields are ignored.
     - If you insert an object into an "open" table, the extra fields are stored in a hidden object column.
 - Notes optimizations such as page compaction.
+
+
+== Executing DDL?
+
+We receive some RQL string like,
+
+[source,sql]
+----
+CREATE TABLE <name> ( <schema> );
+----
+
+To execute, we do two things: (1) get the _catalog_ cursor and (2) insert a row.
+
+*What does a table cursor look like?*
+

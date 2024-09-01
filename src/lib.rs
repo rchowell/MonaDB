@@ -1,28 +1,45 @@
-pub mod errors;
-pub mod table;
-pub mod vm;
+// public modules
+pub mod error;
 pub mod value;
 
+// internal modules
+mod table;
+mod catalog;
+mod vm;
+
 use std::path::Path;
+use std::result;
+
+use error::Error;
+use rusqlite::Connection;
+use catalog::Catalog;
 
 use crate::table::Row;
-use crate::{errors::RhoResult, table::Table};
 use crate::vm::*;
 
+/// A typedef of the result returned by many methods.
+pub type Result<T, E = Error> = result::Result<T, E>;
+
+/// Rho represents the database connection.
 pub struct Rho {
-    schema: Table,
+    conn: Connection,
+    catalog: Catalog,
 }
 
 impl Rho {
 
-    pub fn open<P>(path: P) -> RhoResult<Rho>
+    pub fn open<P>(path: P) -> Result<Rho>
     where P: AsRef<Path> {
-        // load system tables.
-        let schema = Table::open(path)?;
-        Ok(Rho { schema })
+        let conn = Connection::open(path)?;
+        let catalog = Catalog::load(&conn)?;
+        Ok(Rho { conn, catalog })
     }
 
-    pub fn prepare(&self, rql: String) -> RhoResult<Program> {
+    pub fn describe(&self) {
+        self.catalog.describe();
+    }
+
+    pub fn prepare(&self, rql: String) -> Result<Program> {
         // Hardcoded scan.
         let program = vec![
             Vop::row(0, 0),  // 0
@@ -33,17 +50,23 @@ impl Rho {
     }
 
     ///
-    pub fn exec(&self, rql: String) {
+    pub fn exec(&mut self, rql: String) -> Result<()> {
         // Initialize the virtual machine.
-        let program = self.prepare(rql).unwrap();
-        let mut vm = Vm {
-            cursor: Vcursor::new(&self.schema),
-            sink: Box::new(Printer {}),
-        };
-        vm.execute(&program);
+        // let program = self.prepare(rql).unwrap();
+        // let mut vm = Vm {
+        //     cursor: Vcursor::new(&self.schema),
+        //     sink: Box::new(Printer {}),
+        // };
+        // vm.execute(&program);
+        Ok(())
     }
+}
 
-    pub fn close(&self) {}
+impl Drop for Rho {
+
+    fn drop(&mut self) {
+        // self.conn.borrow_mut().close().unwrap();
+    }
 }
 
 struct Printer {}

@@ -1,0 +1,4 @@
+CREATE TABLE IF NOT EXISTS schema (
+    name TEXT PRIMARY KEY,
+    rql TEXT
+);

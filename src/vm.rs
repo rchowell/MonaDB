@@ -16,6 +16,14 @@ pub enum Vcode {
     /// If the advance was successful, jump to program[P2].
     Next,
     ///
+    /// `INSERT P1 * * P4`
+    /// 
+    /// P1: Table cursor to insert.\
+    /// P4: Row to insert.\
+    /// 
+    /// Insert a row at the cursor.
+    Insert,
+    ///
     /// `ROW P1 P2 * *`
     /// 
     /// P1: Register for the row's start.\
@@ -66,7 +74,7 @@ impl <'a> Vcursor<'a> {
     pub fn new(table: &'a Table) -> Vcursor<'a> {
         Vcursor {
             pos: 0,
-            end: &table.len() - 1,
+            end: 0,
             table,
         }
     }
@@ -82,7 +90,8 @@ impl <'a> Vcursor<'a> {
 
     /// Return the current row.
     pub fn row(&self) -> &Row {
-        self.table.row(self.pos).expect("Illegal cursor position")
+        // self.table.row(self.pos).expect("Illegal cursor position")
+        todo!()
     }
 }
 
@@ -95,21 +104,25 @@ pub struct Vm<'a> {
 impl <'a> Vm<'a> {
 
     pub fn execute(&mut self, program: &Program) {
+        use Vcode::*;
         let mut pc: usize = 0;
         loop {
             let op = &program[pc];
             pc += 1;
             match op.code {
-                Vcode::Next => {
+                Next => {
                     if self.cursor.next() {
                         pc = op.p2;
                     }
                 }
-                Vcode::Row => {
+                Insert => {
+
+                }
+                Row => {
                     let row = self.cursor.row();
                     self.sink.write(row);
                 },
-                Vcode::Return => {
+                Return => {
                     // consider some kind of return code
                     return;
                 }

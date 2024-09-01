@@ -1,7 +1,6 @@
 use std::env;
 use std::path::PathBuf;
 
-use rho::table::Table;
 use rho::{row, Rho};
 
 fn main() {
@@ -12,18 +11,19 @@ fn main() {
     }
     let path: PathBuf = PathBuf::from(&args[1]);
 
-    // let rho = Rho::open(&path).expect("Could not open rho");
+    let mut rho = Rho::open(&path).expect("Could not open rho");
     // rho.exec("rql..".to_string());
+    rho.describe();
 
-    println!();
-    println!("Done");
+    // println!();
+    // println!("Done");
 
-    println!("opening table..");
-    let mut table = Table::open(&path).expect("Could not open table");
-    table.insert(row!({"name": "Alice", "age": 25}));
-    table.insert(row!({"name": "Bob", "age": 25}));
-    println!("closing table..");
-    table.close().expect("Could not close table");
-    println!();
-    println!("Done");
+    // println!("opening table..");
+    // let mut table = Table::open(&path).expect("Could not open table");
+    // table.insert(row!({"name": "Alice", "age": 25}));
+    // table.insert(row!({"name": "Bob", "age": 25}));
+    // println!("closing table..");
+    // table.close().expect("Could not close table");
+    // println!();
+    // println!("Done");
 }
