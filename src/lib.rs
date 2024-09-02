@@ -66,11 +66,8 @@ impl Rho {
         let row = Row::from_str(&value);
         self.catalog.borrow_mut().insert(&table, row)
     }
-}
 
-impl Drop for Rho {
-
-    fn drop(&mut self) {
-        // self.sess.borrow_mut().close().unwrap();
+    pub fn select(&self, table: String) -> Result<Vec<Row>> {
+        self.catalog.borrow_mut().scan(&table)
     }
 }

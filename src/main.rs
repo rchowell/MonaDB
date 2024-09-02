@@ -1,4 +1,4 @@
-use std::env;
+use std::{env, vec};
 use std::path::PathBuf;
 
 use rho::Rho;
@@ -40,6 +40,10 @@ enum Command {
     },
     /// TODO TEMPORARY – Drop a table.
     Drop {
+        table: String,
+    },
+    /// TODO TEMPORARY – Select from a table.
+    Select {
         table: String,
     },
     /// Exit the shell.
@@ -131,6 +135,12 @@ fn main() {
                 },
                 Command::Drop { table } => {
                     rho.drop_table(table).expect("Could not drop table");
+                },
+                Command::Select { table } => {
+                    let values = rho.select(table).expect("Could not select rows");
+                    for value in values {
+                        println!("{}", value);
+                    }
                 },
             }
         } else {

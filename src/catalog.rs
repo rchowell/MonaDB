@@ -52,7 +52,7 @@ impl Catalog {
     /// # Errors
     /// - TableNotFound](error::Error::TableNotFound).
     /// 
-    pub fn load_table(&self, name: &str) -> Result<&Table> {
+    fn load_table(&self, name: &str) -> Result<&Table> {
         self.tables.get(name).ok_or(Error::TableNotFound(name.to_string()))
     }
 
@@ -89,6 +89,22 @@ impl Catalog {
         let mut stmt = self.conn.prepare(&insert)?;
         stmt.execute(named_params! { ":row": row.to_string() })?;
         Ok(())
+    }
+
+    /// Scan all rows from the given table.
+    /// TODO use some kind of iterator instead of returning a Vec. 
+    pub fn scan(&mut self, table: &str) -> Result<Vec<Row>> {
+        let table = self.load_table(table)?;
+        let scan = sql::scan(&table);
+        let mut stmt = self.conn.prepare(&scan)?;
+        let mut rows = stmt.query([])?;
+        let mut values: Vec<Row> = vec![];
+        while let Some(row) = rows.next()? {
+            let value: String = row.get(0)?;
+            let value = table::Row::from_str(&value);
+            values.push(value);
+        }
+        Ok(values)
     }
 
     /// Sync the catalog with the sqlite3 `catalog` table.
@@ -128,6 +144,9 @@ mod sql {
         format!("INSERT INTO {} VALUES (:row);", table.name)
     }
 
+    pub fn scan(table: &Table) -> String {
+        format!("SELECT row FROM {};", table.name)
+    }
 }
 
 mod tests {
