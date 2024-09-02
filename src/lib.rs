@@ -7,12 +7,14 @@ mod table;
 mod catalog;
 mod vm;
 
+use std::borrow::BorrowMut;
+use std::cell::RefCell;
 use std::path::Path;
 use std::result;
 
 use error::Error;
-use rusqlite::Connection;
 use catalog::Catalog;
+use table::Table;
 
 use crate::table::Row;
 use crate::vm::*;
@@ -20,23 +22,23 @@ use crate::vm::*;
 /// A typedef of the result returned by many methods.
 pub type Result<T, E = Error> = result::Result<T, E>;
 
-/// Rho represents the database connection.
+/// Rho represents the database sessection.
 pub struct Rho {
-    conn: Connection,
-    catalog: Catalog,
+    catalog: RefCell<Catalog>,
 }
 
 impl Rho {
 
     pub fn open<P>(path: P) -> Result<Rho>
     where P: AsRef<Path> {
-        let conn = Connection::open(path)?;
-        let catalog = Catalog::load(&conn)?;
-        Ok(Rho { conn, catalog })
+        let catalog = Catalog::open(path)?;
+        Ok(Rho { 
+            catalog: RefCell::new(catalog),
+        })
     }
 
-    pub fn describe(&self) {
-        self.catalog.describe();
+    pub fn info(&self) {
+        println!("{:?}", self.catalog.borrow());
     }
 
     pub fn prepare(&self, rql: String) -> Result<Program> {
@@ -60,19 +62,29 @@ impl Rho {
         // vm.execute(&program);
         Ok(())
     }
+
+    // TODO TEMPORARY
+    pub fn create_table(&self, name: String) -> Result<()> {
+        let table = Table {
+            name,
+            rql: "todo".to_string(),
+        };
+        self.catalog.borrow_mut().create_table(table)
+    }
+
+    // TODO TEMPORARY
+    pub fn insert_row(&self, table: String, value: String) -> Result<()> {
+        let row = Row::from_str(&value);
+        let catalog = self.catalog.borrow_mut();
+        let table = catalog.load_table(&table)?;
+        println!("INSERT INTO {} VALUES {}", table.name, row);
+        Ok(())
+    }
 }
 
 impl Drop for Rho {
 
     fn drop(&mut self) {
-        // self.conn.borrow_mut().close().unwrap();
-    }
-}
-
-struct Printer {}
-
-impl Vsink for Printer {
-    fn write(&self, row: &Row) {
-        println!("{}", row);
+        // self.sess.borrow_mut().close().unwrap();
     }
 }

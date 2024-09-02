@@ -1,3 +1,12 @@
+== Usage
+
+I would like rho to be a library with several applications:
+
+- Library like sqlite.
+- Server like Redis.
+- CLI tool like jq/awk/other.
+- Shell like sqlite repl.
+
 == File Format
 
 _This section will describe the file format._

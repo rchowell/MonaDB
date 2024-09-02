@@ -11,8 +11,8 @@ macro_rules! row {
 pub type Row = Value;
 
 /// A table (for now) is just a handle.
+#[derive(Debug)]
 pub struct Table {
     pub name: String,
     pub rql: String,
-    pub cols: Vec<String>,
 }

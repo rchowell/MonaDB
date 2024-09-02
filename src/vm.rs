@@ -79,6 +79,11 @@ impl <'a> Vcursor<'a> {
         }
     }
 
+    pub fn insert(&mut self, row: Row) {
+        // self.table.insert(self.pos, row);
+        todo!()
+    }
+
     /// Advance the cursor, returning true iff the cursor was advanced.
     pub fn next(&mut self) -> bool {
         if self.pos < self.end {

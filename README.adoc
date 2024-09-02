@@ -21,6 +21,13 @@ _This section contains various mini-goals to drive the project._
 
 === G2 Sep 2024
 
+For September, I would like a REPL with the four basic actions:
+
+- CREATE TABLE
+- SELECT
+- INSERT INTO
+- DROP TABLE
+
 .Goals
 - [ ] Persist schemas in a `catalog` table.
 - [ ] Basic DDL and DML.
