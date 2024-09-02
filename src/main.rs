@@ -38,6 +38,10 @@ enum Command {
         table: String,
         value: String,
     },
+    /// TODO TEMPORARY – Drop a table.
+    Drop {
+        table: String,
+    },
     /// Exit the shell.
     Exit,
 }
@@ -123,7 +127,10 @@ fn main() {
                     rho.create_table(table).expect("Could not create table");
                 },
                 Command::Insert { table, value } => {
-                    rho.insert_row(table, value).expect("Coudl not insert row");
+                    rho.insert(table, value).expect("Could not insert row");
+                },
+                Command::Drop { table } => {
+                    rho.drop_table(table).expect("Could not drop table");
                 },
             }
         } else {

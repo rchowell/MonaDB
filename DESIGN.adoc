@@ -7,22 +7,14 @@ I would like rho to be a library with several applications:
 - CLI tool like jq/awk/other.
 - Shell like sqlite repl.
 
-== File Format
+== Catalog
 
-_This section will describe the file format._
+The catalog provides all access to schemas and tables. It is backed by sqlite so that I do not have to solve 
 
-For now, ignore a db header and let's focus on a single table.
-
-.Header
-|===
-| Offset | Size | Description
-| 0      | 3    | "RHO"
-| 3      | 4    | i64 version
-| 7      | 4    | i64 page size
-|===
-
-.Notes
-- Should probably store as BSON or CBOR?
+.Operations
+- create_table
+- drop_table
+- insert
 
 == Types
 
@@ -33,24 +25,7 @@ For now, ignore a db header and let's focus on a single table.
 * boolean
 * null
 
-== Schemas
-
-_This section will describe how tables schemas are stored and modified._
-
-Schemas are stored in a table called _catalog_ defined by the following RQL (SQL-ish).
-
-[source,sql]
-----
-CREATE TABLE catalog (
-    kind string,    /* TABLE, VIEW, INDEX, etc. */
-    name string,    /* Object name */
-    rql string,     /* Object schema */
-    ptr number,     /* Pointer to root table page */
-)
-----
-
 .Notes
-- Consider "objects" rather than "schemas".
 - Consider prefixing with _ to avoid conflicts with user tables.
 - Beam has link:https://github.com/apache/beam/tree/master/sdks/java/testing/tpcds/src/main/resources/schemas[TPC schemas as Avro JSON].
 
@@ -72,17 +47,37 @@ RQL is SQL (ish).
     - If you insert an object into an "open" table, the extra fields are stored in a hidden object column.
 - Notes optimizations such as page compaction.
 
+== RHO 2
 
-== Executing DDL?
+== File Format (RHO2)
 
-We receive some RQL string like,
+_This section will describe the file format._
+
+For now, ignore a db header and let's focus on a single table.
+
+.Header
+|===
+| Offset | Size | Description
+| 0      | 3    | "RHO"
+| 3      | 4    | i64 version
+| 7      | 4    | i64 page size
+|===
+
+.Notes
+- Should probably store as BSON or CBOR?
+
+== Schemas
+
+_This section will describe how tables schemas are stored and modified._
+
+Schemas are stored in a table called _catalog_ defined by the following RQL (SQL-ish).
 
 [source,sql]
 ----
-CREATE TABLE <name> ( <schema> );
+CREATE TABLE catalog (
+    kind string,    /* TABLE, VIEW, INDEX, etc. */
+    name string,    /* Object name */
+    rql string,     /* Object schema */
+    ptr number,     /* Pointer to root table page */
+)
 ----
-
-To execute, we do two things: (1) get the _catalog_ cursor and (2) insert a row.
-
-*What does a table cursor look like?*
-

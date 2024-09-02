@@ -41,44 +41,30 @@ impl Rho {
         println!("{:?}", self.catalog.borrow());
     }
 
-    pub fn prepare(&self, rql: String) -> Result<Program> {
-        // Hardcoded scan.
-        let program = vec![
-            Vop::row(0, 0),  // 0
-            Vop::next(0, 0), // 1
-            Vop::return_(),  // 2
-        ];
-        Ok(program)
+    pub fn prepare(&self, _rql: String) -> Result<Program> {
+        todo!("prepare")
     }
 
-    ///
-    pub fn exec(&mut self, rql: String) -> Result<()> {
-        // Initialize the virtual machine.
-        // let program = self.prepare(rql).unwrap();
-        // let mut vm = Vm {
-        //     cursor: Vcursor::new(&self.schema),
-        //     sink: Box::new(Printer {}),
-        // };
-        // vm.execute(&program);
-        Ok(())
+    // TODO
+    pub fn exec(&mut self, _rql: String) -> Result<()> {
+        todo!("exec")
     }
 
     // TODO TEMPORARY
     pub fn create_table(&self, name: String) -> Result<()> {
-        let table = Table {
-            name,
-            rql: "todo".to_string(),
-        };
+        let table = Table::new(name);
         self.catalog.borrow_mut().create_table(table)
     }
 
     // TODO TEMPORARY
-    pub fn insert_row(&self, table: String, value: String) -> Result<()> {
+    pub fn drop_table(&self, table: String) -> Result<()> {
+        self.catalog.borrow_mut().drop_table(&table)
+    }
+
+    // TODO TEMPORARY
+    pub fn insert(&self, table: String, value: String) -> Result<()> {
         let row = Row::from_str(&value);
-        let catalog = self.catalog.borrow_mut();
-        let table = catalog.load_table(&table)?;
-        println!("INSERT INTO {} VALUES {}", table.name, row);
-        Ok(())
+        self.catalog.borrow_mut().insert(&table, row)
     }
 }
 

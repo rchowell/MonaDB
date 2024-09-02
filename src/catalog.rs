@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    error::Error, table::{Row, Table}, Result
+    error::Error, table::{self, Row, Table}, Result
 };
 use rusqlite::{named_params, Connection};
 
@@ -20,7 +20,6 @@ const CREATE_CATALOG: &str = "
         name TEXT PRIMARY KEY,
         rql TEXT
     );";
-
 
 impl Catalog {
     /// Load the catalog from a file.
@@ -61,18 +60,31 @@ impl Catalog {
     pub fn create_table(&mut self, table: Table) -> Result<()> {
         let create = format!("CREATE TABLE IF NOT EXISTS {} (row TEXT);", table.name);
         let insert = "INSERT INTO catalog VALUES (:name, :rql);";
-
         //
         let tx = self.conn.transaction()?;
         tx.execute(&create, [])?;
         tx.execute(insert, named_params! { ":name": table.name, ":rql": table.rql })?;
         tx.commit()?;
+        // 
+        self.sync()
+    }
 
+    /// Drop a table from the catalog.
+    pub fn drop_table(&mut self, name: &str) -> Result<()> {
+        let drop = format!("DROP TABLE IF EXISTS {};", name);
+        let delete = "DELETE FROM catalog WHERE name = :name;";
+        //
+        let tx = self.conn.transaction()?;
+        tx.execute(&drop, [])?;
+        tx.execute(delete, named_params! { ":name": name })?;
+        tx.commit()?;
+        // 
         self.sync()
     }
 
     /// Insert a row into the given table.
-    pub fn insert(&mut self, table: &Table, row: Row) -> Result<()> {
+    pub fn insert(&mut self, table: &str, row: Row) -> Result<()> {
+        let table = self.load_table(table)?;
         let insert = sql::insert(table);
         let mut stmt = self.conn.prepare(&insert)?;
         stmt.execute(named_params! { ":row": row.to_string() })?;

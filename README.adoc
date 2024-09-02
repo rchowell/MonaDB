@@ -21,14 +21,16 @@ _This section contains various mini-goals to drive the project._
 
 === G2 Sep 2024
 
-For September, I would like a REPL with the four basic actions:
+For September, I would like to have the CRUD operations working and start the RQL support/documentation.
 
-- CREATE TABLE
-- SELECT
-- INSERT INTO
-- DROP TABLE
+.Debug Commands
+- [ ] `.select <table>`
+- [x] `.create <table>`
+- [x] `.insert <table> <json>`
+- [x] `.drop <table>`
 
 .Goals
 - [ ] Persist schemas in a `catalog` table.
 - [ ] Basic DDL and DML.
 - [ ] Store schemas in a table.
+- [ ] Store as sqlite jsonb.

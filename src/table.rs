@@ -16,3 +16,9 @@ pub struct Table {
     pub name: String,
     pub rql: String,
 }
+
+impl Table {
+    pub fn new(name: String) -> Table {
+        Table { name, rql: "TODO".to_string() }
+    }
+}
