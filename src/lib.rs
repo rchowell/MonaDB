@@ -1,22 +1,24 @@
 // public modules
 pub mod error;
+pub mod table;
 pub mod value;
 
 // internal modules
-mod table;
 mod catalog;
+mod compiler;
+mod parser;
 mod vm;
 
-use std::borrow::BorrowMut;
 use std::cell::RefCell;
 use std::path::Path;
 use std::result;
 
+use compiler::Compiler;
 use error::Error;
 use catalog::Catalog;
 use table::Table;
+use value::Row;
 
-use crate::table::Row;
 use crate::vm::*;
 
 /// A typedef of the result returned by many methods.
@@ -41,18 +43,26 @@ impl Rho {
         println!("{:?}", self.catalog.borrow());
     }
 
-    pub fn prepare(&self, _rql: String) -> Result<Program> {
-        todo!("prepare")
+    pub fn prepare(&self, rql: &str) -> Result<Program> {
+        let catalog = self.catalog.borrow();
+        let compiler = Compiler::new(&catalog);
+        compiler.compile(rql)
     }
 
     // TODO
-    pub fn exec(&mut self, _rql: String) -> Result<()> {
-        todo!("exec")
+    pub fn exec(&mut self, rql: &str) -> Result<()> {
+        println!("Program:");
+        let program = self.prepare(rql)?;
+        for op in &program {
+            println!("{:?}", op);
+        }
+        let mut vm = VM::new(self);
+        vm.execute(&program);
+        Ok(())
     }
 
-    // TODO TEMPORARY
-    pub fn create_table(&self, name: String) -> Result<()> {
-        let table = Table::new(name);
+    /// Create a table in the catalog.
+    pub fn create_table(&self, table: &Table) -> Result<()> {
         self.catalog.borrow_mut().create_table(table)
     }
 
@@ -67,6 +77,7 @@ impl Rho {
         self.catalog.borrow_mut().insert(&table, row)
     }
 
+    // TODO TEMPORARY
     pub fn select(&self, table: String) -> Result<Vec<Row>> {
         self.catalog.borrow_mut().scan(&table)
     }

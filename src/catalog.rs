@@ -4,12 +4,11 @@ use std::{
 };
 
 use crate::{
-    error::Error, table::{self, Row, Table}, Result
+    error::Error, parser, table::{self, Table}, value::Row, Result
 };
 use rusqlite::{named_params, Connection};
 
-/// Catalog controls all access to the underlying storage (sqlite).
-/// This is like the "InnerConnection" to the actual storage, where Rho is the interface.
+/// Catalog manages the database tables.
 pub struct Catalog {
     conn: Connection,
     tables: HashMap<String, Table>,
@@ -57,13 +56,13 @@ impl Catalog {
     }
 
     /// Create a table in the catalog.
-    pub fn create_table(&mut self, table: Table) -> Result<()> {
+    pub fn create_table(&mut self, table: &Table) -> Result<()> {
         let create = format!("CREATE TABLE IF NOT EXISTS {} (row TEXT);", table.name);
         let insert = "INSERT INTO catalog VALUES (:name, :rql);";
         //
         let tx = self.conn.transaction()?;
         tx.execute(&create, [])?;
-        tx.execute(insert, named_params! { ":name": table.name, ":rql": table.rql })?;
+        tx.execute(insert, named_params! { ":name": table.name, ":rql": table.to_string() })?;
         tx.commit()?;
         // 
         self.sync()
@@ -101,7 +100,7 @@ impl Catalog {
         let mut values: Vec<Row> = vec![];
         while let Some(row) = rows.next()? {
             let value: String = row.get(0)?;
-            let value = table::Row::from_str(&value);
+            let value = Row::from_str(&value);
             values.push(value);
         }
         Ok(values)
@@ -113,11 +112,13 @@ impl Catalog {
         let mut rows = stmt.query([])?;
         let mut tables = HashMap::new();
         while let Some(row) = rows.next()? {
-            let table = Table {
-                name: row.get(0)?,
-                rql: row.get(1)?,
-            };
-            tables.insert(table.name.clone(), table);
+            let name: String = row.get(0)?;
+            let rql: String = row.get(1)?;
+            let table = parser::parse_table(&rql)?;
+            if table.name != name {
+                return Err(Error::Unknown("Table name mismatch".to_string()));
+            }
+            tables.insert(name, table);
         }
         // Replace the catalog
         self.tables = tables;
@@ -152,17 +153,15 @@ mod sql {
 mod tests {
     use super::*;
     use rusqlite::Connection;
+    use table::Schema;
 
     #[test]
     fn test_catalog() {
         let mut catalog = Catalog::memory().unwrap();
-        let table = Table {
-            name: "foo".to_string(),
-            rql: "select * from foo".to_string(),
-        };
-        catalog.create_table(table).unwrap();
+        let schema = Schema::empty();
+        let table = Table::new("foo".to_string(), schema);
+        catalog.create_table(&table).unwrap();
         let table = catalog.load_table("foo").unwrap();
         assert_eq!(table.name, "foo");
-        assert_eq!(table.rql, "select * from foo");
     }
 }

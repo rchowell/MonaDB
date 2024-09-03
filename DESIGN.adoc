@@ -38,6 +38,34 @@ RQL is SQL (ish).
 .Notes
 - When deciding on language features, I will lean on JS and Lua before SQL.
 
+=== Statements
+
+.CREATE TABLE
+[source,sql]
+----
+CREATE TABLE <table::name> (
+    <column::name> <column::type>,
+    ...
+);
+
+CREATE TABLE example (
+    a VALUE,
+    b VALUE,
+);
+----
+
+.Types
+[source,sql]
+----
+type
+  : BOOLEAN
+  | NUMBER
+  | STRING
+  | ARRAY
+  | OBJECT
+  | ANY
+----
+
 == Other
 
 - Website with playground and dead simple language documentation.

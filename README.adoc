@@ -24,13 +24,13 @@ _This section contains various mini-goals to drive the project._
 For September, I would like to have the CRUD operations working and start the RQL support/documentation.
 
 .Debug Commands
-- [ ] `.select <table>`
+- [x] `.select <table>`
 - [x] `.create <table>`
 - [x] `.insert <table> <json>`
 - [x] `.drop <table>`
 
 .Goals
-- [ ] Persist schemas in a `catalog` table.
-- [ ] Basic DDL and DML.
-- [ ] Store schemas in a table.
+- [x] Persist schemas in a `catalog` table.
+- [ ] Basic DDL (CREATE TABLE, DROP TABLE)
+- [ ] Basic DML (INSERT, UPDATE, DELETE).
 - [ ] Store as sqlite jsonb.

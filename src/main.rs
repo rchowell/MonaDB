@@ -1,7 +1,7 @@
-use std::{env, vec};
+use std::env;
 use std::path::PathBuf;
 
-use rho::Rho;
+use rho::{table::{Schema, Table}, Rho};
 use rustyline::{error::ReadlineError, history::DefaultHistory, Config, DefaultEditor, EditMode, Editor};
 
 use clap::{Parser, Subcommand};
@@ -10,11 +10,6 @@ use clap::{Parser, Subcommand};
 #[derive(Debug, Parser)]
 #[command(author, version, about, long_about = None, multicall = true)]
 struct Cli {}
-
-///
-pub struct Shell {
-    rho: Rho,
-}
 
 /// TODO
 #[derive(Debug, Parser)]
@@ -109,7 +104,7 @@ fn main() {
             continue;
         }
         if line.starts_with(".") {
-            // COMMAND
+            // PARSE COMMAND
             let line = line.strip_prefix(".").unwrap();
             let args = shlex::split(&line).unwrap();
             let command = match Commands::try_parse_from(&args) {
@@ -128,7 +123,9 @@ fn main() {
                     break;
                 }
                 Command::Create { table } => {
-                    rho.create_table(table).expect("Could not create table");
+                    let schema = Schema::empty();
+                    let table = Table::new(table, schema);
+                    rho.create_table(&table).expect("Could not create table");
                 },
                 Command::Insert { table, value } => {
                     rho.insert(table, value).expect("Could not insert row");
@@ -145,7 +142,9 @@ fn main() {
             }
         } else {
             // STATEMENT
-            println!("STATEMENT: {}", line);
+            let rql = &line;
+            rho.exec(rql).expect("Could not execute statement");
+            print!("ok.")
         }
     }
 }

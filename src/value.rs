@@ -1,14 +1,25 @@
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 
-pub struct Value(serde_json::Value);
+/// JSON value.
+pub struct JValue(serde_json::Value);
 
-impl Value {
-    pub fn new(value: serde_json::Value) -> Value {
-        Value(value)
+/// Row (for now) is just a JSON value
+pub type Row = JValue;
+
+#[macro_export]
+macro_rules! row {
+    ($($json:tt)+) => {
+        rho::value::Value::new(serde_json::json!($($json)+))
+    };
+}
+
+impl JValue {
+    pub fn new(value: serde_json::Value) -> JValue {
+        JValue(value)
     }
 
-    pub fn from_str(s: &str) -> Value {
-        Value(serde_json::from_str(s).unwrap())
+    pub fn from_str(s: &str) -> JValue {
+        JValue(serde_json::from_str(s).unwrap())
     }
 
     /// Serialize the value as a JSON byte vector.
@@ -22,7 +33,13 @@ impl Value {
     }
 }
 
-impl Display for Value {
+impl Display for JValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0.to_string())
+    }
+}
+
+impl Debug for JValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.0.to_string())
     }
