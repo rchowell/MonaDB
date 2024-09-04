@@ -26,6 +26,7 @@ pub type Result<T, E = Error> = result::Result<T, E>;
 
 /// Rho represents the database sessection.
 pub struct Rho {
+    debug: bool,
     catalog: RefCell<Catalog>,
 }
 
@@ -35,6 +36,7 @@ impl Rho {
     where P: AsRef<Path> {
         let catalog = Catalog::open(path)?;
         Ok(Rho { 
+            debug: true,
             catalog: RefCell::new(catalog),
         })
     }
@@ -49,16 +51,19 @@ impl Rho {
         compiler.compile(rql)
     }
 
-    // TODO
     pub fn exec(&mut self, rql: &str) -> Result<()> {
-        println!("Program:");
         let program = self.prepare(rql)?;
-        for op in &program {
-            println!("{:?}", op);
-        }
         let mut vm = VM::new(self);
-        vm.execute(&program);
-        Ok(())
+        // >> DEBUG
+        if self.debug {
+            println!("Program:");
+            println!("--------");
+            for op in &program {
+                println!("OP: {:?}", op);
+            }
+        }
+        // >> DEBUG
+        vm.execute(&program)
     }
 
     /// Create a table in the catalog.
@@ -67,18 +72,17 @@ impl Rho {
     }
 
     // TODO TEMPORARY
-    pub fn drop_table(&self, table: String) -> Result<()> {
-        self.catalog.borrow_mut().drop_table(&table)
+    pub fn drop_table(&self, table: &str) -> Result<()> {
+        self.catalog.borrow_mut().drop_table(table)
     }
 
     // TODO TEMPORARY
-    pub fn insert(&self, table: String, value: String) -> Result<()> {
-        let row = Row::from_str(&value);
-        self.catalog.borrow_mut().insert(&table, row)
+    pub fn insert(&self, table: &str, row: Row) -> Result<()> {
+        self.catalog.borrow_mut().insert(table, row)
     }
 
     // TODO TEMPORARY
-    pub fn select(&self, table: String) -> Result<Vec<Row>> {
-        self.catalog.borrow_mut().scan(&table)
+    pub fn select(&self, table: &str) -> Result<Vec<Row>> {
+        self.catalog.borrow_mut().scan(table)
     }
 }

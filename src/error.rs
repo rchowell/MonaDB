@@ -34,3 +34,9 @@ impl From<sqlparser::parser::ParserError> for Error {
         }
     }
 }
+
+impl From<serde_json::Error> for Error {
+    fn from(e: serde_json::Error) -> Error {
+        Error::SyntaxError(e.to_string())
+    }
+}

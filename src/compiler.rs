@@ -1,5 +1,4 @@
-use sqlparser::ast::{CreateTable, Insert};
-use sqlparser::ast::Statement;
+use sqlparser::ast::{self, Statement};
 
 use crate::catalog::Catalog;
 use crate::{parser, Program, Result, Vop};
@@ -37,13 +36,14 @@ impl <'a> Compiler<'a> {
     }
 
     /// Compile a CREATE TABLE statement.
-    pub fn create_table(&self, create_table: CreateTable) -> Result<Program> {
+    pub fn create_table(&self, create_table: ast::CreateTable) -> Result<Program> {
         let table = parser::parse_create_table(&create_table)?;
         let op = Vop::create_table(table);
         Ok(vec![op])
     }
 
-    pub fn insert(&self, insert: Insert) -> Result<Program> {
-        todo!("insert statement")
+    pub fn insert(&self, insert: ast::Insert) -> Result<Program> {
+        let op = parser::parse_insert(&insert)?;
+        Ok(vec![op])
     }
 }

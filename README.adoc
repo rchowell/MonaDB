@@ -33,4 +33,4 @@ For September, I would like to have the CRUD operations working and start the RQ
 - [x] Persist schemas in a `catalog` table.
 - [ ] Basic DDL (CREATE TABLE, DROP TABLE)
 - [ ] Basic DML (INSERT, UPDATE, DELETE).
-- [ ] Store as sqlite jsonb.
+- [ ] Store rows as sqlite jsonb.

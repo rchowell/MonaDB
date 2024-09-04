@@ -1,6 +1,8 @@
 use std::fmt::{Debug, Display};
+use crate::Result;
 
 /// JSON value.
+#[derive(Clone)]
 pub struct JValue(serde_json::Value);
 
 /// Row (for now) is just a JSON value
@@ -18,8 +20,9 @@ impl JValue {
         JValue(value)
     }
 
-    pub fn from_str(s: &str) -> JValue {
-        JValue(serde_json::from_str(s).unwrap())
+    pub fn from_str(s: &str) -> Result<JValue> {
+        let inner = serde_json::from_str(s)?;
+        Ok(JValue(inner))
     }
 
     /// Serialize the value as a JSON byte vector.

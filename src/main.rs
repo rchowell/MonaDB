@@ -1,7 +1,7 @@
 use std::env;
 use std::path::PathBuf;
 
-use rho::{table::{Schema, Table}, Rho};
+use rho::{table::{Schema, Table}, value::JValue, Rho};
 use rustyline::{error::ReadlineError, history::DefaultHistory, Config, DefaultEditor, EditMode, Editor};
 
 use clap::{Parser, Subcommand};
@@ -54,15 +54,20 @@ impl LineReader {
         let config = Config::builder()
             .edit_mode(EditMode::Vi)
             .build();
-        let editor = DefaultEditor::with_config(config).unwrap();
+        let mut editor = DefaultEditor::with_config(config).unwrap();
+        editor.load_history(".rho_history").unwrap();
         LineReader { editor }
+    }
+
+    pub fn close(&mut self) {
+        self.editor.save_history(".rho_history").unwrap();
     }
 
     pub fn read_line(&mut self, buffer: &mut String, prompt: &str) -> Option<()> {
         let readline = self.editor.readline(prompt);
         match readline {
             Ok(line) => {
-                // rl.add_history_entry(line.as_str());
+                self.editor.add_history_entry(line.as_str());
                 *buffer = line;
                 Some(())
             }
@@ -128,13 +133,14 @@ fn main() {
                     rho.create_table(&table).expect("Could not create table");
                 },
                 Command::Insert { table, value } => {
-                    rho.insert(table, value).expect("Could not insert row");
+                    let row = JValue::from_str(&value).expect("Could not parse row");
+                    rho.insert(&table, row).expect("Could not insert row");
                 },
                 Command::Drop { table } => {
-                    rho.drop_table(table).expect("Could not drop table");
+                    rho.drop_table(&table).expect("Could not drop table");
                 },
                 Command::Select { table } => {
-                    let values = rho.select(table).expect("Could not select rows");
+                    let values = rho.select(&table).expect("Could not select rows");
                     for value in values {
                         println!("{}", value);
                     }
@@ -142,9 +148,16 @@ fn main() {
             }
         } else {
             // STATEMENT
-            let rql = &line;
-            rho.exec(rql).expect("Could not execute statement");
-            print!("ok.")
+            match rho.exec(&line) {
+                Ok(_) => println!("ok."),
+                Err(e) => {
+                    println!("error.");
+                    println!("{:?}", e);
+                }
+            }
         }
     }
+
+    // CLEANUP
+    line_reader.close();
 }

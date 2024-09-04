@@ -100,7 +100,7 @@ impl Catalog {
         let mut values: Vec<Row> = vec![];
         while let Some(row) = rows.next()? {
             let value: String = row.get(0)?;
-            let value = Row::from_str(&value);
+            let value = Row::from_str(&value)?;
             values.push(value);
         }
         Ok(values)
