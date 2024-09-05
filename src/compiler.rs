@@ -1,4 +1,4 @@
-use sqlparser::ast::{self, Statement};
+use sqlparser::ast::{self, ObjectName, Statement};
 
 use crate::catalog::Catalog;
 use crate::{parser, Program, Result, Vop};
@@ -31,6 +31,13 @@ impl <'a> Compiler<'a> {
         match parser::parse(rql)? {
             Statement::CreateTable(create_table) => self.create_table(create_table),
             Statement::Insert(insert) => self.insert(insert),
+            Statement::Drop { names, ..} => {
+                if names.len() == 1 {
+                    self.drop_table(names[0].clone())
+                } else {
+                    unsupported!("Expected single table name")
+                }
+            },
             _ => unsupported!("Unsupported statement"),
         }
     }
@@ -40,6 +47,11 @@ impl <'a> Compiler<'a> {
         let table = parser::parse_create_table(&create_table)?;
         let op = Vop::create_table(table);
         Ok(vec![op])
+    }
+
+    pub fn drop_table(&self, name: ObjectName) -> Result<Program> {
+        let table = name.to_string();
+        Ok(vec![Vop::drop_table(table)])
     }
 
     pub fn insert(&self, insert: ast::Insert) -> Result<Program> {

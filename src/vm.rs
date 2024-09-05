@@ -19,13 +19,21 @@ pub enum Vop {
     Insert {
         table: String,
         row: Row,
-    }
+    },
+    /// Delete a table from the catalog.
+    DropTable {
+        table: String,
+    },
 }
 
 impl Vop {
 
     pub fn create_table(table: Table) -> Vop {
         Vop::CreateTable { table }
+    }
+
+    pub fn drop_table(table: String) -> Vop {
+        Vop::DropTable { table }
     }
 
     pub fn insert(table: String, row: Row) -> Vop {
@@ -51,13 +59,15 @@ impl <'a> VM<'a> {
             pc += 1;
             match op {
                 Vop::CreateTable { table } => {
-                    self.db.create_table(table).expect("Error creating table");
+                    self.db.create_table(table)?;
                     break;
                 },
                 Vop::Insert { table, row } => {
-                    // clone the row
-                    let row = row.clone();
-                    self.db.insert(table, row).expect("Error inserting row");
+                    self.db.insert(table, row.clone())?;
+                    break;
+                },
+                Vop::DropTable { table } => {
+                    self.db.drop_table(table)?;
                     break;
                 },
             }
