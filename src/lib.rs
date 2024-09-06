@@ -56,11 +56,13 @@ impl Rho {
         let mut vm = VM::new(self);
         // >> DEBUG
         if self.debug {
-            println!("Program:");
-            println!("--------");
+            println!();
+            println!("-[Program]------");
             for op in &program {
-                println!("OP: {:?}", op);
+                println!("{:?}", op);
             }
+            println!("--------");
+            println!();
         }
         // >> DEBUG
         vm.execute(&program)
@@ -71,17 +73,17 @@ impl Rho {
         self.catalog.borrow_mut().create_table(table)
     }
 
-    // TODO TEMPORARY
+    // Drop a table in the catalog.
     pub fn drop_table(&self, table: &str) -> Result<()> {
         self.catalog.borrow_mut().drop_table(table)
     }
 
-    // TODO TEMPORARY
+    // Insert a row into the table.
     pub fn insert(&self, table: &str, row: Row) -> Result<()> {
         self.catalog.borrow_mut().insert(table, row)
     }
 
-    // TODO TEMPORARY
+    // TODO TEMPORARY – REMOVE ME ??
     pub fn select(&self, table: &str) -> Result<Vec<Row>> {
         self.catalog.borrow_mut().scan(table)
     }

@@ -9,10 +9,10 @@ _This section contains various mini-goals to drive the project._
 === G1 Aug 2024
 
 .Goals
-- [x] Load jsonlines into an in-memory "table".
-- [x] Run a scan against the in-memory "table".
-- [x] Send results to stdout.
-- [x] Make the most rudimentary file format!
+* [x] Load jsonlines into an in-memory "table".
+* [x] Run a scan against the in-memory "table".
+* [x] Send results to stdout.
+* [x] Make the most rudimentary file format!
 
 .Notes
 * I have a VM loop and cursor.
@@ -24,22 +24,29 @@ _This section contains various mini-goals to drive the project._
 For September, I would like to have the CRUD operations working and start the RQL support/documentation.
 
 .Debug Commands
-- [x] `.select <table>`
-- [x] `.create <table>`
-- [x] `.insert <table> <json>`
-- [x] `.drop <table>`
+* [x] `.select <table>`
+* [x] `.create <table>`
+* [x] `.insert <table> <json>`
+* [x] `.drop <table>`
 
 .Goals
-- [x] Persist schemas in a `catalog` table.
-- [x] Basic DDL (CREATE TABLE, DROP TABLE)
-- [ ] Basic DML (INSERT, UPDATE, DELETE).
-- [ ] Store rows as sqlite jsonb.
+* [x] Persist schemas in a `catalog` table.
+* [x] Basic DDL (CREATE TABLE, DROP TABLE)
+* [ ] Basic DML
+** [x] INSERT
+** [ ] UPDATE,
+** [ ] DELETE.
+* [ ] SELECT
+** [x] SELECT *
+** [ ] SELECT <cols>
+* [ ] Store rows as sqlite jsonb.
 
 .CLI/Shell Improvements
-- [ ] Multi-line input.
-- [ ] Better error messages.
-- [ ] Formatted output.
-- [ ] Load input from a file into a table.
+* [ ] Multi-line input.
+* [ ] Better error messages.
+* [ ] Formatted output.
+* [ ] Load input from a file into a table.
 
 .Notes
-- Parser is driving the compiler to produce bytecode.
+* Parser is driving the compiler to produce bytecode.
+* The VM should be an iterator with a `next()` method.

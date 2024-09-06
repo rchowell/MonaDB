@@ -7,8 +7,9 @@ use crate::{
     value::{JValue, Row},
     Result,
 };
+
 use sqlparser::{
-    ast::{self, ArrayElemTypeDef, DataType, ExactNumberInfo, ObjectName, Statement},
+    ast::{self, ArrayElemTypeDef, DataType, ExactNumberInfo, ObjectName, Select, SelectItem, Statement, TableFactor, TableWithJoins},
     dialect::SQLiteDialect,
 };
 
@@ -35,19 +36,24 @@ impl<'comp, 'cat> Parser<'comp, 'cat> {
     pub fn parse(&mut self, rql: &str) -> Result<()> {
         match Self::parse_statement(rql)? {
             Statement::CreateTable(create_table) => {
-                //
+                // CREATE TABLE ...
                 self.parse_create_table(create_table)?;
             }
             Statement::Insert(insert) => {
-                //
+                // INSERT INTO ...
                 self.parse_insert(insert)?;
             }
             Statement::Drop { names, .. } => {
+                // DROP TABLE ...
                 if names.len() == 1 {
                     self.parse_drop_table(names[0].clone())?;
                 } else {
                     unsupported!("Expected single table name");
                 }
+            }
+            Statement::Query(query) => {
+                // SELECT ...
+                self.parse_query(&query)?;
             }
             _ => unsupported!("Unsupported statement"),
         }
@@ -80,6 +86,69 @@ impl<'comp, 'cat> Parser<'comp, 'cat> {
         let schema = Schema::new(cols);
         let table = Table::new(name, schema);
         self.compiler.create_table(table)
+    }
+
+    fn parse_query(&mut self, query: &ast::Query) -> Result<()> {
+        if query.with.is_some() {
+            unsupported!("WITH Clause is not supported")
+        }
+        self.parse_set_expr(&query.body)?;
+        Ok(())
+    }
+
+    /// Parse a set expression – i.e. SELECT or UNION|INTERSECT|EXCEPT.
+    /// 
+    fn parse_set_expr(&mut self, set_expr: &ast::SetExpr) -> Result<()> {
+        use ast::SetExpr::*;
+        match set_expr {
+            Select(select) => self.parse_select(select),
+            _ => unsupported!("set_expr {:?}", set_expr),
+        }
+    }
+
+    /// Parse a SELECT statement.
+    /// 
+    /// SYNTAX:
+    ///     SELECT <select list> FROM <table>
+    /// 
+    fn parse_select(&mut self, select: &ast::Select) -> Result<()> {
+        // process FROM before SELECT
+        self.parse_from(&select.from)?;
+        if select.projection.len() != 1 {
+            unsupported!("Expected SELECT *")
+        }
+        // process a SELECT *
+        let item = &select.projection[0];
+        if let SelectItem::Wildcard(_) = item {
+            // ok
+            // TODO projections!
+            Ok(())
+        } else {
+            println!("{:?}", item);
+            unsupported!("Expected SELECT *")
+        }
+    }
+
+    fn parse_from(&mut self, from: &Vec<TableWithJoins>) -> Result<()> {
+        // assert unsupported features
+        if from.len() != 1 {
+            unsupported!("Multi-FROM source")
+        }
+        // single from
+        let from = &from[0];
+        if !from.joins.is_empty() {
+            unsupported!("JOIN statements")
+        }
+        if let TableFactor::Table { name, alias, .. } = &from.relation {
+            let table = name.to_string();
+            let alias = match alias {
+                Some(alias) => alias.to_string(),
+                None => table.clone(),
+            };
+            self.compiler.scan(&table, &alias)
+        } else {
+            unsupported!("Expected a table")
+        }
     }
 
     /// Parse a DROP TABLE statement.

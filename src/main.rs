@@ -149,10 +149,13 @@ fn main() {
         } else {
             // STATEMENT
             match rho.exec(&line) {
-                Ok(_) => println!("ok."),
+                Ok(_) => {
+                    println!();
+                    println!("ok.");
+                },
                 Err(e) => {
-                    println!("error.");
                     println!("{:?}", e);
+                    println!("error.");
                 }
             }
         }

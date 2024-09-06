@@ -1,4 +1,6 @@
 use std::fmt::{Debug, Display};
+use serde_json::Value;
+
 use crate::Result;
 
 /// JSON value.
@@ -20,6 +22,7 @@ impl JValue {
         JValue(value)
     }
 
+    /// TryFrom str.
     pub fn from_str(s: &str) -> Result<JValue> {
         let inner = serde_json::from_str(s)?;
         Ok(JValue(inner))
@@ -33,6 +36,18 @@ impl JValue {
     /// Serialize the value as a JSON string.
     pub fn to_string(&self) -> String {
         serde_json::to_string(&self.0).unwrap()
+    }
+}
+
+impl From<Value> for JValue {
+    fn from(value: Value) -> Self {
+        JValue(value)
+    }
+}
+
+impl Into<Value> for JValue {
+    fn into(self) -> Value {
+        self.0
     }
 }
 
