@@ -67,33 +67,27 @@ impl<'cat> Compiler<'cat> {
     pub fn scan(&mut self, table: &str, alias: &str) -> Result<()> {
         let pc = self.pc();
         self.push(Vop::open(table));
-        self.push(Vop::next(alias, pc + 3));
-        self.push(Vop::Return);
+        self.push(Vop::rewind(pc + 5));
 
-        // TODO replace me
-        self.push(Vop::row());
-
+        // iterating....
+        self.push(Vop::row()); // pc+3
         self.push(Vop::next(alias, pc + 3));
-        self.push(Vop::Return);
+
+        self.push(Vop::Exit);
         Ok(())
     }
 
-    /// TEMPORARY
-    pub fn star(&mut self, table: &str, alias: &str) -> Result<()> {
-        let pc = self.pc();
-        self.push(Vop::open(table));
-        self.push(Vop::next(alias, pc + 3));
-        self.push(Vop::Return);
-        self.push(Vop::Spread);
-        self.push(Vop::Return);
-        self.push(Vop::next(alias, pc + 3));
-        Ok(())
+    /// TEMPORARY FOR TESTING – PUSH A BUNCH OF NO-OPs
+    pub fn no_op(&mut self, n: u8) {
+        for _ in 0..n {
+            self.push(Vop::Init);
+        }
     }
 
     /// Return current pc index.
     #[inline]
     fn pc(&self) -> usize {
-        self.program.len()
+        self.program.len() - 1
     }
 
     /// Push an instruction to the program.

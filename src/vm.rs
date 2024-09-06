@@ -88,32 +88,49 @@ pub enum Vop {
     /// 
     Open { table: String },
     /// Return from the VM – TODO merge with Vop::Row (??)
-    Return,
+    Exit,
 }
 
 impl Vop {
+
+    #[inline]
+    pub fn exit() -> Vop {
+        Vop::Exit
+    }
+
+    #[inline]
     pub fn create_table(table: Table) -> Vop {
         Vop::CreateTable { table }
     }
 
+    #[inline]
     pub fn drop_table(table: String) -> Vop {
         Vop::DropTable { table }
     }
 
+    #[inline]
     pub fn insert(table: String, row: Row) -> Vop {
         Vop::Insert { table, row }
     }
 
+    #[inline]
     pub fn row() -> Vop {
         Vop::Row
     }
 
+    #[inline]
     pub fn open(table: &str) -> Vop {
         Vop::Open {
             table: table.to_string(),
         }
     }
 
+    #[inline]
+    pub fn rewind(jmp: usize) -> Vop {
+        Vop::Rewind { jmp }
+    }
+
+    #[inline]
     pub fn next(var: &str, jmp: usize) -> Vop {
         Vop::Next {
             var: var.to_string(),
@@ -220,7 +237,9 @@ impl<'a> VM<'a> {
                     self.cursor = Vcursor::new(rows)
                 }
                 Vop::Rewind { jmp } => {
-                    todo!("rewind");
+                    if self.cursor.is_empty() {
+                        pc = *jmp;
+                    }
                 }
                 Vop::Next { var, jmp } => {
                     if let Some(row) = self.cursor.next() {
@@ -228,7 +247,8 @@ impl<'a> VM<'a> {
                         pc = *jmp;
                     }
                 }
-                Vop::Return => {
+                Vop::Exit => {
+                    // TODO return codes.
                     break;
                 }
             }
@@ -264,6 +284,10 @@ impl Vcursor {
         let pos = 0;
         let end = rows.len() - 1;
         Self { rows, pos, end }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.end == 0
     }
 
     pub fn next(&mut self) -> Option<Row> {

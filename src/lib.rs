@@ -58,8 +58,8 @@ impl Rho {
         if self.debug {
             println!();
             println!("-[Program]------");
-            for op in &program {
-                println!("{:?}", op);
+            for (addr, op) in program.iter().enumerate() {
+                println!("{}: {:?}", addr, op);
             }
             println!("--------");
             println!();
