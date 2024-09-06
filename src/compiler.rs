@@ -1,7 +1,11 @@
-use sqlparser::ast::{self, ObjectName, Statement};
+use std::borrow::BorrowMut;
+
 
 use crate::catalog::Catalog;
-use crate::{parser, Program, Result, Vop};
+use crate::parser::Parser;
+use crate::table::Table;
+use crate::value::Row;
+use crate::{Program, Result, Vop};
 
 #[macro_export]
 macro_rules! unsupported {
@@ -13,49 +17,52 @@ macro_rules! unsupported {
 
 /// Compiler produces OP codes from the RQL query.
 /// 
+/// It holds the necessary context to build instructions from the parse tree.
+/// 
 /// References
 /// - https://github.com/lua/lua/blob/v5.4/lparser.c
 /// - https://github.com/sqlite/sqlite/blob/master/src/build.c
 /// - https://github.com/sqlite/sqlite/blob/master/src/select.c
-pub struct Compiler<'a> {
-    catalog: &'a Catalog,
+pub struct Compiler<'cat> {
+    catalog: &'cat Catalog,
+    program: Program,
 }
 
-impl <'a> Compiler<'a> {
+impl <'cat> Compiler<'cat> {
 
     pub fn new(catalog: &Catalog) -> Compiler {
-        Compiler { catalog }
+        Compiler { 
+            catalog,
+            program: vec![],
+         }
     }
 
-    pub fn compile(&self, rql: &str) -> Result<Program> {
-        match parser::parse(rql)? {
-            Statement::CreateTable(create_table) => self.create_table(create_table),
-            Statement::Insert(insert) => self.insert(insert),
-            Statement::Drop { names, ..} => {
-                if names.len() == 1 {
-                    self.drop_table(names[0].clone())
-                } else {
-                    unsupported!("Expected single table name")
-                }
-            },
-            _ => unsupported!("Unsupported statement"),
+    pub fn compile(mut self, rql: &str) -> Result<Program> {
+        {
+            let mut parser = Parser::new(self.borrow_mut());
+            parser.parse(rql)?;
         }
+        Ok(self.program)
     }
 
-    /// Compile a CREATE TABLE statement.
-    pub fn create_table(&self, create_table: ast::CreateTable) -> Result<Program> {
-        let table = parser::parse_create_table(&create_table)?;
+    /// Push a `Vop::CreateTable` instruction.
+    pub fn create_table(&mut self, table: Table) -> Result<()> {
         let op = Vop::create_table(table);
-        Ok(vec![op])
+        self.program.push(op);
+        Ok(())
     }
 
-    pub fn drop_table(&self, name: ObjectName) -> Result<Program> {
-        let table = name.to_string();
-        Ok(vec![Vop::drop_table(table)])
+    /// Push a `Vop::DropTable` instruction.
+    pub fn drop_table(&mut self, table: String) -> Result<()> {
+        let op =  Vop::drop_table(table);
+        self.program.push(op);
+        Ok(())
     }
 
-    pub fn insert(&self, insert: ast::Insert) -> Result<Program> {
-        let op = parser::parse_insert(&insert)?;
-        Ok(vec![op])
+    /// Push a `Vop::Insert` instruction.
+    pub fn insert(&mut self, table: String, row: Row) -> Result<()> {
+        let op = Vop::insert(table, row);
+        self.program.push(op);
+        Ok(())
     }
 }

@@ -31,6 +31,15 @@ For September, I would like to have the CRUD operations working and start the RQ
 
 .Goals
 - [x] Persist schemas in a `catalog` table.
-- [ ] Basic DDL (CREATE TABLE, DROP TABLE)
+- [x] Basic DDL (CREATE TABLE, DROP TABLE)
 - [ ] Basic DML (INSERT, UPDATE, DELETE).
 - [ ] Store rows as sqlite jsonb.
+
+.CLI/Shell Improvements
+- [ ] Multi-line input.
+- [ ] Better error messages.
+- [ ] Formatted output.
+- [ ] Load input from a file into a table.
+
+.Notes
+- Parser is driving the compiler to produce bytecode.
