@@ -50,3 +50,7 @@ For September, I would like to have the CRUD operations working and start the RQ
 .Notes
 * Parser is driving the compiler to produce bytecode.
 * The VM should be an iterator with a `next()` method.
+
+=== G3 Oct 2024
+
+Testing framework, dbgen, performance and language comparison to jq and sqlite jsonb.

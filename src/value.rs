@@ -1,5 +1,5 @@
-use std::fmt::{Debug, Display};
 use serde_json::Value;
+use std::fmt::{Debug, Display};
 
 use crate::Result;
 
@@ -36,6 +36,22 @@ impl JValue {
     /// Serialize the value as a JSON string.
     pub fn to_string(&self) -> String {
         serde_json::to_string(&self.0).unwrap()
+    }
+
+    /// If the value is an object, return the members – otherwise, None.
+    /// 
+    /// Consider an `into_members(self)` version of this.
+    /// 
+    pub fn members(&self) -> Option<Vec<(String, JValue)>> {
+        if let Value::Object(members) = &self.0 {
+            let members = members
+                .iter()
+                .map(|(k, v)| (k.to_string(), JValue(v.clone())))
+                .collect();
+            Some(members)
+        } else {
+            None
+        }
     }
 }
 

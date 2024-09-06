@@ -120,7 +120,6 @@ impl<'comp, 'cat> Parser<'comp, 'cat> {
         // process a SELECT *
         let item = &select.projection[0];
         if let SelectItem::Wildcard(_) = item {
-            // ok
             // TODO projections!
             Ok(())
         } else {

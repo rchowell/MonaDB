@@ -2,7 +2,7 @@ use std::env;
 use std::path::PathBuf;
 
 use rho::{table::{Schema, Table}, value::JValue, Rho};
-use rustyline::{error::ReadlineError, history::DefaultHistory, Config, DefaultEditor, EditMode, Editor};
+use rustyline::{error::ReadlineError, highlight::Highlighter, hint::Hinter, history::DefaultHistory, validate::{ValidationContext, ValidationResult, Validator}, Completer, Config, DefaultEditor, EditMode, Editor, Helper, Highlighter, Hinter};
 
 use clap::{Parser, Subcommand};
 
@@ -46,7 +46,7 @@ enum Command {
 }
 
 pub struct LineReader {
-    editor: Editor<(), DefaultHistory>,
+    editor: Editor<LineValidator, DefaultHistory>,
 }
 
 impl LineReader {
@@ -54,8 +54,9 @@ impl LineReader {
         let config = Config::builder()
             .edit_mode(EditMode::Vi)
             .build();
-        let mut editor = DefaultEditor::with_config(config).unwrap();
+        let mut editor = Editor::<LineValidator, DefaultHistory>::with_config(config).unwrap();
         editor.load_history(".rho_history").unwrap();
+        editor.set_helper(Some(LineValidator));
         LineReader { editor }
     }
 
@@ -84,6 +85,24 @@ impl LineReader {
     }
 }
 
+#[derive(Helper, Highlighter, Hinter, Completer)]
+struct LineValidator;
+
+impl Validator for LineValidator {
+    fn validate(&self, ctx: &mut ValidationContext) -> rustyline::Result<ValidationResult> {
+        let input = ctx.input();
+        if input.starts_with('.') || input.ends_with(';') {
+            Ok(ValidationResult::Valid(None))
+        } else {
+            Ok(ValidationResult::Incomplete)
+        }
+    }
+
+    fn validate_while_typing(&self) -> bool {
+        false
+    }
+}
+
 fn main() {
 
     // OPEN DATABASE 
@@ -97,20 +116,20 @@ fn main() {
 
     // REPL 
     let mut line_reader = LineReader::new();
-    let mut line = String::new();
+    let mut buffer = String::new();
 
     // MAIN LOOP
     loop {
-        if line_reader.read_line(&mut line, ">> ") == None {
+        if line_reader.read_line(&mut buffer, ">> ") == None {
             // EOF or interrupt
             break;
         }
-        if line.is_empty() {
+        if buffer.is_empty() {
             continue;
         }
-        if line.starts_with(".") {
+        if buffer.starts_with(".") {
             // PARSE COMMAND
-            let line = line.strip_prefix(".").unwrap();
+            let line = buffer.strip_prefix(".").unwrap();
             let args = shlex::split(&line).unwrap();
             let command = match Commands::try_parse_from(&args) {
                 Ok(commands) => commands.command,
@@ -148,7 +167,7 @@ fn main() {
             }
         } else {
             // STATEMENT
-            match rho.exec(&line) {
+            match rho.exec(&buffer) {
                 Ok(_) => {
                     println!();
                     println!("ok.");

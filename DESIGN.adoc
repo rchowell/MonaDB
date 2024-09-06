@@ -54,6 +54,14 @@ CREATE TABLE example (
 );
 ----
 
+.DROP TABLE
+[source,sql]
+----
+DROP TABLE <table::name>;
+----
+
+=== Types
+
 .Types
 [source,sql]
 ----
@@ -65,6 +73,11 @@ type
   | OBJECT
   | ANY
 ----
+
+=== Notes
+- no implicit variable names (??)
+- no implicit column references.
+- the environment is ordered
 
 == Other
 

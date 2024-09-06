@@ -36,41 +36,57 @@ impl<'cat> Compiler<'cat> {
     }
 
     pub fn compile(mut self, rql: &str) -> Result<Program> {
-        let mut parser = Parser::new(self.borrow_mut());
-        parser.parse(rql)?;
-        drop(parser);
+        self.push(Vop::Init);
+        {
+            // traverse the parse tree
+            let mut parser = Parser::new(self.borrow_mut());
+            parser.parse(rql)?;
+        }
         Ok(self.program)
     }
 
     /// Push a `Vop::CreateTable` instruction.
     pub fn create_table(&mut self, table: Table) -> Result<()> {
-        self.program.push(Vop::create_table(table));
+        self.push(Vop::create_table(table));
         Ok(())
     }
 
     /// Push a `Vop::DropTable` instruction.
     pub fn drop_table(&mut self, table: String) -> Result<()> {
-        self.program.push(Vop::drop_table(table));
-        self.program.push(Vop::Return);
+        self.push(Vop::drop_table(table));
         Ok(())
     }
 
     /// Push a `Vop::Insert` instruction.
     pub fn insert(&mut self, table: String, row: Row) -> Result<()> {
-        self.program.push(Vop::insert(table, row));
-        self.program.push(Vop::Return);
+        self.push(Vop::insert(table, row));
         Ok(())
     }
 
     /// TEMPORARY
     pub fn scan(&mut self, table: &str, alias: &str) -> Result<()> {
         let pc = self.pc();
-        self.program.push(Vop::scan(table));
-        self.program.push(Vop::next(alias, pc + 3));
-        self.program.push(Vop::Return);
-        self.program.push(Vop::row());
-        self.program.push(Vop::next(alias, pc + 3));
-        self.program.push(Vop::Return);
+        self.push(Vop::open(table));
+        self.push(Vop::next(alias, pc + 3));
+        self.push(Vop::Return);
+
+        // TODO replace me
+        self.push(Vop::row());
+
+        self.push(Vop::next(alias, pc + 3));
+        self.push(Vop::Return);
+        Ok(())
+    }
+
+    /// TEMPORARY
+    pub fn star(&mut self, table: &str, alias: &str) -> Result<()> {
+        let pc = self.pc();
+        self.push(Vop::open(table));
+        self.push(Vop::next(alias, pc + 3));
+        self.push(Vop::Return);
+        self.push(Vop::Spread);
+        self.push(Vop::Return);
+        self.push(Vop::next(alias, pc + 3));
         Ok(())
     }
 
@@ -78,5 +94,11 @@ impl<'cat> Compiler<'cat> {
     #[inline]
     fn pc(&self) -> usize {
         self.program.len()
+    }
+
+    /// Push an instruction to the program.
+    #[inline]
+    fn push(&mut self, op: Vop) {
+        self.program.push(op);
     }
 }
