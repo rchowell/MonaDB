@@ -2,7 +2,7 @@ use std::env;
 use std::path::PathBuf;
 
 use rho::{table::{Schema, Table}, value::JValue, Rho};
-use rustyline::{error::ReadlineError, highlight::Highlighter, hint::Hinter, history::DefaultHistory, validate::{ValidationContext, ValidationResult, Validator}, Completer, Config, DefaultEditor, EditMode, Editor, Helper, Highlighter, Hinter};
+use rustyline::{error::ReadlineError, history::DefaultHistory, validate::{ValidationContext, ValidationResult, Validator}, Completer, Config, EditMode, Editor, Helper, Highlighter, Hinter};
 
 use clap::{Parser, Subcommand};
 
@@ -68,7 +68,7 @@ impl LineReader {
         let readline = self.editor.readline(prompt);
         match readline {
             Ok(line) => {
-                self.editor.add_history_entry(line.as_str());
+                let _ = self.editor.add_history_entry(line.as_str());
                 *buffer = line;
                 Some(())
             }

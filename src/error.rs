@@ -1,3 +1,11 @@
+#[macro_export]
+macro_rules! error {
+    ($($arg:tt)*) => {{
+        let msg = format!($($arg)*);
+        return Err(crate::error::Error::Unknown(msg.to_string()))
+    }}
+}
+
 /// TODO DOCUMENTATION
 #[derive(Debug)]
 pub enum Error {

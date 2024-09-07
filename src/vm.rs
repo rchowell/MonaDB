@@ -31,6 +31,11 @@ pub enum Vop {
     /// Consider replacing with an `Insert` instruction on the catalog table.
     /// 
     CreateTable { table: Table },
+    /// Bind the row from the [cursor] to 
+    Bind {
+        cursor: usize,
+        binder: String,
+    },
     /// Insert a row into a table.
     Insert { table: String, row: Row },
     ///
@@ -62,14 +67,13 @@ pub enum Vop {
     },
     ///
     /// Next
-    ///  * var  :   variable name
     ///  * jmp  :   jump location
     ///
     /// Description:
     ///   Advances the cursor, assigning the row to `var`.
     ///   If there is a row, then jump to `jmp`; otherwise goto next.
     ///
-    Next { var: String, jmp: usize },
+    Next { jmp: usize },
     ///
     /// Spread
     ///
@@ -99,6 +103,11 @@ impl Vop {
     }
 
     #[inline]
+    pub fn bind(binder: &str) -> Vop {
+        Vop::Bind { cursor: 0, binder: binder.to_string() }
+    }
+
+    #[inline]
     pub fn create_table(table: Table) -> Vop {
         Vop::CreateTable { table }
     }
@@ -111,6 +120,16 @@ impl Vop {
     #[inline]
     pub fn insert(table: String, row: Row) -> Vop {
         Vop::Insert { table, row }
+    }
+
+    #[inline]
+    pub fn init() -> Vop {
+        Vop::Init
+    }
+
+    #[inline]
+    pub fn next(jmp: usize) -> Vop {
+        Vop::Next { jmp }
     }
 
     #[inline]
@@ -131,11 +150,8 @@ impl Vop {
     }
 
     #[inline]
-    pub fn next(var: &str, jmp: usize) -> Vop {
-        Vop::Next {
-            var: var.to_string(),
-            jmp,
-        }
+    pub fn spread() -> Vop {
+        Vop::Spread
     }
 }
 
@@ -215,6 +231,10 @@ impl<'a> VM<'a> {
                     self.db.create_table(table)?;
                     break;
                 }
+                Vop::Bind { binder, .. } => {
+                    let row = self.cursor.row();
+                    self.env.set(&binder, row);
+                }
                 Vop::Insert { table, row } => {
                     self.db.insert(table, row.clone())?;
                     break;
@@ -241,9 +261,8 @@ impl<'a> VM<'a> {
                         pc = *jmp;
                     }
                 }
-                Vop::Next { var, jmp } => {
-                    if let Some(row) = self.cursor.next() {
-                        self.env.set(var, row);
+                Vop::Next { jmp } => {
+                    if self.cursor.next() {
                         pc = *jmp;
                     }
                 }
@@ -290,18 +309,17 @@ impl Vcursor {
         self.end == 0
     }
 
-    pub fn next(&mut self) -> Option<Row> {
-        if self.pos > self.end {
-            // exhausted
-            return None;
+    pub fn next(&mut self) -> bool {
+        if self.pos < self.end {
+            self.pos += 1;
+            true
+        } else {
+            false
         }
-        let row = self.row();
-        self.pos += 1;
-        Some(row)
     }
 
     #[inline]
-    fn row(&self) -> Row {
+    pub fn row(&self) -> Row {
         self.rows[self.pos].clone()
     }
 }

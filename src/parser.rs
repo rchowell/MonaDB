@@ -113,22 +113,31 @@ impl<'comp, 'cat> Parser<'comp, 'cat> {
     /// 
     fn parse_select(&mut self, select: &ast::Select) -> Result<()> {
         // process FROM before SELECT
-        self.parse_from(&select.from)?;
+        let offset = self.parse_from(&select.from)?;
         if select.projection.len() != 1 {
             unsupported!("Expected SELECT *")
         }
+
         // process a SELECT *
         let item = &select.projection[0];
         if let SelectItem::Wildcard(_) = item {
-            // TODO projections!
-            Ok(())
+            self.compiler.spread()?;
         } else {
-            println!("{:?}", item);
-            unsupported!("Expected SELECT *")
+            unsupported!("Expected SELECT * but found {:?}", item)
         }
+
+        // emit next and patch the loop
+        self.compiler.next(offset)
     }
 
-    fn parse_from(&mut self, from: &Vec<TableWithJoins>) -> Result<()> {
+    /// Parse the FROM clause.
+    /// 
+    /// SYNTAX:
+    ///     FROM <table> [, <table>]*
+    /// 
+    /// This returns the pc offset to patch.
+    /// 
+    fn parse_from(&mut self, from: &Vec<TableWithJoins>) -> Result<usize> {
         // assert unsupported features
         if from.len() != 1 {
             unsupported!("Multi-FROM source")
@@ -144,7 +153,8 @@ impl<'comp, 'cat> Parser<'comp, 'cat> {
                 Some(alias) => alias.to_string(),
                 None => table.clone(),
             };
-            self.compiler.scan(&table, &alias)
+            // open table and bind row into alias.
+            self.compiler.open_scan(&table, &alias)
         } else {
             unsupported!("Expected a table")
         }

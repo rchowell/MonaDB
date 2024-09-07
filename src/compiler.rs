@@ -4,7 +4,7 @@ use crate::catalog::Catalog;
 use crate::parser::Parser;
 use crate::table::Table;
 use crate::value::Row;
-use crate::{Program, Result, Vop};
+use crate::{error, Program, Result, Vop};
 
 #[macro_export]
 macro_rules! unsupported {
@@ -36,12 +36,12 @@ impl<'cat> Compiler<'cat> {
     }
 
     pub fn compile(mut self, rql: &str) -> Result<Program> {
-        self.push(Vop::Init);
+        self.push(Vop::init());
         {
-            // traverse the parse tree
             let mut parser = Parser::new(self.borrow_mut());
             parser.parse(rql)?;
         }
+        self.push(Vop::exit());
         Ok(self.program)
     }
 
@@ -63,17 +63,42 @@ impl<'cat> Compiler<'cat> {
         Ok(())
     }
 
-    /// TEMPORARY
-    pub fn scan(&mut self, table: &str, alias: &str) -> Result<()> {
-        let pc = self.pc();
+    /// Push a `Vop::Open` for the given table, scan into the binding, and return the pc.
+    pub fn open_scan(&mut self, table: &str, alias: &str) -> Result<usize> {
         self.push(Vop::open(table));
-        self.push(Vop::rewind(pc + 5));
+        self.push(Vop::rewind(0)); // <-- PATCH ME
+        self.push(Vop::bind(alias));
+        Ok(self.pc())
+    }
 
-        // iterating....
-        self.push(Vop::row()); // pc+3
-        self.push(Vop::next(alias, pc + 3));
+    /// Loop 
+    /// 
+    /// 1. Emit a `Vop::Next` with jmp to start of loop.
+    /// 2. Patch the rewind instruction BEFORE the loop.
+    /// 3. Emit an exit (TEMPORARY)
+    /// 
+    pub fn next(&mut self, jmp: usize) -> Result<()> {
+        self.push(Vop::next(jmp));
+        self.patch(jmp - 1, self.pc() + 1)?;
+        Ok(())
+    }
 
-        self.push(Vop::Exit);
+    // Patch the jump at pc[offset] = dest with the current pc.
+    pub fn patch(&mut self, offset: usize, dest: usize) -> Result<()> {
+        match self.program.get_mut(offset).unwrap() {
+            Vop::Rewind { jmp } => *jmp = dest,
+            _ => unsupported!("cannot patch jump for {:?}", offset),
+        }
+        Ok(())
+    }
+
+    pub fn spread(&mut self) -> Result<()> {
+        self.push(Vop::spread());
+        Ok(())
+    }
+
+    pub fn start(&mut self) -> Result<()> {
+        self.push(Vop::Init);
         Ok(())
     }
 
