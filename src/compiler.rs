@@ -89,6 +89,10 @@ impl<'cat> Compiler<'cat> {
         Ok(())
     }
 
+    pub fn return_(&mut self, ptr: usize) {
+        self.push(Vop::Return { ptr });
+    }
+
     /// Patch the jump at pc[offset] = dest with the current pc.
     pub fn patch(&mut self, offset: usize, dest: usize) -> Result<()> {
         match self.program.get_mut(offset).unwrap() {
@@ -105,8 +109,8 @@ impl<'cat> Compiler<'cat> {
     }
 
     /// Push a `Vop::Obj` instruction.
-    pub fn obj(&mut self, ptr: usize, keys: Vec<String>) {
-        self.push(Vop::obj(ptr, keys));
+    pub fn obj(&mut self, ptr: usize, members: Vec<String>) {
+        self.push(Vop::obj(ptr, members));
     }
 
     pub fn var(&mut self, name: &str, dest: usize) {

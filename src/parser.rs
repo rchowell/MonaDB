@@ -16,6 +16,10 @@ use sqlparser::{
     dialect::SQLiteDialect,
 };
 
+// Parsing context.
+// For now `true` => root statement.
+type Context = bool;
+
 /// This currently delegates to the sqlparser crate.
 ///
 /// TODO:
@@ -27,12 +31,16 @@ use sqlparser::{
 ///
 pub struct Parser<'comp, 'cat> {
     compiler: &'comp mut Compiler<'cat>,
+    context: Context,
 }
 
 impl<'comp, 'cat> Parser<'comp, 'cat> {
     /// Create a new parser with a reference to the compiler.
     pub fn new(compiler: &'comp mut Compiler<'cat>) -> Parser<'comp, 'cat> {
-        Parser { compiler }
+        Parser { 
+            compiler,
+            context: true,
+         }
     }
 
     /// Parse the RQL query and invoke the compiler routines to build the program.
@@ -82,10 +90,10 @@ impl<'comp, 'cat> Parser<'comp, 'cat> {
     }
 
     /// Parse a DELETE statement.
-    /// 
+    ///
     /// SYNTAX:
-    ///    DELETE FROM <table> WHERE <condition>; 
-    /// 
+    ///    DELETE FROM <table> WHERE <condition>;
+    ///
     fn parse_delete(&mut self, delete: ast::Delete) -> Result<()> {
         println!("DELTE: {:?}", delete);
 
@@ -104,10 +112,11 @@ impl<'comp, 'cat> Parser<'comp, 'cat> {
                     unsupported!("multiple tables in DELETE FROM")
                 }
                 &tables[0]
-            },
+            }
         };
         let (table, _) = self.parse_table(table)?;
         self.compiler.clear(&table);
+
         Ok(())
     }
 
@@ -136,6 +145,7 @@ impl<'comp, 'cat> Parser<'comp, 'cat> {
     ///
     fn parse_select(&mut self, select: &ast::Select) -> Result<()> {
         // process FROM before SELECT
+        let ctx = self.context;
         let jmp = self.parse_from(&select.from)?;
 
         // TODO other clauses...
@@ -145,6 +155,11 @@ impl<'comp, 'cat> Parser<'comp, 'cat> {
             self.compiler.spread();
         } else {
             self.parse_select_list(&select.projection)?;
+        }
+
+        // If at root ctx, then add a return instruction.
+        if ctx {
+            self.compiler.return_(0);
         }
 
         // emit next and patch the loop
@@ -157,32 +172,34 @@ impl<'comp, 'cat> Parser<'comp, 'cat> {
     ///     <expr> AS <name> [, <expr> AS <name>]*
     ///     
     fn parse_select_list(&mut self, items: &Vec<SelectItem>) -> Result<()> {
-        // open
+        // allocate obj registers
         let n = items.len();
         let ptr = self.compiler.alloc(n);
         let mut dest = ptr;
-        let mut keys: Vec<String> = vec![];
+        let mut members: Vec<String> = vec![];
         // compile expressions
         for item in items {
             let (expr, alias) = match item {
                 SelectItem::UnnamedExpr(expr) => {
-                    let alias = match expr {
-                        ast::Expr::Identifier(alias) => alias,
-                        _ => unsupported!("SELECT item must have an AS alias"),
-                    };
-                    (expr, alias)
+                    if let ast::Expr::Identifier(alias) = expr {
+                        (expr, alias)
+                    } else {
+                        unsupported!("SELECT item must have an AS alias")
+                    }
                 }
                 SelectItem::QualifiedWildcard(_, _) => unsupported!("qualified wildcard"),
-                SelectItem::Wildcard(_) => unreachable!("wildcard should be handled by is_select_star"),
-                SelectItem::ExprWithAlias { expr, alias } => (expr, alias)
+                SelectItem::Wildcard(_) => {
+                    unreachable!("wildcard should be handled by is_select_star")
+                }
+                SelectItem::ExprWithAlias { expr, alias } => (expr, alias),
             };
             self.parse_expr(expr, dest)?;
-            keys.push(alias.value.clone());
+            members.push(alias.value.clone());
             dest += 1;
         }
-        // close
-        self.compiler.obj(ptr, keys);
-        self.compiler.free(n);
+        // construct obj and free the old registers.
+        self.compiler.obj(ptr, members);
+        self.compiler.free(n - 1);
         Ok(())
     }
 
@@ -264,7 +281,7 @@ impl<'comp, 'cat> Parser<'comp, 'cat> {
             Identifier(id) => self.compiler.var(&id.value, dest),
             CompoundIdentifier(_) => {
                 todo!("path expressions")
-            },
+            }
             _ => unsupported!("Unsupported expression {:?}", expr),
         }
         Ok(())

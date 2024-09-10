@@ -6,10 +6,10 @@ What if SQLite were a xref:DESIGN.adoc[JSON Database]?
 
 _This section contains a list of features/ideas that are not yet implemented._
 
-* [ ] The VM should be an iterator with a `next()` method.
 * [ ] Standardize naming of bindings/attributes/fields/members including rows/objs/tables/etc.
 * [ ] Testing framework, dbgen, performance and language comparison to jq and sqlite jsonb.
 * [ ] UPDATE and conditional DELETE (needs row pointers)
+* [ ] The cursor should be an iterator over the sqlite connection.
 
 == Shell
 
@@ -17,6 +17,7 @@ _This section contains a list of features/ideas that are not yet implemented._
 * [ ] Better error messages.
 * [ ] Formatted output.
 * [ ] Load input from a file into a table.
+* [ ] Store rows as sqlite jsonb.
 
 .Worklog
 * [x] Multi-line input.
@@ -57,9 +58,10 @@ For September, I would like to have the CRUD operations working and start the RQ
 * [x] SELECT
 ** [x] SELECT *
 ** [x] SELECT <cols>
-* [ ] Store rows as sqlite jsonb.
+* [x] The VM should be an iterator with a `next()` method.
 * [ ] Path expressions.
 * [ ] Row pointers.
+* [ ] Fix bug when table has exactly one value.
 
 === G3 Oct 2024
 

@@ -139,9 +139,10 @@ impl Catalog {
 
 impl Debug for Catalog {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "Catalog")?;
-        for table in &self.tables {
-            write!(f, "\n{:?}", table)?;
+        writeln!(f, "\nCatalog")?;
+        writeln!(f, "-------\n")?;
+        for (_, table) in &self.tables {
+            writeln!(f, "{}", table)?;
         }
         Ok(())
     }

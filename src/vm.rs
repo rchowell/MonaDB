@@ -14,10 +14,6 @@ pub type Program = Vec<Vop>;
 pub type Vmem = Vec<JValue>;
 
 /// Vop is a virtual machine instruction code.
-///
-/// TODOs
-/// - Lookup VM design patterns for Rust
-/// - Consider codes from Lua and SQLite, but those are C
 #[derive(Debug)]
 pub enum Vop {
     ///
@@ -67,10 +63,15 @@ pub enum Vop {
     /// 
     /// Description:
     ///   Construct an object with members { members[i]: mem[ptr + i] } for i in members.
+    ///   The result is stored in the register at ptr.
     /// 
     Obj {
         ptr: usize,
-        keys: Vec<String>,
+        members: Vec<String>,
+    },
+    /// Returns the value in register `ptr`.
+    Return {
+        ptr: usize,
     },
     ///
     /// Rewind
@@ -101,16 +102,12 @@ pub enum Vop {
     Spread {
         dest: usize,
     },
-    ///
-    /// Open
-    /// 
-    /// Description:
-    ///   Opens a table for reading with the cursor positioned at the first row.
-    /// 
-    /// TODO replace table with cursor.
-    /// 
-    Open { table: String },
-    /// Return from the VM – TODO merge with Vop::Row (??)
+    /// Opens a table for reading with the cursor positioned at the first row.
+    Open { 
+        /// TODO replace table with cursor.
+        table: String,
+    },
+    /// Exit the VM.
     Exit,
 }
 
@@ -158,10 +155,7 @@ impl Vop {
 
     #[inline]
     pub fn obj(ptr: usize, members: Vec<String>) -> Vop {
-        Vop::Obj {
-            ptr,
-            keys: members,
-        }
+        Vop::Obj { ptr, members }
     }
 
     #[inline]
@@ -243,39 +237,40 @@ impl Env {
 /// VM holds the state of the virtual machine.
 pub struct VM<'a> {
     db: &'a Rho,
+    mem: Vmem,
+    pc: usize,
+    program: Program,
     // temporary until the registers are implemented
     env: Env,
     // temporary until I have an actual cursor
     cursor: Vcursor,
-    mem: Vmem,
 }
 
 impl<'a> VM<'a> {
-    pub fn new(db: &Rho) -> VM {
+
+    pub fn init(db: &Rho, program: Program) -> VM {
+
+        // temporary (??)
+        let mut mem: Vmem = vec![];
+        mem.resize(100, JValue::null());
+
         VM {
             db,
+            mem,
+            pc: 0,
+            program,
             env: Env::new(),
             cursor: Vcursor::empty(),
-            mem: vec![],
         }
     }
 
-    // TEMP!!
-    fn alloc(&mut self, n: usize) -> usize {
-        let ptr = self.mem.len();
-        self.mem.resize(ptr + n, JValue::null());
-        ptr
-    }
-
-    pub fn execute(&mut self, program: &Program) -> Result<()> {
-        let mut pc: usize = 0;
+    pub fn next(&mut self) -> Result<Option<Row>> {
         loop {
-            let op = &program[pc];
-            pc += 1;
+            let op = &self.program[self.pc];
+            self.pc += 1;
             match op {
                 Vop::Init => {
                     // do nothing (for now)
-                    self.alloc(100);
                 },
                 Vop::Clear { table } => {
                     self.db.clear(table)?;
@@ -299,12 +294,16 @@ impl<'a> VM<'a> {
                     let rows = self.db.select(table)?;
                     self.cursor = Vcursor::new(rows)
                 }
+                Vop::Return { ptr } => {
+                    let v = self.mem[*ptr].clone();
+                    return Ok(Some(v));
+                },
                 Vop::Rewind { jmp } => {
                     if self.cursor.is_empty() {
-                        pc = *jmp;
+                        self.pc = *jmp;
                     }
                 }
-                Vop::Obj { ptr, keys } => {
+                Vop::Obj { ptr, members: keys } => {
                     let mut members = serde_json::Map::new();
                     for (i, k) in keys.iter().enumerate() {
                         let o = *ptr + i;
@@ -312,29 +311,24 @@ impl<'a> VM<'a> {
                         let k = k.clone();
                         members.insert(k, v.into());
                     }
-                    let obj: JValue = Value::Object(members).into();
-                    println!("{}", obj); // TODO assign the obj
+                    self.mem[*ptr] = Value::Object(members).into();
                 }
                 Vop::Spread { dest } => {
-                    // self.mem[*dest] = self.env.spread();
-                    let obj = self.env.spread();
-                    println!("{}", obj); // TODO assign the obj
+                    self.mem[*dest] = self.env.spread();
                 }
                 Vop::Next { jmp } => {
                     if self.cursor.next() {
-                        pc = *jmp;
+                        self.pc = *jmp;
                     }
                 }
                 Vop::Variable { name, dest } => {
                     self.mem[*dest] = self.env.get(name);
                 },
                 Vop::Exit => {
-                    // TODO return codes.
-                    break;
-                }
+                    return Ok(None);
+                },
             }
         }
-        Ok(())
     }
 }
 

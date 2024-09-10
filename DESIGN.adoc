@@ -3,6 +3,8 @@
 - Why not compile to Lua or SQLite bytecode? (missing operations eventual perf??)
 - Look into macros vs inline functions (premature??).
 - Consider using the top-level function name as the alias name
+- What about top-level single values and subquery coercion?
+- Consider multiple backends (SQLite, Redis, Rho file, Rho memory).
 
 == Usage
 

@@ -53,7 +53,6 @@ impl Rho {
 
     pub fn exec(&mut self, rql: &str) -> Result<()> {
         let program = self.prepare(rql)?;
-        let mut vm = VM::new(self);
         // >> DEBUG
         if self.debug {
             println!();
@@ -65,7 +64,15 @@ impl Rho {
             println!();
         }
         // >> DEBUG
-        vm.execute(&program)
+        let mut vm = VM::init(self, program);
+        loop {
+            match vm.next() {
+                Ok(Some(row)) => println!("{:?}", row),
+                Ok(None) => break,
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(())
     }
 
     /// Clear all entries in a table.
