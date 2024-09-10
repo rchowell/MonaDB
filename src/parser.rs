@@ -9,7 +9,10 @@ use crate::{
 };
 
 use sqlparser::{
-    ast::{self, ArrayElemTypeDef, DataType, ExactNumberInfo, ObjectName, Select, SelectItem, Statement, TableFactor, TableWithJoins},
+    ast::{
+        self, ArrayElemTypeDef, DataType, ExactNumberInfo, ObjectName, Select, SelectItem,
+        Statement, TableFactor, TableWithJoins,
+    },
     dialect::SQLiteDialect,
 };
 
@@ -97,7 +100,7 @@ impl<'comp, 'cat> Parser<'comp, 'cat> {
     }
 
     /// Parse a set expression – i.e. SELECT or UNION|INTERSECT|EXCEPT.
-    /// 
+    ///
     fn parse_set_expr(&mut self, set_expr: &ast::SetExpr) -> Result<()> {
         use ast::SetExpr::*;
         match set_expr {
@@ -107,17 +110,13 @@ impl<'comp, 'cat> Parser<'comp, 'cat> {
     }
 
     /// Parse a SELECT statement.
-    /// 
+    ///
     /// SYNTAX:
     ///     SELECT <select list> FROM <table>
-    /// 
+    ///
     fn parse_select(&mut self, select: &ast::Select) -> Result<()> {
-
         // process FROM before SELECT
-        let offset = self.parse_from(&select.from)?;
-        if select.projection.len() != 1 {
-            unsupported!("Expected SELECT *")
-        }
+        let jmp = self.parse_from(&select.from)?;
 
         // TODO other clauses...
 
@@ -129,50 +128,48 @@ impl<'comp, 'cat> Parser<'comp, 'cat> {
         }
 
         // emit next and patch the loop
-        self.compiler.next(offset)
+        self.compiler.next(jmp)
     }
 
     /// Parse the SELECT list.
-    /// 
+    ///
     /// SYNTAX:
     ///     <expr> AS <name> [, <expr> AS <name>]*
     ///     
-    /// 
     fn parse_select_list(&mut self, items: &Vec<SelectItem>) -> Result<()> {
         // open
         let n = items.len();
         let ptr = self.compiler.alloc(n);
-        let mut keys:  Vec<String> = vec![];
-
+        let mut dest = ptr;
+        let mut keys: Vec<String> = vec![];
         // compile expressions
         for item in items {
             match item {
                 SelectItem::UnnamedExpr(_) => unsupported!("SELECT item must have an AS alias"),
                 SelectItem::QualifiedWildcard(_, _) => unsupported!("qualified wildcard"),
-                SelectItem::Wildcard(_) => unreachable!("wildcard should be handled by is_select_star"),
-                SelectItem::ExprWithAlias { expr: _, alias } => {
-
-                    let dest = self.compiler.alloc(1);
-                    self.compiler.var(dest, "test");
+                SelectItem::Wildcard(_) => {
+                    unreachable!("wildcard should be handled by is_select_star")
+                }
+                SelectItem::ExprWithAlias { expr, alias } => {
+                    self.parse_expr(expr, dest)?;
                     keys.push(alias.to_string());
-                },
+                }
             }
+            dest += 1;
         }
-
         // close
         self.compiler.obj(ptr, keys);
         self.compiler.free(n);
-
         Ok(())
     }
 
     /// Parse the FROM clause.
-    /// 
+    ///
     /// SYNTAX:
     ///     FROM <table> [, <table>]*
-    /// 
+    ///
     /// This returns the pc offset to patch.
-    /// 
+    ///
     fn parse_from(&mut self, from: &Vec<TableWithJoins>) -> Result<usize> {
         // assert unsupported features
         if from.len() != 1 {
@@ -232,7 +229,12 @@ impl<'comp, 'cat> Parser<'comp, 'cat> {
 
     /// Parse an expression
     fn parse_expr(&mut self, expr: &ast::Expr, dest: usize) -> Result<()> {
-        todo!()
+        use ast::Expr::*;
+        match expr {
+            Identifier(id) => self.compiler.var(&id.value, dest),
+            _ => unsupported!("Unsupported expression {}", expr),
+        }
+        Ok(())
     }
 
     /// Parse a data type into a Rho Type, see `value::Type`.
@@ -360,7 +362,6 @@ pub fn parse_table(rql: &str) -> Result<Table> {
     } else {
         unsupported!("Expected CREATE TABLE statement")
     }
-
 }
 
 /// Returns true on SELECT *

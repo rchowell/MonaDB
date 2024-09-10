@@ -104,8 +104,8 @@ impl<'cat> Compiler<'cat> {
         self.push(Vop::obj(ptr, keys));
     }
 
-    pub fn var(&mut self, ptr: usize, name: &str) {
-        self.push(Vop::var(name, ptr));
+    pub fn var(&mut self, name: &str, dest: usize) {
+        self.push(Vop::var(name, dest));
     }
 
     /// "Allocates" n registers and returns a pointer to the first register.
