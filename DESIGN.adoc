@@ -1,9 +1,8 @@
 == Questions
-- No implicit variable names (??)
-- No implicit column references.
 - Is the environment is ordered?
 - Why not compile to Lua or SQLite bytecode? (missing operations eventual perf??)
 - Look into macros vs inline functions (premature??).
+- Consider using the top-level function name as the alias name
 
 == Usage
 
@@ -20,8 +19,9 @@ The catalog provides all access to schemas and tables. It is backed by sqlite so
 
 .Operations
 - create_table
-- drop_table
-- insert
+- drop(table)
+- clear(table)
+- insert(table, value)
 
 == Types
 
@@ -44,6 +44,8 @@ RQL is SQL (ish).
 
 .Notes
 - When deciding on language features, I will lean on JS and Lua before SQL.
+- No implicit variable names (??)
+- No implicit column references.
 
 === Statements
 
@@ -67,8 +69,33 @@ CREATE TABLE example (
 DROP TABLE <table::name>;
 ----
 
-=== Expressions
+=== Query
 
+==== SELECT
+
+[source]
+----
+<select> := SELECT <item> [, <item>]* [<FROM>]
+
+<item>
+    := <variable>
+     | <expr> AS <alias>
+
+----
+
+.Rules
+1. If a select item is a variable with no alias, the variable name is used as the alias.
+
+
+
+[source]
+----
+<expr>
+    := <variable>
+     | <value>
+----
+
+.Expressions
 [cols="1,2a,2"]
 |===
 | Type | Syntax | Description
@@ -76,6 +103,16 @@ DROP TABLE <table::name>;
 | var | `name` | Variable reference.
 
 |===
+
+=== Values
+
+Values are just JSON.
+
+.Values
+[source,ebnf]
+----
+json ...
+----
 
 === Types
 

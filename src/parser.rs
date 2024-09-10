@@ -164,17 +164,20 @@ impl<'comp, 'cat> Parser<'comp, 'cat> {
         let mut keys: Vec<String> = vec![];
         // compile expressions
         for item in items {
-            match item {
-                SelectItem::UnnamedExpr(_) => unsupported!("SELECT item must have an AS alias"),
+            let (expr, alias) = match item {
+                SelectItem::UnnamedExpr(expr) => {
+                    let alias = match expr {
+                        ast::Expr::Identifier(alias) => alias,
+                        _ => unsupported!("SELECT item must have an AS alias"),
+                    };
+                    (expr, alias)
+                }
                 SelectItem::QualifiedWildcard(_, _) => unsupported!("qualified wildcard"),
-                SelectItem::Wildcard(_) => {
-                    unreachable!("wildcard should be handled by is_select_star")
-                }
-                SelectItem::ExprWithAlias { expr, alias } => {
-                    self.parse_expr(expr, dest)?;
-                    keys.push(alias.to_string());
-                }
-            }
+                SelectItem::Wildcard(_) => unreachable!("wildcard should be handled by is_select_star"),
+                SelectItem::ExprWithAlias { expr, alias } => (expr, alias)
+            };
+            self.parse_expr(expr, dest)?;
+            keys.push(alias.value.clone());
             dest += 1;
         }
         // close
@@ -259,10 +262,9 @@ impl<'comp, 'cat> Parser<'comp, 'cat> {
         use ast::Expr::*;
         match expr {
             Identifier(id) => self.compiler.var(&id.value, dest),
-            CompoundIdentifier(id) => {
+            CompoundIdentifier(_) => {
                 todo!("path expressions")
             },
-
             _ => unsupported!("Unsupported expression {:?}", expr),
         }
         Ok(())

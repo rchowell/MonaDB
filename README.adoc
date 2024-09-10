@@ -9,6 +9,7 @@ _This section contains a list of features/ideas that are not yet implemented._
 * [ ] The VM should be an iterator with a `next()` method.
 * [ ] Standardize naming of bindings/attributes/fields/members including rows/objs/tables/etc.
 * [ ] Testing framework, dbgen, performance and language comparison to jq and sqlite jsonb.
+* [ ] UPDATE and conditional DELETE (needs row pointers)
 
 == Shell
 
@@ -50,15 +51,15 @@ For September, I would like to have the CRUD operations working and start the RQ
 .Goals
 * [x] Persist schemas in a `catalog` table.
 * [x] Basic DDL (CREATE TABLE, DROP TABLE)
-* [ ] Basic DML
-** [x] INSERT.
-** [ ] UPDATE,
-** [ ] DELETE.
+* [x] Basic DML
+** [x] INSERT
+** [x] DELETE (all)
 * [x] SELECT
 ** [x] SELECT *
 ** [x] SELECT <cols>
 * [ ] Store rows as sqlite jsonb.
 * [ ] Path expressions.
+* [ ] Row pointers.
 
 === G3 Oct 2024
 
