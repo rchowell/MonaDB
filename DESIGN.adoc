@@ -1,3 +1,10 @@
+== Questions
+- No implicit variable names (??)
+- No implicit column references.
+- Is the environment is ordered?
+- Why not compile to Lua or SQLite bytecode? (missing operations eventual perf??)
+- Look into macros vs inline functions (premature??).
+
 == Usage
 
 I would like rho to be a library with several applications:
@@ -60,6 +67,16 @@ CREATE TABLE example (
 DROP TABLE <table::name>;
 ----
 
+=== Expressions
+
+[cols="1,2a,2"]
+|===
+| Type | Syntax | Description
+
+| var | `name` | Variable reference.
+
+|===
+
 === Types
 
 .Types
@@ -73,22 +90,6 @@ type
   | OBJECT
   | ANY
 ----
-
-=== Notes
-- no implicit variable names (??)
-- no implicit column references.
-- the environment is ordered
-
-== Other
-
-- Website with playground and dead simple language documentation.
-- REPL
-- Insert semantics?
-    - If you insert an object into a "closed" table, the extra fields are ignored.
-    - If you insert an object into an "open" table, the extra fields are stored in a hidden object column.
-- Notes optimizations such as page compaction.
-
-== RHO 2
 
 == File Format (RHO2)
 
@@ -122,3 +123,12 @@ CREATE TABLE catalog (
     ptr number,     /* Pointer to root table page */
 )
 ----
+
+== Brainstorming
+
+- Website with playground and dead simple language documentation.
+- REPL
+- Insert semantics?
+    - If you insert an object into a "closed" table, the extra fields are ignored.
+    - If you insert an object into an "open" table, the extra fields are stored in a hidden object column.
+- Optimizations such as page compaction.

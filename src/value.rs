@@ -22,6 +22,10 @@ impl JValue {
         JValue(value)
     }
 
+    pub fn null() -> JValue {
+        JValue(Value::Null)
+    }
+
     /// TryFrom str.
     pub fn from_str(s: &str) -> Result<JValue> {
         let inner = serde_json::from_str(s)?;

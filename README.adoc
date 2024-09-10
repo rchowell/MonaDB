@@ -2,6 +2,24 @@
 
 What if SQLite were a xref:DESIGN.adoc[JSON Database]?
 
+== Backlog
+
+_This section contains a list of features/ideas that are not yet implemented._
+
+* [ ] The VM should be an iterator with a `next()` method.
+* [ ] Standardize naming of bindings/attributes/fields/members including rows/objs/tables/etc.
+* [ ] Testing framework, dbgen, performance and language comparison to jq and sqlite jsonb.
+
+== Shell
+
+.Backlog
+* [ ] Better error messages.
+* [ ] Formatted output.
+* [ ] Load input from a file into a table.
+
+.Worklog
+* [x] Multi-line input.
+
 == Worklog
 
 _This section contains various mini-goals to drive the project._
@@ -41,16 +59,6 @@ For September, I would like to have the CRUD operations working and start the RQ
 ** [ ] SELECT <cols>
 * [ ] Store rows as sqlite jsonb.
 
-.CLI/Shell Improvements
-* [ ] Multi-line input.
-* [ ] Better error messages.
-* [ ] Formatted output.
-* [ ] Load input from a file into a table.
-
-.Notes
-* Parser is driving the compiler to produce bytecode.
-* The VM should be an iterator with a `next()` method.
-
 === G3 Oct 2024
 
-Testing framework, dbgen, performance and language comparison to jq and sqlite jsonb.
+_PLACEHOLDER_

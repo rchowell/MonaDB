@@ -4,7 +4,7 @@ use crate::catalog::Catalog;
 use crate::parser::Parser;
 use crate::table::Table;
 use crate::value::Row;
-use crate::{error, Program, Result, Vop};
+use crate::{Program, Result, Vop};
 
 #[macro_export]
 macro_rules! unsupported {
@@ -25,6 +25,7 @@ macro_rules! unsupported {
 pub struct Compiler<'cat> {
     catalog: &'cat Catalog,
     program: Program,
+    ptr: usize,
 }
 
 impl<'cat> Compiler<'cat> {
@@ -32,6 +33,7 @@ impl<'cat> Compiler<'cat> {
         Compiler {
             catalog,
             program: vec![],
+            ptr: 0,
         }
     }
 
@@ -75,7 +77,6 @@ impl<'cat> Compiler<'cat> {
     /// 
     /// 1. Emit a `Vop::Next` with jmp to start of loop.
     /// 2. Patch the rewind instruction BEFORE the loop.
-    /// 3. Emit an exit (TEMPORARY)
     /// 
     pub fn next(&mut self, jmp: usize) -> Result<()> {
         self.push(Vop::next(jmp));
@@ -83,30 +84,40 @@ impl<'cat> Compiler<'cat> {
         Ok(())
     }
 
-    // Patch the jump at pc[offset] = dest with the current pc.
+    /// Patch the jump at pc[offset] = dest with the current pc.
     pub fn patch(&mut self, offset: usize, dest: usize) -> Result<()> {
         match self.program.get_mut(offset).unwrap() {
             Vop::Rewind { jmp } => *jmp = dest,
-            _ => unsupported!("cannot patch jump for {:?}", offset),
+            _ => unsupported!("cannot patch jump at pc[{}]", offset),
         }
         Ok(())
     }
 
-    pub fn spread(&mut self) -> Result<()> {
-        self.push(Vop::spread());
-        Ok(())
+    /// Push a `Vop::Row` instruction for SELECT *.
+    pub fn spread(&mut self) {
+        let dest = self.alloc(1);
+        self.push(Vop::spread(dest));
     }
 
-    pub fn start(&mut self) -> Result<()> {
-        self.push(Vop::Init);
-        Ok(())
+    /// Push a `Vop::Obj` instruction.
+    pub fn obj(&mut self, ptr: usize, keys: Vec<String>) {
+        self.push(Vop::obj(ptr, keys));
     }
 
-    /// TEMPORARY FOR TESTING – PUSH A BUNCH OF NO-OPs
-    pub fn no_op(&mut self, n: u8) {
-        for _ in 0..n {
-            self.push(Vop::Init);
-        }
+    pub fn var(&mut self, ptr: usize, name: &str) {
+        self.push(Vop::var(name, ptr));
+    }
+
+    /// "Allocates" n registers and returns a pointer to the first register.
+    pub fn alloc(&mut self, n: usize) -> usize {
+        let curr = self.ptr;
+        self.ptr = curr + n;
+        curr
+    }
+
+    /// Free n registers.
+    pub fn free(&mut self, n: usize) {
+        self.ptr -= n;
     }
 
     /// Return current pc index.

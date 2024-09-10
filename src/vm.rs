@@ -10,6 +10,9 @@ use crate::{table::Table, value::Row, Rho};
 /// Program is a sequence of virtual machine instructions.
 pub type Program = Vec<Vop>;
 
+/// Registers are the VM's working memory.
+pub type Vmem = Vec<JValue>;
+
 /// Vop is a virtual machine instruction code.
 ///
 /// TODOs
@@ -31,10 +34,15 @@ pub enum Vop {
     /// Consider replacing with an `Insert` instruction on the catalog table.
     /// 
     CreateTable { table: Table },
-    /// Bind the row from the [cursor] to 
+    /// Bind the row from the cursor to the binder like `Column` from SQLite.
     Bind {
         cursor: usize,
         binder: String,
+    },
+    /// Load the variable `name` from the environment into the destination register.
+    Variable {
+        name: String,
+        dest: usize,
     },
     /// Insert a row into a table.
     Insert { table: String, row: Row },
@@ -49,12 +57,17 @@ pub enum Vop {
     ///
     DropTable { table: String },
     ///
-    /// Produce a row from the current environment.
+    /// Obj
+    ///   * ptr     : register count for the row start.
+    ///   * members : member names.
     /// 
     /// Description:
-    ///   Transforms the current environment into a row (JSON object).
+    ///   Construct an object with members { members[i]: mem[ptr + i] } for i in members.
     /// 
-    Row,
+    Obj {
+        ptr: usize,
+        keys: Vec<String>,
+    },
     ///
     /// Rewind
     ///  * jmp  :   jump location
@@ -81,7 +94,9 @@ pub enum Vop {
     ///   Produces a row by spreading all structs in the environment into the result.
     ///   Non-struct values are omitted, and members may be overridden.
     /// 
-    Spread,
+    Spread {
+        dest: usize,
+    },
     ///
     /// Open
     /// 
@@ -133,8 +148,11 @@ impl Vop {
     }
 
     #[inline]
-    pub fn row() -> Vop {
-        Vop::Row
+    pub fn obj(ptr: usize, members: Vec<String>) -> Vop {
+        Vop::Obj {
+            ptr,
+            keys: members,
+        }
     }
 
     #[inline]
@@ -150,8 +168,16 @@ impl Vop {
     }
 
     #[inline]
-    pub fn spread() -> Vop {
-        Vop::Spread
+    pub fn spread(dest: usize) -> Vop {
+        Vop::Spread { dest }
+    }
+
+    #[inline]
+    pub fn var(name: &str, dest: usize) -> Vop {
+        Vop::Variable {
+            name: name.to_string(),
+            dest,
+        }
     }
 }
 
@@ -168,14 +194,18 @@ impl Env {
         }
     }
 
-    /// Concatenates the bindings of the two environments.
-    pub fn concat(self, _rhs: Self) -> Self {
-        todo!()
-    }
-
     /// Sets the current binding to this
     pub fn set(&mut self, key: &str, row: Row) {
         self.bindings.insert(key.to_string(), row);
+    }
+
+    /// Gets the current binding for this key (or null).
+    pub fn get(&mut self, key: &str) -> JValue {
+        if let Some(v) = self.bindings.get(key) {
+            v.clone()
+        } else {
+            JValue::null()
+        }
     }
 
     /// Returns this [Env] as a [JValue] object.
@@ -204,9 +234,11 @@ impl Env {
 /// VM holds the state of the virtual machine.
 pub struct VM<'a> {
     db: &'a Rho,
+    // temporary until the registers are implemented
     env: Env,
     // temporary until I have an actual cursor
     cursor: Vcursor,
+    mem: Vmem,
 }
 
 impl<'a> VM<'a> {
@@ -215,7 +247,15 @@ impl<'a> VM<'a> {
             db,
             env: Env::new(),
             cursor: Vcursor::empty(),
+            mem: vec![],
         }
+    }
+
+    // TEMP!!
+    fn alloc(&mut self, n: usize) -> usize {
+        let ptr = self.mem.len();
+        self.mem.resize(ptr + n, JValue::null());
+        ptr
     }
 
     pub fn execute(&mut self, program: &Program) -> Result<()> {
@@ -225,31 +265,22 @@ impl<'a> VM<'a> {
             pc += 1;
             match op {
                 Vop::Init => {
-                    // do nothing
+                    // do nothing (for now)
+                    self.alloc(100);
                 },
                 Vop::CreateTable { table } => {
                     self.db.create_table(table)?;
-                    break;
                 }
+                // TEMP – bind the row to the environment
                 Vop::Bind { binder, .. } => {
                     let row = self.cursor.row();
                     self.env.set(&binder, row);
                 }
                 Vop::Insert { table, row } => {
                     self.db.insert(table, row.clone())?;
-                    break;
                 }
                 Vop::DropTable { table } => {
                     self.db.drop_table(table)?;
-                    break;
-                }
-                Vop::Row => {
-                    let row = self.env.to_obj();
-                    println!("{}", row);
-                }
-                Vop::Spread => {
-                    let row = self.env.spread();
-                    println!("{}", row);
                 }
                 Vop::Open { table } => {
                     // TEMP – load all into the fake "cursor"
@@ -261,11 +292,34 @@ impl<'a> VM<'a> {
                         pc = *jmp;
                     }
                 }
+                Vop::Obj { ptr, keys } => {
+
+                    let n = keys.len();
+                    let mut members = serde_json::Map::new();
+
+                    for (i, k) in keys.iter().enumerate() {
+                        let o = *ptr + i;
+                        let v = self.mem[o].clone();
+                        let k = k.clone();
+                        members.insert(k, v.into());
+                    }
+
+                    let obj: JValue = Value::Object(members).into();
+                    println!("{}", obj); // TODO assign the obj
+                }
+                Vop::Spread { dest } => {
+                    // self.mem[*dest] = self.env.spread();
+                    let obj = self.env.spread();
+                    println!("{}", obj); // TODO assign the obj
+                }
                 Vop::Next { jmp } => {
                     if self.cursor.next() {
                         pc = *jmp;
                     }
                 }
+                Vop::Variable { name, dest } => {
+                    self.mem[*dest] = self.env.get(name);
+                },
                 Vop::Exit => {
                     // TODO return codes.
                     break;
@@ -323,3 +377,4 @@ impl Vcursor {
         self.rows[self.pos].clone()
     }
 }
+

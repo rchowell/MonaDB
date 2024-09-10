@@ -112,22 +112,58 @@ impl<'comp, 'cat> Parser<'comp, 'cat> {
     ///     SELECT <select list> FROM <table>
     /// 
     fn parse_select(&mut self, select: &ast::Select) -> Result<()> {
+
         // process FROM before SELECT
         let offset = self.parse_from(&select.from)?;
         if select.projection.len() != 1 {
             unsupported!("Expected SELECT *")
         }
 
-        // process a SELECT *
-        let item = &select.projection[0];
-        if let SelectItem::Wildcard(_) = item {
-            self.compiler.spread()?;
+        // TODO other clauses...
+
+        // process SELECT list
+        if is_select_star(select) {
+            self.compiler.spread();
         } else {
-            unsupported!("Expected SELECT * but found {:?}", item)
+            self.parse_select_list(&select.projection)?;
         }
 
         // emit next and patch the loop
         self.compiler.next(offset)
+    }
+
+    /// Parse the SELECT list.
+    /// 
+    /// SYNTAX:
+    ///     <expr> AS <name> [, <expr> AS <name>]*
+    ///     
+    /// 
+    fn parse_select_list(&mut self, items: &Vec<SelectItem>) -> Result<()> {
+        // open
+        let n = items.len();
+        let ptr = self.compiler.alloc(n);
+        let mut keys:  Vec<String> = vec![];
+
+        // compile expressions
+        for item in items {
+            match item {
+                SelectItem::UnnamedExpr(_) => unsupported!("SELECT item must have an AS alias"),
+                SelectItem::QualifiedWildcard(_, _) => unsupported!("qualified wildcard"),
+                SelectItem::Wildcard(_) => unreachable!("wildcard should be handled by is_select_star"),
+                SelectItem::ExprWithAlias { expr: _, alias } => {
+
+                    let dest = self.compiler.alloc(1);
+                    self.compiler.var(dest, "test");
+                    keys.push(alias.to_string());
+                },
+            }
+        }
+
+        // close
+        self.compiler.obj(ptr, keys);
+        self.compiler.free(n);
+
+        Ok(())
     }
 
     /// Parse the FROM clause.
@@ -192,6 +228,11 @@ impl<'comp, 'cat> Parser<'comp, 'cat> {
             _ => unsupported!("Expected VALUES source"),
         };
         self.compiler.insert(table, value)
+    }
+
+    /// Parse an expression
+    fn parse_expr(&mut self, expr: &ast::Expr, dest: usize) -> Result<()> {
+        todo!()
     }
 
     /// Parse a data type into a Rho Type, see `value::Type`.
@@ -319,4 +360,10 @@ pub fn parse_table(rql: &str) -> Result<Table> {
     } else {
         unsupported!("Expected CREATE TABLE statement")
     }
+
+}
+
+/// Returns true on SELECT *
+fn is_select_star(select: &Select) -> bool {
+    select.projection.len() == 1 && matches!(select.projection[0], SelectItem::Wildcard(_))
 }
