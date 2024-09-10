@@ -38,30 +38,20 @@ impl<'comp, 'cat> Parser<'comp, 'cat> {
     /// Parse the RQL query and invoke the compiler routines to build the program.
     pub fn parse(&mut self, rql: &str) -> Result<()> {
         match Self::parse_statement(rql)? {
-            Statement::CreateTable(create_table) => {
-                // CREATE TABLE ...
-                self.parse_create_table(create_table)?;
-            }
-            Statement::Insert(insert) => {
-                // INSERT INTO ...
-                self.parse_insert(insert)?;
-            }
+            Statement::CreateTable(create_table) => self.parse_create_table(create_table),
             Statement::Drop { names, .. } => {
                 // DROP TABLE ...
                 if names.len() == 1 {
-                    self.parse_drop_table(names[0].clone())?;
+                    self.parse_drop_table(names[0].clone())
                 } else {
                     unsupported!("Expected single table name");
                 }
             }
-            Statement::Query(query) => {
-                // SELECT ...
-                self.parse_query(&query)?;
-            }
+            Statement::Delete(delete) => self.parse_delete(delete),
+            Statement::Insert(insert) => self.parse_insert(insert),
+            Statement::Query(query) => self.parse_query(&query),
             _ => unsupported!("Unsupported statement"),
         }
-        // Return ownership of the compiler.
-        Ok(())
     }
 
     fn parse_statement(rql: &str) -> Result<Statement> {
@@ -89,6 +79,36 @@ impl<'comp, 'cat> Parser<'comp, 'cat> {
         let schema = Schema::new(cols);
         let table = Table::new(name, schema);
         self.compiler.create_table(table)
+    }
+
+    /// Parse a DELETE statement.
+    /// 
+    /// SYNTAX:
+    ///    DELETE FROM <table> WHERE <condition>; 
+    /// 
+    fn parse_delete(&mut self, delete: ast::Delete) -> Result<()> {
+        println!("DELTE: {:?}", delete);
+
+        if delete.selection.is_some() {
+            unsupported!("DELETE with <where>")
+        }
+        if delete.returning.is_some() {
+            unsupported!("DELETE with <returning>")
+        }
+
+        // extract single table.
+        let table = match &delete.from {
+            ast::FromTable::WithoutKeyword(_) => unsupported!("FROM keyword is required"),
+            ast::FromTable::WithFromKeyword(tables) => {
+                if tables.len() > 1 {
+                    unsupported!("multiple tables in DELETE FROM")
+                }
+                &tables[0]
+            },
+        };
+        let (table, _) = self.parse_table(table)?;
+        self.compiler.clear(&table);
+        Ok(())
     }
 
     fn parse_query(&mut self, query: &ast::Query) -> Result<()> {
@@ -180,14 +200,21 @@ impl<'comp, 'cat> Parser<'comp, 'cat> {
         if !from.joins.is_empty() {
             unsupported!("JOIN statements")
         }
-        if let TableFactor::Table { name, alias, .. } = &from.relation {
+
+        // open table and bind row into alias.
+        let (table, alias) = self.parse_table(from)?;
+        self.compiler.open_scan(&table, &alias)
+    }
+
+    /// Parse a [TableWithJoins] to a (name,alias) pair;
+    fn parse_table(&mut self, table: &TableWithJoins) -> Result<(String, String)> {
+        if let TableFactor::Table { name, alias, .. } = &table.relation {
             let table = name.to_string();
             let alias = match alias {
-                Some(alias) => alias.to_string(),
+                Some(alias) => alias.name.value.clone(),
                 None => table.clone(),
             };
-            // open table and bind row into alias.
-            self.compiler.open_scan(&table, &alias)
+            Ok((table, alias))
         } else {
             unsupported!("Expected a table")
         }
@@ -201,7 +228,7 @@ impl<'comp, 'cat> Parser<'comp, 'cat> {
     ///
     fn parse_drop_table(&mut self, name: ObjectName) -> Result<()> {
         let table = name.to_string();
-        self.compiler.drop_table(table)
+        self.compiler.drop(table)
     }
 
     /// Parse an INSERT statement.
@@ -232,7 +259,11 @@ impl<'comp, 'cat> Parser<'comp, 'cat> {
         use ast::Expr::*;
         match expr {
             Identifier(id) => self.compiler.var(&id.value, dest),
-            _ => unsupported!("Unsupported expression {}", expr),
+            CompoundIdentifier(id) => {
+                todo!("path expressions")
+            },
+
+            _ => unsupported!("Unsupported expression {:?}", expr),
         }
         Ok(())
     }

@@ -47,15 +47,20 @@ impl<'cat> Compiler<'cat> {
         Ok(self.program)
     }
 
+    /// PUsh a `Vop::Clear` instruction.
+    pub fn clear(&mut self, table: &str) {
+        self.push(Vop::clear(table));
+    }
+
     /// Push a `Vop::CreateTable` instruction.
     pub fn create_table(&mut self, table: Table) -> Result<()> {
         self.push(Vop::create_table(table));
         Ok(())
     }
 
-    /// Push a `Vop::DropTable` instruction.
-    pub fn drop_table(&mut self, table: String) -> Result<()> {
-        self.push(Vop::drop_table(table));
+    /// Push a `Vop::Drop` instruction.
+    pub fn drop(&mut self, table: String) -> Result<()> {
+        self.push(Vop::drop(table));
         Ok(())
     }
 

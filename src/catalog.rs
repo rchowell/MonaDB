@@ -68,14 +68,25 @@ impl Catalog {
         self.sync()
     }
 
+    /// Delete all rows from the table.
+    pub fn clear(&mut self, table: &str) -> Result<()> {
+        let delete = format!("DELETE FROM {} WHERE true", table);
+        //
+        let tx = self.conn.transaction()?;
+        tx.execute(&delete, [])?;
+        tx.commit()?;
+        //
+        Ok(())
+    }
+
     /// Drop a table from the catalog.
-    pub fn drop_table(&mut self, name: &str) -> Result<()> {
-        let drop = format!("DROP TABLE IF EXISTS {};", name);
+    pub fn drop(&mut self, table: &str) -> Result<()> {
+        let drop = format!("DROP TABLE IF EXISTS {};", table);
         let delete = "DELETE FROM catalog WHERE name = :name;";
         //
         let tx = self.conn.transaction()?;
         tx.execute(&drop, [])?;
-        tx.execute(delete, named_params! { ":name": name })?;
+        tx.execute(delete, named_params! { ":name": table })?;
         tx.commit()?;
         // 
         self.sync()

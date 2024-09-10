@@ -68,6 +68,11 @@ impl Rho {
         vm.execute(&program)
     }
 
+    /// Clear all entries in a table.
+    pub fn clear(&self, table: &str) -> Result<()> {
+        self.catalog.borrow_mut().clear(table)
+    }
+
     /// Create a table in the catalog.
     pub fn create_table(&self, table: &Table) -> Result<()> {
         self.catalog.borrow_mut().create_table(table)
@@ -75,7 +80,7 @@ impl Rho {
 
     // Drop a table in the catalog.
     pub fn drop_table(&self, table: &str) -> Result<()> {
-        self.catalog.borrow_mut().drop_table(table)
+        self.catalog.borrow_mut().drop(table)
     }
 
     // Insert a row into the table.

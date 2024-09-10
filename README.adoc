@@ -51,13 +51,14 @@ For September, I would like to have the CRUD operations working and start the RQ
 * [x] Persist schemas in a `catalog` table.
 * [x] Basic DDL (CREATE TABLE, DROP TABLE)
 * [ ] Basic DML
-** [x] INSERT
+** [x] INSERT.
 ** [ ] UPDATE,
 ** [ ] DELETE.
-* [ ] SELECT
+* [x] SELECT
 ** [x] SELECT *
-** [ ] SELECT <cols>
+** [x] SELECT <cols>
 * [ ] Store rows as sqlite jsonb.
+* [ ] Path expressions.
 
 === G3 Oct 2024
 

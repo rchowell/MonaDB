@@ -39,6 +39,10 @@ pub enum Vop {
         cursor: usize,
         binder: String,
     },
+    /// Delete all rows of the table.
+    Clear {
+        table: String,
+    },
     /// Load the variable `name` from the environment into the destination register.
     Variable {
         name: String,
@@ -47,7 +51,7 @@ pub enum Vop {
     /// Insert a row into a table.
     Insert { table: String, row: Row },
     ///
-    /// DropTable
+    /// Drop
     ///   * table   : table to drop
     ///
     /// Description:
@@ -55,7 +59,7 @@ pub enum Vop {
     /// 
     /// Consider replacing with a `Delete` instruction on the catalog table.
     ///
-    DropTable { table: String },
+    Drop { table: String },
     ///
     /// Obj
     ///   * ptr     : register count for the row start.
@@ -123,13 +127,18 @@ impl Vop {
     }
 
     #[inline]
+    pub fn clear(table: &str) -> Vop {
+        Vop::Clear { table: table.to_string() }
+    }
+
+    #[inline]
     pub fn create_table(table: Table) -> Vop {
         Vop::CreateTable { table }
     }
 
     #[inline]
-    pub fn drop_table(table: String) -> Vop {
-        Vop::DropTable { table }
+    pub fn drop(table: String) -> Vop {
+        Vop::Drop { table }
     }
 
     #[inline]
@@ -268,6 +277,9 @@ impl<'a> VM<'a> {
                     // do nothing (for now)
                     self.alloc(100);
                 },
+                Vop::Clear { table } => {
+                    self.db.clear(table)?;
+                },
                 Vop::CreateTable { table } => {
                     self.db.create_table(table)?;
                 }
@@ -279,7 +291,7 @@ impl<'a> VM<'a> {
                 Vop::Insert { table, row } => {
                     self.db.insert(table, row.clone())?;
                 }
-                Vop::DropTable { table } => {
+                Vop::Drop { table } => {
                     self.db.drop_table(table)?;
                 }
                 Vop::Open { table } => {
@@ -293,17 +305,13 @@ impl<'a> VM<'a> {
                     }
                 }
                 Vop::Obj { ptr, keys } => {
-
-                    let n = keys.len();
                     let mut members = serde_json::Map::new();
-
                     for (i, k) in keys.iter().enumerate() {
                         let o = *ptr + i;
                         let v = self.mem[o].clone();
                         let k = k.clone();
                         members.insert(k, v.into());
                     }
-
                     let obj: JValue = Value::Object(members).into();
                     println!("{}", obj); // TODO assign the obj
                 }
@@ -355,7 +363,11 @@ impl Vcursor {
     /// Create a cursor over the vector of rows.
     pub fn new(rows: Vec<Row>) -> Self {
         let pos = 0;
-        let end = rows.len() - 1;
+        let len = rows.len();
+        let end = match len {
+            0 => 0,
+            _ => len - 1,
+        };
         Self { rows, pos, end }
     }
 
