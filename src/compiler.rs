@@ -26,6 +26,10 @@ pub struct Compiler<'cat> {
     catalog: &'cat Catalog,
     program: Program,
     ptr: usize,
+
+    // scope information
+    // scope_dest: usize,
+    // scope_size: usize,
 }
 
 impl<'cat> Compiler<'cat> {
@@ -89,6 +93,7 @@ impl<'cat> Compiler<'cat> {
         Ok(())
     }
 
+    /// Push a `Vop::Return` instruction.
     pub fn return_(&mut self, ptr: usize) {
         self.push(Vop::Return { ptr });
     }
@@ -103,18 +108,31 @@ impl<'cat> Compiler<'cat> {
     }
 
     /// Push a `Vop::Row` instruction for SELECT *.
-    pub fn spread(&mut self) {
+    pub fn spread(&mut self) -> usize {
         let dest = self.alloc(1);
         self.push(Vop::spread(dest));
+        dest
     }
 
     /// Push a `Vop::Obj` instruction.
-    pub fn obj(&mut self, ptr: usize, members: Vec<String>) {
-        self.push(Vop::obj(ptr, members));
+    pub fn obj(&mut self, members: Vec<(String, usize)>) -> usize {
+        let dest = self.alloc(1);
+        self.push(Vop::obj(members, dest));
+        dest
     }
 
-    pub fn var(&mut self, name: &str, dest: usize) {
+    /// Push a `Vop::Var` instruction.
+    pub fn var(&mut self, name: &str) -> usize {
+        let dest = self.alloc(1);
         self.push(Vop::var(name, dest));
+        dest
+    }
+
+    /// JSONPath Key
+    pub fn json_path_key(&mut self, operand: usize, key: &str) -> usize {
+        let dest = self.alloc(1);
+        self.push(Vop::jpk(&key, operand, dest));
+        dest
     }
 
     /// "Allocates" n registers and returns a pointer to the first register.

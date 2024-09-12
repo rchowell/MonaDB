@@ -57,6 +57,15 @@ impl JValue {
             None
         }
     }
+
+    /// Returns a copy of the value at the key (or none)
+    pub fn get(&self, key: &str) -> Option<JValue> {
+        if let Value::Object(members) = &self.0 {
+            members.get(key).map(|v| JValue::new(v.clone()))
+        } else {
+            None
+        }
+    }
 }
 
 impl From<Value> for JValue {

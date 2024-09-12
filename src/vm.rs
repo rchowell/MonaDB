@@ -18,71 +18,73 @@ pub type Vmem = Vec<JValue>;
 pub enum Vop {
     ///
     /// Init is always the first instruction.
-    /// 
+    ///
     Init,
+    /// Bind the row from the cursor to the binder like `Column` from SQLite.
+    Bind { cursor: usize, binder: String },
+    /// Delete all rows of the table.
+    Clear { table: String },
     ///
     /// Insert the table into the catalog table.
     ///   * table   : table to create
-    /// 
+    ///
     /// Description:
     ///  Invokes the catalog to create the given table.
-    /// 
+    ///
     /// Consider replacing with an `Insert` instruction on the catalog table.
-    /// 
+    ///
     CreateTable { table: Table },
-    /// Bind the row from the cursor to the binder like `Column` from SQLite.
-    Bind {
-        cursor: usize,
-        binder: String,
-    },
-    /// Delete all rows of the table.
-    Clear {
-        table: String,
-    },
-    /// Load the variable `name` from the environment into the destination register.
-    Variable {
-        name: String,
-        dest: usize,
-    },
-    /// Insert a row into a table.
-    Insert { table: String, row: Row },
     ///
     /// Drop
     ///   * table   : table to drop
     ///
     /// Description:
     ///   Invokes the catalog to drop the given table.
-    /// 
+    ///
     /// Consider replacing with a `Delete` instruction on the catalog table.
     ///
     Drop { table: String },
+    /// Insert a row into a table.
+    Insert { table: String, row: Row },
+    /// JSON Path Index
+    ///   * idx     : index to lookup
+    ///   * inp     : operand register
+    ///   * dest    : result register
+    Jpi {
+        idx: usize,
+        inp: usize,
+        dest: usize,
+    },
+    /// JSON Path Key
+    ///   * key     : key to lookup
+    ///   * inp     : input register
+    ///   * dest    : result register
+    Jpk {
+        key: String,
+        inp: usize,
+        dest: usize,
+    },
     ///
     /// Obj
-    ///   * ptr     : register count for the row start.
-    ///   * members : member names.
-    /// 
-    /// Description:
-    ///   Construct an object with members { members[i]: mem[ptr + i] } for i in members.
-    ///   The result is stored in the register at ptr.
-    /// 
-    Obj {
-        ptr: usize,
-        members: Vec<String>,
+    ///   * members : key:register pairs.
+    ///   * dest    : result register.
+    ///
+    /// TODO use contiguous memory // two-pass for objects!!
+    ///
+    Obj { 
+        members: Vec<(String, usize)>,
+        dest: usize,
     },
     /// Returns the value in register `ptr`.
-    Return {
-        ptr: usize,
-    },
+    Return { ptr: usize },
     ///
     /// Rewind
     ///  * jmp  :   jump location
-    /// 
+    ///
     /// Description:
     ///   Set cursor to the start; jump to `jmp` if the table is empty.
-    /// 
-    Rewind {
-        jmp: usize,
-    },
+    ///
+    Rewind { jmp: usize },
     ///
     /// Next
     ///  * jmp  :   jump location
@@ -98,21 +100,20 @@ pub enum Vop {
     /// Description:
     ///   Produces a row by spreading all structs in the environment into the result.
     ///   Non-struct values are omitted, and members may be overridden.
-    /// 
-    Spread {
-        dest: usize,
-    },
+    ///
+    Spread { dest: usize },
     /// Opens a table for reading with the cursor positioned at the first row.
-    Open { 
+    Open {
         /// TODO replace table with cursor.
         table: String,
     },
+    /// Load the variable `name` from the environment into the destination register.
+    Var { name: String, dest: usize },
     /// Exit the VM.
     Exit,
 }
 
 impl Vop {
-
     #[inline]
     pub fn exit() -> Vop {
         Vop::Exit
@@ -120,12 +121,17 @@ impl Vop {
 
     #[inline]
     pub fn bind(binder: &str) -> Vop {
-        Vop::Bind { cursor: 0, binder: binder.to_string() }
+        Vop::Bind {
+            cursor: 0,
+            binder: binder.to_string(),
+        }
     }
 
     #[inline]
     pub fn clear(table: &str) -> Vop {
-        Vop::Clear { table: table.to_string() }
+        Vop::Clear {
+            table: table.to_string(),
+        }
     }
 
     #[inline]
@@ -154,8 +160,8 @@ impl Vop {
     }
 
     #[inline]
-    pub fn obj(ptr: usize, members: Vec<String>) -> Vop {
-        Vop::Obj { ptr, members }
+    pub fn obj(members: Vec<(String, usize)>, dest: usize) -> Vop {
+        Vop::Obj { members, dest }
     }
 
     #[inline]
@@ -177,8 +183,17 @@ impl Vop {
 
     #[inline]
     pub fn var(name: &str, dest: usize) -> Vop {
-        Vop::Variable {
+        Vop::Var {
             name: name.to_string(),
+            dest,
+        }
+    }
+
+    #[inline]
+    pub fn jpk(key: &str, inp: usize, dest: usize) -> Vop {
+        Vop::Jpk {
+            key: key.to_string(),
+            inp,
             dest,
         }
     }
@@ -211,15 +226,6 @@ impl Env {
         }
     }
 
-    /// Returns this [Env] as a [JValue] object.
-    pub fn to_obj(&self) -> JValue {
-        let mut members = serde_json::Map::new();
-        for (k, v) in &self.bindings {
-            members.insert(k.to_string(), v.clone().into());
-        }
-        Value::Object(members).into()
-    }
-
     /// Produces a row by spreading all structs in the environment into the result.
     pub fn spread(&self) -> JValue {
         let mut members = serde_json::Map::new();
@@ -247,9 +253,7 @@ pub struct VM<'a> {
 }
 
 impl<'a> VM<'a> {
-
     pub fn init(db: &Rho, program: Program) -> VM {
-
         // temporary (??)
         let mut mem: Vmem = vec![];
         mem.resize(100, JValue::null());
@@ -271,10 +275,10 @@ impl<'a> VM<'a> {
             match op {
                 Vop::Init => {
                     // do nothing (for now)
-                },
+                }
                 Vop::Clear { table } => {
                     self.db.clear(table)?;
-                },
+                }
                 Vop::CreateTable { table } => {
                     self.db.create_table(table)?;
                 }
@@ -283,11 +287,21 @@ impl<'a> VM<'a> {
                     let row = self.cursor.row();
                     self.env.set(&binder, row);
                 }
+                Vop::Drop { table } => {
+                    self.db.drop_table(table)?;
+                }
+                Vop::Jpi { .. } => {
+                    //
+                    todo!("Vop::Index")
+                }
                 Vop::Insert { table, row } => {
                     self.db.insert(table, row.clone())?;
                 }
-                Vop::Drop { table } => {
-                    self.db.drop_table(table)?;
+                Vop::Jpk { key, inp, dest } => {
+                    self.mem[*dest] = match self.mem[*inp].get(key) {
+                        Some(v) => v,
+                        None => JValue::null(),
+                    };
                 }
                 Vop::Open { table } => {
                     // TEMP – load all into the fake "cursor"
@@ -297,21 +311,20 @@ impl<'a> VM<'a> {
                 Vop::Return { ptr } => {
                     let v = self.mem[*ptr].clone();
                     return Ok(Some(v));
-                },
+                }
                 Vop::Rewind { jmp } => {
                     if self.cursor.is_empty() {
                         self.pc = *jmp;
                     }
                 }
-                Vop::Obj { ptr, members: keys } => {
-                    let mut members = serde_json::Map::new();
-                    for (i, k) in keys.iter().enumerate() {
-                        let o = *ptr + i;
-                        let v = self.mem[o].clone();
+                Vop::Obj { members, dest } => {
+                    let mut map = serde_json::Map::new();
+                    for (k, v) in members {
+                        let v = self.mem[*v].clone();
                         let k = k.clone();
-                        members.insert(k, v.into());
+                        map.insert(k, v.into());
                     }
-                    self.mem[*ptr] = Value::Object(members).into();
+                    self.mem[*dest] = Value::Object(map).into();
                 }
                 Vop::Spread { dest } => {
                     self.mem[*dest] = self.env.spread();
@@ -321,12 +334,12 @@ impl<'a> VM<'a> {
                         self.pc = *jmp;
                     }
                 }
-                Vop::Variable { name, dest } => {
+                Vop::Var { name, dest } => {
                     self.mem[*dest] = self.env.get(name);
-                },
+                }
                 Vop::Exit => {
                     return Ok(None);
-                },
+                }
             }
         }
     }
@@ -383,4 +396,3 @@ impl Vcursor {
         self.rows[self.pos].clone()
     }
 }
-

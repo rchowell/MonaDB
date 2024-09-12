@@ -10,15 +10,11 @@ use crate::{
 
 use sqlparser::{
     ast::{
-        self, ArrayElemTypeDef, DataType, ExactNumberInfo, ObjectName, Select, SelectItem,
-        Statement, TableFactor, TableWithJoins,
+        self, ArrayElemTypeDef, BinaryOperator, DataType, ExactNumberInfo, ObjectName, Select,
+        SelectItem, Statement, TableFactor, TableWithJoins,
     },
     dialect::SQLiteDialect,
 };
-
-// Parsing context.
-// For now `true` => root statement.
-type Context = bool;
 
 /// This currently delegates to the sqlparser crate.
 ///
@@ -31,16 +27,16 @@ type Context = bool;
 ///
 pub struct Parser<'comp, 'cat> {
     compiler: &'comp mut Compiler<'cat>,
-    context: Context,
+    return_: bool,
 }
 
 impl<'comp, 'cat> Parser<'comp, 'cat> {
     /// Create a new parser with a reference to the compiler.
     pub fn new(compiler: &'comp mut Compiler<'cat>) -> Parser<'comp, 'cat> {
-        Parser { 
+        Parser {
             compiler,
-            context: true,
-         }
+            return_: true,
+        }
     }
 
     /// Parse the RQL query and invoke the compiler routines to build the program.
@@ -131,9 +127,8 @@ impl<'comp, 'cat> Parser<'comp, 'cat> {
     /// Parse a set expression – i.e. SELECT or UNION|INTERSECT|EXCEPT.
     ///
     fn parse_set_expr(&mut self, set_expr: &ast::SetExpr) -> Result<()> {
-        use ast::SetExpr::*;
         match set_expr {
-            Select(select) => self.parse_select(select),
+            ast::SetExpr::Select(select) => self.parse_select(select),
             _ => unsupported!("set_expr {:?}", set_expr),
         }
     }
@@ -144,63 +139,50 @@ impl<'comp, 'cat> Parser<'comp, 'cat> {
     ///     SELECT <select list> FROM <table>
     ///
     fn parse_select(&mut self, select: &ast::Select) -> Result<()> {
+        // check context
+        let return_ = self.return_;
+        self.return_ = false;
+
         // process FROM before SELECT
-        let ctx = self.context;
         let jmp = self.parse_from(&select.from)?;
 
         // TODO other clauses...
 
         // process SELECT list
-        if is_select_star(select) {
-            self.compiler.spread();
+        let dest = if is_select_star(select) {
+            self.compiler.spread()
         } else {
-            self.parse_select_list(&select.projection)?;
-        }
+            self.parse_select_list(&select.projection)?
+        };
 
         // If at root ctx, then add a return instruction.
-        if ctx {
-            self.compiler.return_(0);
+        if return_ {
+            self.compiler.return_(dest);
         }
 
         // emit next and patch the loop
         self.compiler.next(jmp)
     }
 
-    /// Parse the SELECT list.
+    /// Parse the SELECT list into an object.
     ///
     /// SYNTAX:
     ///     <expr> AS <name> [, <expr> AS <name>]*
     ///     
-    fn parse_select_list(&mut self, items: &Vec<SelectItem>) -> Result<()> {
-        // allocate obj registers
-        let n = items.len();
-        let ptr = self.compiler.alloc(n);
-        let mut dest = ptr;
-        let mut members: Vec<String> = vec![];
-        // compile expressions
+    fn parse_select_list(&mut self, items: &Vec<SelectItem>) -> Result<usize> {
+        let mut members: Vec<(String, usize)> = vec![];
         for item in items {
             let (expr, alias) = match item {
-                SelectItem::UnnamedExpr(expr) => {
-                    if let ast::Expr::Identifier(alias) = expr {
-                        (expr, alias)
-                    } else {
-                        unsupported!("SELECT item must have an AS alias")
-                    }
-                }
-                SelectItem::QualifiedWildcard(_, _) => unsupported!("qualified wildcard"),
-                SelectItem::Wildcard(_) => {
-                    unreachable!("wildcard should be handled by is_select_star")
-                }
                 SelectItem::ExprWithAlias { expr, alias } => (expr, alias),
+                SelectItem::UnnamedExpr(expr) => derive_alias(expr)?,
+                SelectItem::QualifiedWildcard(_, _) => unsupported!("qualified wildcard"),
+                SelectItem::Wildcard(_) => unreachable!("wildcard"),
             };
-            self.parse_expr(expr, dest)?;
-            members.push(alias.value.clone());
-            dest += 1;
+            let k = alias.value.to_string();
+            let v = self.parse_expr(expr)?;
+            members.push((k, v));
         }
-        // construct obj and free the old registers.
-        self.compiler.obj(ptr, members);
-        self.compiler.free(n - 1);
-        Ok(())
+        Ok(self.compiler.obj(members))
     }
 
     /// Parse the FROM clause.
@@ -274,17 +256,33 @@ impl<'comp, 'cat> Parser<'comp, 'cat> {
         self.compiler.insert(table, value)
     }
 
-    /// Parse an expression
-    fn parse_expr(&mut self, expr: &ast::Expr, dest: usize) -> Result<()> {
+    /// Parse an expression – placing the result in the dest.
+    fn parse_expr(&mut self, expr: &ast::Expr) -> Result<usize> {
         use ast::Expr::*;
-        match expr {
-            Identifier(id) => self.compiler.var(&id.value, dest),
-            CompoundIdentifier(_) => {
-                todo!("path expressions")
+        let dest = match expr {
+            Identifier(id) => {
+                //
+                self.compiler.var(&id.value)
+            }
+            CompoundIdentifier(ids) => {
+                let mut dst = self.compiler.var(&ids[0].value);
+                for key in ids[1..].iter() {
+                    dst = self.compiler.json_path_key(dst, &key.value)
+                }
+                dst
+            }
+            BinaryOp { left, op, right } => {
+                let lhs = self.parse_expr(left)?;
+                let rhs = self.parse_expr(right)?;
+                if *op != BinaryOperator::Plus {
+                    unsupported!("binary operators")
+                }
+                // self.compiler.plus(lhs, rhs)
+                todo!("plus({}, {})", lhs, rhs)
             }
             _ => unsupported!("Unsupported expression {:?}", expr),
-        }
-        Ok(())
+        };
+        Ok(dest)
     }
 
     /// Parse a data type into a Rho Type, see `value::Type`.
@@ -417,4 +415,18 @@ pub fn parse_table(rql: &str) -> Result<Table> {
 /// Returns true on SELECT *
 fn is_select_star(select: &Select) -> bool {
     select.projection.len() == 1 && matches!(select.projection[0], SelectItem::Wildcard(_))
+}
+
+/// Derive an alias
+/// 
+/// 1. Single identifier, then the alias is that identifier
+/// 2. Path expression, then the alias the final identifier
+/// 
+fn derive_alias(expr: &ast::Expr) -> Result<(&ast::Expr, &ast::Ident)> {
+    let alias = match expr {
+        ast::Expr::Identifier(alias) => alias,
+        ast::Expr::CompoundIdentifier(ids) => ids.last().unwrap(),
+        _ => unsupported!("SELECT item must have an AS alias")
+    };
+    Ok((expr, alias))
 }
