@@ -58,8 +58,17 @@ impl JValue {
         }
     }
 
-    /// Returns a copy of the value at the key (or none)
-    pub fn get(&self, key: &str) -> Option<JValue> {
+    /// JSON Path Index
+    pub fn jpi(&self, index: usize) -> Option<JValue> {
+        if let Value::Array(values) = &self.0 {
+            values.get(index).map(|v| JValue::new(v.clone()))
+        } else {
+            None
+        }
+    }
+
+    /// JSON Path Key
+    pub fn jpk(&self, key: &str) -> Option<JValue> {
         if let Value::Object(members) = &self.0 {
             members.get(key).map(|v| JValue::new(v.clone()))
         } else {

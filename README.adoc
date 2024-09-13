@@ -62,20 +62,10 @@ For September, I would like to have the CRUD operations working and start the RQ
 ** [x] SELECT <cols>
 * [x] The VM should be an iterator with a `next()` method.
 * [ ] Path expressions.
-** [x] JSON Path key
-** [ ] JSON Path index
+** [x] JSON Path key (literals)
+** [x] JSON Path index (literals)
 ** [ ] JSON Path documentation
 * [ ] Row pointers.
 * [ ] Fix bug when table has exactly one value.
 
 === G3 Oct 2024
-
-_PLACEHOLDER_
-
-.How to compile an object...
-. keys = []
-. For each expression .. compile, push key, set dest to 0 +
-. Push an object instruction for 0..n
-
-.Questions
-* When can I free?

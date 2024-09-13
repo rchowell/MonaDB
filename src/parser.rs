@@ -13,7 +13,7 @@ use sqlparser::{
         self, ArrayElemTypeDef, BinaryOperator, DataType, ExactNumberInfo, ObjectName, Select,
         SelectItem, Statement, TableFactor, TableWithJoins,
     },
-    dialect::SQLiteDialect,
+    dialect::GenericDialect,
 };
 
 /// This currently delegates to the sqlparser crate.
@@ -59,7 +59,7 @@ impl<'comp, 'cat> Parser<'comp, 'cat> {
     }
 
     fn parse_statement(rql: &str) -> Result<Statement> {
-        let dialect = SQLiteDialect {};
+        let dialect = GenericDialect {};
         let stmts = sqlparser::parser::Parser::parse_sql(&dialect, &rql)?;
         let stmt = match stmts.len() {
             1 => stmts[0].clone(),
@@ -271,6 +271,19 @@ impl<'comp, 'cat> Parser<'comp, 'cat> {
                 }
                 dst
             }
+            Nested(expr) => self.parse_expr(expr)?,
+            MapAccess { column, keys } => {
+                let column = self.parse_expr(column)?;
+                todo!("map access({}, {:?})", column, keys)
+            }
+            Subscript { expr, subscript } => {
+                let operand = self.parse_expr(expr)?;
+                let index = match subscript.as_ref() {
+                    ast::Subscript::Index { index } => parse_lit(index)?,
+                    _ => unsupported!("Unsupported subscript, expected index"),
+                };
+                self.compiler.json_path_index(operand, index)
+            }
             BinaryOp { left, op, right } => {
                 let lhs = self.parse_expr(left)?;
                 let rhs = self.parse_expr(right)?;
@@ -429,4 +442,16 @@ fn derive_alias(expr: &ast::Expr) -> Result<(&ast::Expr, &ast::Ident)> {
         _ => unsupported!("SELECT item must have an AS alias")
     };
     Ok((expr, alias))
+}
+
+/// Parse a literal into a usize, else error.
+fn parse_lit(expr: &ast::Expr) -> Result<usize> {
+    use ast::Expr::*;
+    match expr {
+        Value(value) => match value {
+            ast::Value::Number(n, _) => Ok(n.parse().unwrap()),
+            _ => unsupported!("Expected number literal"),
+        },
+        _ => unsupported!("Expected literal"),
+    }
 }

@@ -26,7 +26,6 @@ pub struct Compiler<'cat> {
     catalog: &'cat Catalog,
     program: Program,
     ptr: usize,
-
     // scope information
     // scope_dest: usize,
     // scope_size: usize,
@@ -82,11 +81,11 @@ impl<'cat> Compiler<'cat> {
         Ok(self.pc())
     }
 
-    /// Loop 
-    /// 
+    /// Loop
+    ///
     /// 1. Emit a `Vop::Next` with jmp to start of loop.
     /// 2. Patch the rewind instruction BEFORE the loop.
-    /// 
+    ///
     pub fn next(&mut self, jmp: usize) -> Result<()> {
         self.push(Vop::next(jmp));
         self.patch(jmp - 1, self.pc() + 1)?;
@@ -128,7 +127,14 @@ impl<'cat> Compiler<'cat> {
         dest
     }
 
-    /// JSONPath Key
+    /// JSON Path Index
+    pub fn json_path_index(&mut self, operand: usize, index: usize) -> usize {
+        let dest = self.alloc(1);
+        self.push(Vop::jpi(operand, index, dest));
+        dest
+    }
+
+    /// JSON Path Key
     pub fn json_path_key(&mut self, operand: usize, key: &str) -> usize {
         let dest = self.alloc(1);
         self.push(Vop::jpk(&key, operand, dest));

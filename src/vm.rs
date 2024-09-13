@@ -197,6 +197,15 @@ impl Vop {
             dest,
         }
     }
+
+    #[inline]
+    pub fn jpi(inp: usize, idx: usize, dest: usize) -> Vop {
+        Vop::Jpi {
+            idx,
+            inp,
+            dest,
+        }
+    }
 }
 
 /// The bindings environment.
@@ -290,15 +299,17 @@ impl<'a> VM<'a> {
                 Vop::Drop { table } => {
                     self.db.drop_table(table)?;
                 }
-                Vop::Jpi { .. } => {
-                    //
-                    todo!("Vop::Index")
-                }
                 Vop::Insert { table, row } => {
                     self.db.insert(table, row.clone())?;
                 }
+                Vop::Jpi { inp, idx, dest } => {
+                    self.mem[*dest] = match self.mem[*inp].jpi(*idx) {
+                        Some(v) => v,
+                        None => JValue::null(),
+                    };
+                }
                 Vop::Jpk { key, inp, dest } => {
-                    self.mem[*dest] = match self.mem[*inp].get(key) {
+                    self.mem[*dest] = match self.mem[*inp].jpk(key) {
                         Some(v) => v,
                         None => JValue::null(),
                     };
