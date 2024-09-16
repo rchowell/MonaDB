@@ -381,11 +381,7 @@ impl Vcursor {
     /// Create a cursor over the vector of rows.
     pub fn new(rows: Vec<Row>) -> Self {
         let pos = 0;
-        let len = rows.len();
-        let end = match len {
-            0 => 0,
-            _ => len - 1,
-        };
+        let end = rows.len();
         Self { rows, pos, end }
     }
 
@@ -394,12 +390,8 @@ impl Vcursor {
     }
 
     pub fn next(&mut self) -> bool {
-        if self.pos < self.end {
-            self.pos += 1;
-            true
-        } else {
-            false
-        }
+        self.pos += 1;
+        self.pos < self.end
     }
 
     #[inline]

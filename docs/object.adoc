@@ -1,0 +1,44 @@
+= Object Constructor
+
+An *object constructor* is zero or more pairs of member names and associated values, enclosed in curly braces (`{}`).
+
+.Example
+[source,rql]
+----
+{
+  a: 1 + 2,
+  b: uppercase("hello"),
+  c: { x: 1, y: 2 },
+}
+----
+
+== Syntax
+
+[source,mckeeman]
+----
+object
+    '{' ws '}'
+    '{' members '}'
+
+members
+    member
+    member ',' members
+
+member
+    ws key ws ':' element
+
+key
+    name
+    string
+
+element
+    ws expr ws
+
+name
+    utf8 // no surrogate or noncharacter code points
+----
+
+== Description
+
+An object constructor is an expression that describes the initialization of an Object. Objects consist of members, which are used to describe an object. The values of object members can either contain primitive data types or other objects.
+

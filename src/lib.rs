@@ -3,10 +3,18 @@ pub mod error;
 pub mod table;
 pub mod value;
 
+// lalrpop module
+lalrpop_mod!(
+    #[allow(clippy::ptr_arg)]
+    #[rustfmt::skip]
+    pub parser
+);
+
 // internal modules
+mod block;
 mod catalog;
 mod compiler;
-mod parser;
+mod sqlparser;
 mod vm;
 
 use std::cell::RefCell;
@@ -16,6 +24,7 @@ use std::result;
 use compiler::Compiler;
 use error::Error;
 use catalog::Catalog;
+use lalrpop_util::lalrpop_mod;
 use table::Table;
 use value::Row;
 
@@ -48,6 +57,9 @@ impl Rho {
     pub fn prepare(&self, rql: &str) -> Result<Program> {
         let catalog = self.catalog.borrow();
         let compiler = Compiler::new(&catalog);
+        // TEMP
+        // compiler.compile2(rql);
+        // Err(Error::Unsupported("compile2".to_string()))
         compiler.compile(rql)
     }
 

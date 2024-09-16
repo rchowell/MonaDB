@@ -1,0 +1,261 @@
+== Questions
+- Is the environment is ordered?
+- Why not compile to Lua or SQLite bytecode? (missing operations eventual perf??)
+- Look into macros vs inline functions (premature??).
+- Consider using the top-level function name as the alias name
+- What about top-level single values and subquery coercion?
+- Consider multiple backends (SQLite, Redis, Rho file, Rho memory).
+
+== Usage
+
+I would like rho to be a library with several applications:
+
+- Library like sqlite.
+- Server like Redis.
+- CLI tool like jq/awk/other.
+- Shell like sqlite repl.
+
+== Catalog
+
+The catalog provides all access to schemas and tables. It is backed by sqlite so that I do not have to implement the storage backend .. yet.
+
+.Operations
+- create_table
+- drop(table)
+- clear(table)
+- insert(table, value)
+
+== Types
+
+* Object
+* String
+* Number
+* Boolean
+
+> See link:https://www.json.org/json-en.html[JSON Reference]
+
+.Notes
+- Consider prefixing with _ to avoid conflicts with user tables.
+- Beam has link:https://github.com/apache/beam/tree/master/sdks/java/testing/tpcds/src/main/resources/schemas[TPC schemas as Avro JSON].
+
+== Appendices
+
+=== Appendix I – JSON
+
+[source]
+----
+json
+   element
+
+value
+   object
+   array
+   string
+   number
+   "true"
+   "false"
+   "null"
+
+object
+    '{' ws '}'
+    '{' members '}'
+
+members
+    member
+    member ',' members
+
+member
+    ws string ws ':' element
+
+array
+    '[' ws ']'
+    '[' elements ']'
+
+elements
+    element
+    element ',' elements
+
+element
+    ws value ws
+
+string
+    '"' characters '"'
+
+characters
+    ""
+    character characters
+
+character
+    '0020' . '10FFFF' - '"' - '\'
+'\' escape
+
+escape
+    '"'
+    '\'
+    '/'
+    'b'
+    'f'
+    'n'
+    'r'
+    't'
+    'u' hex hex hex hex
+
+hex
+    digit
+    'A' . 'F'
+    'a' . 'f'
+
+number
+    integer fraction exponent
+
+integer
+    digit
+    onenine digits
+    '-' digit
+    '-' onenine digits
+
+digits
+    digit
+    digit digits
+
+digit
+    '0'
+    onenine
+
+onenine
+    '1' . '9'
+
+fraction
+    ""
+    '.' digits
+
+exponent
+    ""
+    'E' sign digits
+    'e' sign digits
+
+sign
+    ""
+    '+'
+    '-'
+
+ws
+    ""
+    '0020' ws
+    '000A' ws
+    '000D' ws
+    '0009' ws
+----
+
+=== Appendx II – I-JSON
+
+> TL;DR: I-JSON messages are "JSON texts" with the interoperability constraints of RFC 7159.
+
+.Constraints
+. Encoded as UTF-8.
+. Numbers SHOULD NOT exceed IEEE 754 64-bit and integers should fit in ~53-bits.
+. For bigger numbers, it is RECOMMENDED to encode them in JSON strings.
+. Objects MUST NOT have duplicate member names.
+. It is RECOMMENDED that timestamps are ISO 8601 strings and durations conform to RFC 3339.
+. It is RECOMMENDED that binary data is encoded as base64url.
+
+=== Appendix III – JSONPath
+
+.Summary
+[cols="1m,1",options="header"]
+|===
+| Syntax | Description
+
+| $
+| Root node identifier
+
+| @
+| Current node identifier (valid only in filters)
+
+| [<selectors>]
+| Selects zero or more children of a node
+
+| .name
+| Shorthand for ['name']
+
+| .*
+| Shortcut for [*]
+
+| ..[<selectors>]
+| Selects zero or more descendents of a node
+
+| ..name
+| Shorthand for ..['name']
+
+| ..*
+| Shortcut for ..[*]
+
+| 'name'
+| Name selector
+
+| *
+| Wildcard selector (all children of node)
+
+| <number>
+| Index selector (0-indexed)
+
+| [start:end:step]
+| Slice selector (step is optional)
+
+| ?<expression>
+| Filter selector
+
+| func(...)
+| Function extension
+
+|===
+
+.Questions
+. Do I _have_ to support all of JSONPath?
+. In which context does JSONPath make sense?
+. Consider the $ optional.
+. JSON Path uses single quote strings whereas RQL uses double quote strings because JSON uses double quote strings.
+. What about expressions in selectors?
+. Is it possible to only have one set of pathing semantics?
+
+== File Format (RHO2)
+
+_This section will describe the file format._
+
+For now, ignore a db header and let's focus on a single table.
+
+.Header
+|===
+| Offset | Size | Description
+| 0      | 3    | "RHO"
+| 3      | 4    | i64 version
+| 7      | 4    | i64 page size
+|===
+
+.Notes
+- Should probably store as BSON or CBOR?
+
+== Schemas
+
+_This section will describe how tables schemas are stored and modified._
+
+Schemas are stored in a table called _catalog_ defined by the following RQL (SQL-ish).
+
+[source,sql]
+----
+CREATE TABLE catalog (
+    kind string,    /* TABLE, VIEW, INDEX, etc. */
+    name string,    /* Object name */
+    rql string,     /* Object schema */
+    ptr number,     /* Pointer to root table page */
+)
+----
+
+== Brainstorming
+
+- Website with playground and dead simple language documentation.
+- REPL
+- Insert semantics?
+    - If you insert an object into a "closed" table, the extra fields are ignored.
+    - If you insert an object into an "open" table, the extra fields are stored in a hidden object column.
+- Optimizations such as page compaction.

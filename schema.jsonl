@@ -1,3 +1,0 @@
-{ "type": "table", "name": "customer", "rql": "CREATE TABLE customer (c_customer_id string)", "ptr": 0  }
-{ "type": "table", "name": "store", "rql": "CREATE TABLE store (s_store_id string)", "ptr": 2  }
-{ "type": "table", "name": "item", "rql": "CREATE TABLE item (i_item_id string)", "ptr": 3  }

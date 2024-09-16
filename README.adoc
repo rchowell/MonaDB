@@ -7,13 +7,11 @@ What if SQLite were a xref:DESIGN.adoc[JSON Database]?
 _This section contains a list of features/ideas that are not yet implemented._
 
 .Uncategorized
-* [ ] Standardize naming of bindings/attributes/fields/members including rows/objs/tables/etc.
 * [ ] Testing framework, dbgen, performance and language comparison to jq and sqlite jsonb.
 * [ ] UPDATE and conditional DELETE (needs row pointers)
-* [ ] The cursor should be an iterator over the sqlite connection.
-* [ ] Cleanup the VM and VOP factoring with some consistent naming.
 * [ ] Can I merge parser and compiler // how should the responsibility be split.
 * [ ] Error on duplicate keys.
+* [ ] Row pointers (why?).
 
 .Shell
 * [ ] Better error messages.
@@ -61,11 +59,16 @@ For September, I would like to have the CRUD operations working and start the RQ
 ** [x] SELECT *
 ** [x] SELECT <cols>
 * [x] The VM should be an iterator with a `next()` method.
-* [ ] Path expressions.
+* [x] Path expressions.
 ** [x] JSON Path key (literals)
 ** [x] JSON Path index (literals)
-** [ ] JSON Path documentation
-* [ ] Row pointers.
-* [ ] Fix bug when table has exactly one value.
+** [x] JSON Path documentation
+* [x] Fix bug when table has exactly one value.
 
 === G3 Oct 2024
+
+.Goals
+* [ ] Removal of sqlparser
+* [ ] The cursor should be an iterator over the sqlite connection.
+* [ ] Cleanup the VM and VOP factoring with some consistent naming.
+* [ ] Standardize naming of bindings/attributes/fields/members including rows/objs/tables/etc.

@@ -1,7 +1,8 @@
 use std::borrow::BorrowMut;
 
 use crate::catalog::Catalog;
-use crate::parser::Parser;
+use crate::parser::RqlParser;
+use crate::sqlparser::Parser;
 use crate::table::Table;
 use crate::value::Row;
 use crate::{Program, Result, Vop};
@@ -38,6 +39,17 @@ impl<'cat> Compiler<'cat> {
             program: vec![],
             ptr: 0,
         }
+    }
+
+    // for debugging/testing lalrpop at the moment...
+    pub fn compile2(mut self, rql: &str) -> Result<Program> {
+        let parser = RqlParser::new();
+        parser.parse(rql).unwrap();
+
+        // TODO
+        self.push(Vop::init());
+        self.push(Vop::exit());
+        Ok(self.program)
     }
 
     pub fn compile(mut self, rql: &str) -> Result<Program> {

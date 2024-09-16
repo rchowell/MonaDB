@@ -1,0 +1,56 @@
+use std::str::FromStr;
+use lalrpop_util::ParseError;
+use crate::error::Error;
+use crate::compiler::Compiler;
+use crate::block::Block;
+
+grammar;
+
+extern {
+    type Error = Error;
+}
+
+pub Rql = Statement ";";
+
+Statement: () = {
+    Select,
+    Insert,
+    Delete,
+};
+
+Select: () = "SELECT" <cols:List<Name>> "FROM" <table:Name> => { 
+    // let _ = compiler.hello("select");
+    let b = Block { cols, table };
+    println!("{:?}", b);
+};
+
+// TODO
+Insert: () = "INSERT" "INTO" <table:Name> "VALUES" => {
+    println!("parse insert");
+};
+
+// TODO
+Delete: () = "DELETE" "FROM" <table:Name> => {
+    println!("parse delete");
+};
+
+//------------------------------
+// TOKENS
+//------------------------------
+
+Name: String = r"[a-zA-Z_][a-zA-Z0-9_]*" => String::from_str(<>).unwrap();
+
+//------------------------------
+// MACROS
+//------------------------------
+
+// List of comma separated elements T.
+List<T>: Vec<T> = {
+    <mut v:(<T> ",")*> <e:T?> => match e {
+        None => v,
+        Some(e) => {
+            v.push(e);
+            v
+        }
+    }
+};

@@ -1,0 +1,84 @@
+== RQL
+
+_This section will describe the RQL language._
+
+RQL is SQL (ish).
+
+.Notes
+- When deciding on language features, I will lean on JS and Lua before SQL.
+- No implicit variable names (??)
+- No implicit column references.
+
+=== Statements
+
+.CREATE TABLE
+[source,sql]
+----
+CREATE TABLE <table::name> (
+    <column::name> <column::type>,
+    ...
+);
+
+CREATE TABLE example (
+    a VALUE,
+    b VALUE,
+);
+----
+
+.DROP TABLE
+[source,sql]
+----
+DROP TABLE <table::name>;
+----
+
+=== Query
+
+==== SELECT
+
+[source]
+----
+<select> := SELECT <item> [, <item>]* [<FROM>]
+
+<item>
+    := <variable>
+     | <expr> AS <alias>
+
+----
+
+.Rules
+1. If a select item is a variable with no alias, the variable name is used as the alias.
+
+[source]
+----
+<expr>
+    := <variable>
+     | <value>
+
+<variable> := <identifier>
+
+<value> := <json>
+----
+
+=== Values
+
+Values are just JSON.
+
+.Values
+[source,ebnf]
+----
+json ...
+----
+
+=== Types
+
+.Types
+[source,sql]
+----
+type
+  : BOOLEAN
+  | NUMBER
+  | STRING
+  | ARRAY
+  | OBJECT
+  | ANY
+----

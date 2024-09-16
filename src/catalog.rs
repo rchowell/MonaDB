@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    error::Error, parser, table::{self, Table}, value::Row, Result
+    error::Error, sqlparser, table::{self, Table}, value::Row, Result
 };
 use rusqlite::{named_params, Connection};
 
@@ -125,7 +125,7 @@ impl Catalog {
         while let Some(row) = rows.next()? {
             let name: String = row.get(0)?;
             let rql: String = row.get(1)?;
-            let table = parser::parse_table(&rql)?;
+            let table = sqlparser::parse_table(&rql)?;
             if table.name != name {
                 return Err(Error::Unknown("Table name mismatch".to_string()));
             }

@@ -1,0 +1,19 @@
+= Select Statement
+
+.Example
+[source,rql]
+----
+select p.x, p.y from points as p;
+----
+
+== Syntax
+
+[source,mckeeman]
+----
+select_statement
+    "select" select_list "from" table_name ws alias?
+
+select_list
+    name
+    name "," select_list
+----
