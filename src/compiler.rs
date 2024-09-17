@@ -42,12 +42,12 @@ impl<'cat> Compiler<'cat> {
 
     pub fn compile(mut self, rql: &str) -> Result<Program> {
         self.push(Vop::init());
-        match parse(rql)? {
-            Statement::Select(select) => self.cc_select(&select),
+        match &parse(rql)? {
+            Statement::Delete(delete) => self.cc_delete(delete),
+            Statement::Drop(drop) => self.cc_drop(drop),
             Statement::Insert(_) => todo!(),
-            Statement::Update(_) => todo!(),
-            Statement::Delete(_) => todo!(),
-        }?;
+            Statement::Select(select) => self.cc_select(select)?,
+        };
         self.push(Vop::exit());
         Ok(self.program)
     }
@@ -61,6 +61,14 @@ impl<'cat> Compiler<'cat> {
         }
         self.push(Vop::exit());
         Ok(self.program)
+    }
+
+    pub fn cc_drop(&mut self, table: &str) {
+        self.push(Vop::drop(table));
+    }
+
+    pub fn cc_delete(&mut self, table: &str) {
+        self.push(Vop::clear(table));
     }
 
     fn cc_select(&mut self, select: &Select) -> Result<()> {
@@ -99,22 +107,12 @@ impl<'cat> Compiler<'cat> {
         }
     }
 
-    /// PUsh a `Vop::Clear` instruction.
-    pub fn clear(&mut self, table: &str) {
-        self.push(Vop::clear(table));
-    }
-
     /// Push a `Vop::CreateTable` instruction.
     pub fn create_table(&mut self, table: Table) -> Result<()> {
         self.push(Vop::create_table(table));
         Ok(())
     }
 
-    /// Push a `Vop::Drop` instruction.
-    pub fn drop(&mut self, table: String) -> Result<()> {
-        self.push(Vop::drop(table));
-        Ok(())
-    }
 
     /// Push a `Vop::Insert` instruction.
     pub fn insert(&mut self, table: String, row: Row) -> Result<()> {

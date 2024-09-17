@@ -1,9 +1,9 @@
 #[derive(Debug)]
 pub enum Statement {
-    Select(Select),
+    Delete(String),
+    Drop(String),
     Insert(()),
-    Update(()),
-    Delete(()),
+    Select(Select),
 }
 
 /// SELECT <sel> ...

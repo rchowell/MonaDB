@@ -7,8 +7,9 @@ use crate::ir;
 grammar;
 
 // goals
+//  xx select col1, col2, ...
 //  select *
-//  select col1, col2, ...
+//  drop table <tbl>
 //  delete from <tbl>
 //  insert into <tbl> values '...'
 
@@ -19,9 +20,10 @@ extern {
 pub Rql = <Statement> ";";
 
 Statement: ir::Statement = {
-    Select => ir::Statement::Select(<>),
-    Insert => ir::Statement::Insert(<>),
-    Delete => ir::Statement::Delete(<>),
+    Select  => ir::Statement::Select(<>),
+    Insert  => ir::Statement::Insert(<>),
+    Delete  => ir::Statement::Delete(<>),
+    Drop    => ir::Statement::Drop(<>),
 };
 
 Select: ir::Select = "SELECT" <sel:SelectList> <inp:From> => { 
@@ -64,11 +66,12 @@ Insert: () = "INSERT" "INTO" <table:Name> "VALUES" => {
     println!("parse insert");
 };
 
-// TODO
-Delete: () = "DELETE" "FROM" <table:Name> => {
-    println!("parse delete");
-};
+// KISS
+Delete: String = "DELETE" "FROM" <Name>;
 
+// KISS
+Drop: String = "DROP" "TABLE" <Name>;
+ 
 Alias: String = "AS" <Name>;
 
 //------------------------------

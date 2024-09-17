@@ -129,9 +129,7 @@ impl Vop {
 
     #[inline]
     pub fn clear(table: &str) -> Vop {
-        Vop::Clear {
-            table: table.to_string(),
-        }
+        Vop::Clear { table: table.to_string() }
     }
 
     #[inline]
@@ -140,8 +138,8 @@ impl Vop {
     }
 
     #[inline]
-    pub fn drop(table: String) -> Vop {
-        Vop::Drop { table }
+    pub fn drop(table: &str) -> Vop {
+        Vop::Drop { table: table.to_string() }
     }
 
     #[inline]

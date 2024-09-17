@@ -111,7 +111,7 @@ impl<'comp, 'cat> Parser<'comp, 'cat> {
             }
         };
         let (table, _) = self.parse_table(table)?;
-        self.compiler.clear(&table);
+        self.compiler.cc_delete(&table);
 
         Ok(())
     }
@@ -230,7 +230,8 @@ impl<'comp, 'cat> Parser<'comp, 'cat> {
     ///
     fn parse_drop_table(&mut self, name: ObjectName) -> Result<()> {
         let table = name.to_string();
-        self.compiler.drop(table)
+        self.compiler.cc_drop(&table);
+        Ok(())
     }
 
     /// Parse an INSERT statement.
