@@ -2,7 +2,7 @@ use std::str::FromStr;
 use lalrpop_util::ParseError;
 use crate::error::Error;
 use crate::compiler::Compiler;
-use crate::block::Block;
+use crate::ir;
 
 grammar;
 
@@ -10,19 +10,40 @@ extern {
     type Error = Error;
 }
 
-pub Rql = Statement ";";
+pub Rql = <Statement> ";";
 
-Statement: () = {
-    Select,
-    Insert,
-    Delete,
+Statement: ir::Statement = {
+    Select => ir::Statement::Select(<>),
+    Insert => ir::Statement::Insert(<>),
+    Delete => ir::Statement::Delete(<>),
 };
 
-Select: () = "SELECT" <cols:List<Name>> "FROM" <table:Name> => { 
-    // let _ = compiler.hello("select");
-    let b = Block { cols, table };
-    println!("{:?}", b);
+Select: ir::Select = "SELECT" <sel:SelectList> <inp:From> => { 
+    ir::Select { 
+        sel,
+        inp,
+    }
 };
+
+SelectList: Vec<ir::Item> = List<SelectItem>;
+
+SelectItem: ir::Item = <col:Name> "AS" <var:Name> => {
+    ir::Item {
+        rex: ir::Rex::Col(col),
+        var,
+    }
+};
+
+From: ir::From = {
+    "FROM" <tbl:Name> => {
+        let tbl = tbl;
+        let var = tbl.clone();
+        ir::From { tbl, var }
+    },
+    "FROM" <tbl:Name> "AS" <var:Name> => {
+        ir::From { tbl, var }
+    },
+}
 
 // TODO
 Insert: () = "INSERT" "INTO" <table:Name> "VALUES" => {
@@ -33,6 +54,8 @@ Insert: () = "INSERT" "INTO" <table:Name> "VALUES" => {
 Delete: () = "DELETE" "FROM" <table:Name> => {
     println!("parse delete");
 };
+
+Alias: String = "AS" <Name>;
 
 //------------------------------
 // TOKENS

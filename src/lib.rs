@@ -11,9 +11,9 @@ lalrpop_mod!(
 );
 
 // internal modules
-mod block;
 mod catalog;
 mod compiler;
+mod ir;
 mod sqlparser;
 mod vm;
 
@@ -58,9 +58,9 @@ impl Rho {
         let catalog = self.catalog.borrow();
         let compiler = Compiler::new(&catalog);
         // TEMP
+        compiler.compile(rql)
         // compiler.compile2(rql);
         // Err(Error::Unsupported("compile2".to_string()))
-        compiler.compile(rql)
     }
 
     pub fn exec(&mut self, rql: &str) -> Result<()> {
@@ -110,5 +110,18 @@ impl Rho {
     // TODO TEMPORARY – REMOVE ME ??
     pub fn select(&self, table: &str) -> Result<Vec<Row>> {
         self.catalog.borrow_mut().scan(table)
+    }
+}
+
+mod test {
+
+    use super::*;
+
+    #[test]
+    fn test_rho() {
+        let input = "SELECT a AS b FROM foo;";
+        let parser = parser::RqlParser::new();
+        let stmt = parser.parse(input).unwrap();
+        println!("{:?}", stmt);
     }
 }
