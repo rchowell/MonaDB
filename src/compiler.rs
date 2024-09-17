@@ -1,11 +1,12 @@
 use std::borrow::BorrowMut;
-
+use std::vec;
 use crate::catalog::Catalog;
 use crate::parser::RqlParser;
 use crate::sqlparser::Parser;
 use crate::table::Table;
 use crate::value::Row;
 use crate::{Program, Result, Vop};
+use crate::ir::*;
 
 #[macro_export]
 macro_rules! unsupported {
@@ -15,9 +16,7 @@ macro_rules! unsupported {
     }}
 }
 
-/// Compiler produces OP codes from the RQL query.
-///
-/// It holds the necessary context to build instructions from the parse tree.
+/// Compiler translates RQL queries to Vops.
 ///
 /// References
 /// - https://github.com/lua/lua/blob/v5.4/lparser.c
@@ -41,18 +40,20 @@ impl<'cat> Compiler<'cat> {
         }
     }
 
-    // for debugging/testing lalrpop at the moment...
-    pub fn compile2(mut self, rql: &str) -> Result<Program> {
-        let parser = RqlParser::new();
-        parser.parse(rql).unwrap();
-
-        // TODO
+    pub fn compile(mut self, rql: &str) -> Result<Program> {
         self.push(Vop::init());
+        match parse(rql)? {
+            Statement::Select(select) => self.cc_select(&select),
+            Statement::Insert(_) => todo!(),
+            Statement::Update(_) => todo!(),
+            Statement::Delete(_) => todo!(),
+        }?;
         self.push(Vop::exit());
         Ok(self.program)
     }
 
-    pub fn compile(mut self, rql: &str) -> Result<Program> {
+    // TODO REMOVE ME
+    pub fn compile_old(mut self, rql: &str) -> Result<Program> {
         self.push(Vop::init());
         {
             let mut parser = Parser::new(self.borrow_mut());
@@ -60,6 +61,42 @@ impl<'cat> Compiler<'cat> {
         }
         self.push(Vop::exit());
         Ok(self.program)
+    }
+
+    fn cc_select(&mut self, select: &Select) -> Result<()> {
+        let jmp = self.cc_from(&select.inp)?;
+        let dst = self.cc_obj(&select.sel)?;
+        self.return_(dst);
+        self.next(jmp) // <-- loop and patch jmp
+    }
+
+    fn cc_from(&mut self, from: &From) -> Result<usize> {
+        let tbl = &from.tbl;
+        let var = &from.var;
+        self.open(tbl, var)
+    }
+
+    fn cc_obj(&mut self, members: &Vec<Member>) -> Result<usize> {
+        let dst = self.alloc(1);
+        let mut mem: Vec<(String, usize)> = vec![];
+        for m in members {
+            let k = m.var.clone();
+            let v = self.cc_rex(&m.rex)?;
+            mem.push((k, v));
+        }
+        self.push(Vop::obj(mem, dst));
+        Ok(dst)
+    }
+
+    /// Compile an expression and return its destination register.
+    fn cc_rex(&mut self, rex: &Rex) -> Result<usize> {
+        match rex {
+            Rex::Col(col) => Ok(self.var(col)),
+            Rex::Lit(_) => todo!(),
+            Rex::Obj(_) => todo!(),
+            Rex::Jpi { .. } => todo!(),
+            Rex::Jpk { .. } => todo!(),
+        }
     }
 
     /// PUsh a `Vop::Clear` instruction.
@@ -86,10 +123,10 @@ impl<'cat> Compiler<'cat> {
     }
 
     /// Push a `Vop::Open` for the given table, scan into the binding, and return the pc.
-    pub fn open_scan(&mut self, table: &str, alias: &str) -> Result<usize> {
-        self.push(Vop::open(table));
+    pub fn open(&mut self, tbl: &str, var: &str) -> Result<usize> {
+        self.push(Vop::open(tbl));
         self.push(Vop::rewind(0)); // <-- PATCH ME
-        self.push(Vop::bind(alias));
+        self.push(Vop::bind(var));
         Ok(self.pc())
     }
 
@@ -176,4 +213,11 @@ impl<'cat> Compiler<'cat> {
     fn push(&mut self, op: Vop) {
         self.program.push(op);
     }
+}
+
+/// Parse the RQL query into the IR.
+fn parse(rql: &str) -> Result<Statement> {
+    let rp = RqlParser::new();
+    let ir = rp.parse(rql).unwrap();
+    Ok(ir)
 }

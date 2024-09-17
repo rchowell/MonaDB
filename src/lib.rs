@@ -57,10 +57,7 @@ impl Rho {
     pub fn prepare(&self, rql: &str) -> Result<Program> {
         let catalog = self.catalog.borrow();
         let compiler = Compiler::new(&catalog);
-        // TEMP
         compiler.compile(rql)
-        // compiler.compile2(rql);
-        // Err(Error::Unsupported("compile2".to_string()))
     }
 
     pub fn exec(&mut self, rql: &str) -> Result<()> {

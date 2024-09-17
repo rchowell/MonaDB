@@ -205,7 +205,7 @@ impl<'comp, 'cat> Parser<'comp, 'cat> {
 
         // open table and bind row into alias.
         let (table, alias) = self.parse_table(from)?;
-        self.compiler.open_scan(&table, &alias)
+        self.compiler.open(&table, &alias)
     }
 
     /// Parse a [TableWithJoins] to a (name,alias) pair;

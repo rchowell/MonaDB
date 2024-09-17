@@ -10,7 +10,7 @@ pub enum Statement {
 #[derive(Debug)]
 pub struct Select {
     pub inp: From,
-    pub sel: Vec<Item>,
+    pub sel: Vec<Member>,
 }
 
 /// FROM <tbl> AS <var>
@@ -22,7 +22,7 @@ pub struct From {
 
 /// <rex> AS <var>
 #[derive(Debug)]
-pub struct Item {
+pub struct Member {
     pub rex: Rex,
     pub var: String,
 }
@@ -31,6 +31,7 @@ pub struct Item {
 pub enum Rex {
     Col(String),
     Lit(String),
+    Obj(Vec<Member>),
     Jpi { inp: RexRef, idx: usize },
     Jpk { inp: RexRef, key: String },
 }

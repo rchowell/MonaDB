@@ -6,6 +6,12 @@ use crate::ir;
 
 grammar;
 
+// goals
+//  select *
+//  select col1, col2, ...
+//  delete from <tbl>
+//  insert into <tbl> values '...'
+
 extern {
     type Error = Error;
 }
@@ -25,14 +31,22 @@ Select: ir::Select = "SELECT" <sel:SelectList> <inp:From> => {
     }
 };
 
-SelectList: Vec<ir::Item> = List<SelectItem>;
+SelectList: Vec<ir::Member> = List<SelectMember>;
 
-SelectItem: ir::Item = <col:Name> "AS" <var:Name> => {
-    ir::Item {
-        rex: ir::Rex::Col(col),
-        var,
-    }
-};
+SelectMember: ir::Member = {
+    <col:Name> => {
+        ir::Member {
+            rex: ir::Rex::Col(col.clone()),
+            var: col.clone(),
+        }
+    },
+    <col:Name> "AS" <var:Name> => {
+        ir::Member {
+            rex: ir::Rex::Col(col),
+            var,
+        }
+    },
+}
 
 From: ir::From = {
     "FROM" <tbl:Name> => {
