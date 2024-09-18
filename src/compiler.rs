@@ -63,6 +63,30 @@ impl<'cat> Compiler<'cat> {
         Ok(self.program)
     }
 
+    /// "Allocates" n registers and returns a pointer to the first register.
+    pub fn alloc(&mut self, n: usize) -> usize {
+        let curr = self.ptr;
+        self.ptr = curr + n;
+        curr
+    }
+
+    /// Free n registers.
+    pub fn free(&mut self, n: usize) {
+        self.ptr -= n;
+    }
+
+    /// Return current pc index.
+    #[inline]
+    fn pc(&self) -> usize {
+        self.program.len() - 1
+    }
+
+    /// Push an instruction to the program.
+    #[inline]
+    fn push(&mut self, op: Vop) {
+        self.program.push(op);
+    }
+
     pub fn cc_drop(&mut self, table: &str) {
         self.push(Vop::drop(table));
     }
@@ -73,7 +97,7 @@ impl<'cat> Compiler<'cat> {
 
     fn cc_select(&mut self, select: &Select) -> Result<()> {
         let jmp = self.cc_from(&select.inp)?;
-        let dst = self.cc_obj(&select.sel)?;
+        let dst = self.cc_expr_obj(&select.sel)?;
         self.return_(dst);
         self.next(jmp) // <-- loop and patch jmp
     }
@@ -84,36 +108,11 @@ impl<'cat> Compiler<'cat> {
         self.open(tbl, var)
     }
 
-    fn cc_obj(&mut self, members: &Vec<Member>) -> Result<usize> {
-        let dst = self.alloc(1);
-        let mut mem: Vec<(String, usize)> = vec![];
-        for m in members {
-            let k = m.key.clone();
-            let v = self.cc_rex(&m.val)?;
-            mem.push((k, v));
-        }
-        self.push(Vop::obj(mem, dst));
-        Ok(dst)
-    }
-
-    /// Compile an expression and return its destination register.
-    fn cc_rex(&mut self, rex: &Rex) -> Result<usize> {
-        match rex {
-            Rex::Var(col) => Ok(self.var(col)),
-            Rex::Lit(_) => todo!(),
-            Rex::Obj(_) => todo!(),
-            Rex::Jpi { .. } => todo!(),
-            Rex::Jpk { .. } => todo!(),
-            Rex::Spread(_) => todo!(),
-        }
-    }
-
     /// Push a `Vop::CreateTable` instruction.
     pub fn create_table(&mut self, table: Table) -> Result<()> {
         self.push(Vop::create_table(table));
         Ok(())
     }
-
 
     /// Push a `Vop::Insert` instruction.
     pub fn insert(&mut self, table: String, row: Row) -> Result<()> {
@@ -189,28 +188,39 @@ impl<'cat> Compiler<'cat> {
         dest
     }
 
-    /// "Allocates" n registers and returns a pointer to the first register.
-    pub fn alloc(&mut self, n: usize) -> usize {
-        let curr = self.ptr;
-        self.ptr = curr + n;
-        curr
+    //------------------------------
+    // EXPRESSIONS
+    //------------------------------
+
+    fn cc_expr(&mut self, expr: &Expr) -> Result<usize> {
+        match expr {
+            Expr::Var(col) => Ok(self.var(col)),
+            Expr::Lit(_) => todo!(),
+            Expr::Obj(obj) => self.cc_expr_obj(obj),
+            Expr::Jpi(jpi) => self.cc_expr_jpi(jpi),
+            Expr::Jpk { .. } => todo!(),
+            Expr::Spread(_) => todo!(),
+        }
     }
 
-    /// Free n registers.
-    pub fn free(&mut self, n: usize) {
-        self.ptr -= n;
+    fn cc_expr_obj(&mut self, members: &Obj) -> Result<usize> {
+        let dst = self.alloc(1);
+        let mut mem: Vec<(String, usize)> = vec![];
+        for m in members {
+            let k = m.key.clone();
+            let v = self.cc_expr(&m.val)?;
+            mem.push((k, v));
+        }
+        self.push(Vop::obj(mem, dst));
+        Ok(dst)
     }
 
-    /// Return current pc index.
-    #[inline]
-    fn pc(&self) -> usize {
-        self.program.len() - 1
-    }
-
-    /// Push an instruction to the program.
-    #[inline]
-    fn push(&mut self, op: Vop) {
-        self.program.push(op);
+    fn cc_expr_jpi(&mut self, jpi: &Jpi) -> Result<usize> {
+        let inp = self.cc_expr(&jpi.inp)?;
+        let idx = jpi.idx;
+        let dst = self.alloc(1);
+        self.push(Vop::jpi(inp, idx, dst));
+        Ok(dst)
     }
 }
 

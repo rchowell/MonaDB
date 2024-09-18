@@ -31,21 +31,15 @@ Select: ir::Select = {
     "SELECT" <sel:SelectList> <inp:From>    => ir::select_list(inp, sel),
 };
 
-SelectList: Vec<ir::Member> = List<SelectMember>;
+SelectList: Vec<ir::Member> = List<SelectItem>;
 
-SelectMember: ir::Member = {
+SelectItem: ir::Member = {
     <var:Name> => {
-        ir::Member {
-            key: var.clone(),
-            val: ir::Rex::Var(var.clone()),
-        }
+        let key = var.clone();
+        let val = ir::expr_var(var);
+        ir::member(key, val)
     },
-    <var:Name> "AS" <key:Name> => {
-        ir::Member {
-            key,
-            val: ir::Rex::Var(var),
-        }
-    },
+    <val:Expr> "AS" <key:Name> => ir::member(key, val),
 }
 
 From: ir::From = {
@@ -73,10 +67,21 @@ Drop: String = "DROP" "TABLE" <Name>;
 Alias: String = "AS" <Name>;
 
 //------------------------------
+// EXPRESSIONS
+//------------------------------
+
+Expr: ir::Expr = {
+    <var:Name>                      => ir::expr_var(var),
+    <inp:Expr> "[" <idx:Num> "]"    => ir::expr_jpi(inp, idx),
+    "(" <inp:Expr> ")"              => inp,
+};
+
+//------------------------------
 // TOKENS
 //------------------------------
 
 Name: String = r"[a-zA-Z_][a-zA-Z0-9_]*" => String::from_str(<>).unwrap();
+Num: usize = r"[0-9]+" => usize::from_str(<>).unwrap();
 
 //------------------------------
 // MACROS
