@@ -7,10 +7,10 @@ use crate::ir;
 grammar;
 
 // goals
-//  xx select col1, col2, ...
-//  select *
-//  drop table <tbl>
-//  delete from <tbl>
+//  xx select var1, var2, ...
+//  xx select *
+//  xx drop table <tbl>
+//  xx delete from <tbl>
 //  insert into <tbl> values '...'
 
 extern {
@@ -26,26 +26,24 @@ Statement: ir::Statement = {
     Drop    => ir::Statement::Drop(<>),
 };
 
-Select: ir::Select = "SELECT" <sel:SelectList> <inp:From> => { 
-    ir::Select { 
-        sel,
-        inp,
-    }
+Select: ir::Select = {
+    "SELECT" "*"              <inp:From>    => ir::select_star(inp),
+    "SELECT" <sel:SelectList> <inp:From>    => ir::select_list(inp, sel),
 };
 
 SelectList: Vec<ir::Member> = List<SelectMember>;
 
 SelectMember: ir::Member = {
-    <col:Name> => {
+    <var:Name> => {
         ir::Member {
-            rex: ir::Rex::Col(col.clone()),
-            var: col.clone(),
+            key: var.clone(),
+            val: ir::Rex::Var(var.clone()),
         }
     },
-    <col:Name> "AS" <var:Name> => {
+    <var:Name> "AS" <key:Name> => {
         ir::Member {
-            rex: ir::Rex::Col(col),
-            var,
+            key,
+            val: ir::Rex::Var(var),
         }
     },
 }

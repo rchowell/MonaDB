@@ -88,8 +88,8 @@ impl<'cat> Compiler<'cat> {
         let dst = self.alloc(1);
         let mut mem: Vec<(String, usize)> = vec![];
         for m in members {
-            let k = m.var.clone();
-            let v = self.cc_rex(&m.rex)?;
+            let k = m.key.clone();
+            let v = self.cc_rex(&m.val)?;
             mem.push((k, v));
         }
         self.push(Vop::obj(mem, dst));
@@ -99,11 +99,12 @@ impl<'cat> Compiler<'cat> {
     /// Compile an expression and return its destination register.
     fn cc_rex(&mut self, rex: &Rex) -> Result<usize> {
         match rex {
-            Rex::Col(col) => Ok(self.var(col)),
+            Rex::Var(col) => Ok(self.var(col)),
             Rex::Lit(_) => todo!(),
             Rex::Obj(_) => todo!(),
             Rex::Jpi { .. } => todo!(),
             Rex::Jpk { .. } => todo!(),
+            Rex::Spread(_) => todo!(),
         }
     }
 
