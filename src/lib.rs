@@ -1,6 +1,5 @@
 // public modules
 pub mod error;
-pub mod table;
 pub mod value;
 
 // lalrpop module
@@ -14,7 +13,6 @@ lalrpop_mod!(
 mod catalog;
 mod compiler;
 mod ir;
-mod sqlparser;
 mod vm;
 
 use std::cell::RefCell;
@@ -24,8 +22,8 @@ use std::result;
 use compiler::Compiler;
 use error::Error;
 use catalog::Catalog;
+use ir::Table;
 use lalrpop_util::lalrpop_mod;
-use table::Table;
 use value::Row;
 
 use crate::vm::*;

@@ -11,6 +11,7 @@ grammar;
 //  xx select *
 //  xx drop table <tbl>
 //  xx delete from <tbl>
+//  create table <tbl> (var1 type, var2 type, ...)
 //  insert into <tbl> values '...'
 
 extern {
@@ -20,15 +21,24 @@ extern {
 pub Rql = <Statement> ";";
 
 Statement: ir::Statement = {
-    Select  => ir::Statement::Select(<>),
-    Insert  => ir::Statement::Insert(<>),
+    Create  => ir::Statement::Create(<>),
     Delete  => ir::Statement::Delete(<>),
     Drop    => ir::Statement::Drop(<>),
+    Insert  => ir::Statement::Insert(<>),
+    Select  => ir::Statement::Select(<>),
 };
 
+Create: ir::Create = {
+    "create" "table" <Name> "(" <TableMembers> ")" => ir::create_table(<>)
+};
+
+TableMembers: Vec<ir::TableMember> = List<TableMember>;
+
+TableMember: ir::TableMember = <Name> <Type> => ir::table_member(<>);
+
 Select: ir::Select = {
-    "SELECT" "*"              <inp:From>    => ir::select_star(inp),
-    "SELECT" <sel:SelectList> <inp:From>    => ir::select_list(inp, sel),
+    "select" "*"          <From>    => ir::select_star(<>),
+    "select" <SelectList> <From>    => ir::select_list(<>),
 };
 
 SelectList: Vec<ir::Member> = List<SelectItem>;
@@ -39,42 +49,60 @@ SelectItem: ir::Member = {
         let val = ir::expr_var(var);
         ir::member(key, val)
     },
-    <val:Expr> "AS" <key:Name> => ir::member(key, val),
+    <val:Expr> "as" <key:Name> => ir::member(key, val),
 }
 
 From: ir::From = {
-    "FROM" <tbl:Name> => {
+    "from" <tbl:Name> => {
         let tbl = tbl;
         let var = tbl.clone();
         ir::From { tbl, var }
     },
-    "FROM" <tbl:Name> "AS" <var:Name> => {
+    "from" <tbl:Name> "as" <var:Name> => {
         ir::From { tbl, var }
     },
 }
 
 // TODO
-Insert: () = "INSERT" "INTO" <table:Name> "VALUES" => {
+Insert: () = "insert" "into" <table:Name> "values" => {
     println!("parse insert");
 };
 
 // KISS
-Delete: String = "DELETE" "FROM" <Name>;
+Delete: String = "delete" "from" <Name>;
 
 // KISS
-Drop: String = "DROP" "TABLE" <Name>;
+Drop: String = "drop" "table" <Name>;
  
-Alias: String = "AS" <Name>;
+Alias: String = "as" <Name>;
+
+//------------------------------
+// TYPES
+//------------------------------
+
+Type: ir::Type = {
+    "bool"      => ir::Type::Bool,
+    "number"    => ir::Type::Number,
+    "string"    => ir::Type::String,
+    "object"    => ir::Type::Object,
+    "array"     => ir::Type::Array,
+    "any"       => ir::Type::Any,
+};
 
 //------------------------------
 // EXPRESSIONS
 //------------------------------
 
 Expr: ir::Expr = {
-    <var:Name>                      => ir::expr_var(var),
-    <inp:Expr> "[" <idx:Num> "]"    => ir::expr_jpi(inp, idx),
-    "(" <inp:Expr> ")"              => inp,
+    <Name>                  => ir::expr_var(<>),
+    <Expr> "[" <Num> "]"    => ir::expr_jpi(<>),
+    "{" <Members> "}"       => ir::expr_obj(<>),
+    "(" <Expr> ")"          => <>,
 };
+
+Members: Vec<ir::Member> = List<Member>;
+
+Member: ir::Member = <Name> ":" <Expr> => ir::member(<>);
 
 //------------------------------
 // TOKENS

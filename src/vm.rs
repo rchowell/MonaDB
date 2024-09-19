@@ -3,9 +3,10 @@ use std::vec;
 
 use serde_json::Value;
 
+use crate::ir::Table;
 use crate::value::JValue;
 use crate::Result;
-use crate::{table::Table, value::Row, Rho};
+use crate::{value::Row, Rho};
 
 /// Program is a sequence of virtual machine instructions.
 pub type Program = Vec<Vop>;

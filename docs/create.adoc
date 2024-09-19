@@ -1,0 +1,38 @@
+= Create Statement
+
+.Example
+[source,rql]
+----
+create table points (
+    x number,
+    y number,
+);
+----
+
+== Syntax
+
+[source,mckeeman]
+----
+create_table
+    "create" "table" table_name "(" table_members ")"
+
+table_members
+    table_member
+    table_members table_member
+
+table_member
+    member_name member_type
+
+member_name
+    name
+
+member_type
+    type
+
+type
+    "boolean" // bool
+    "number"  // num
+    "string"  // str
+    "object"  // obj
+    "array"   // arr
+----

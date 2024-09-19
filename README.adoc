@@ -12,6 +12,8 @@ _This section contains a list of features/ideas that are not yet implemented._
 * [ ] Can I merge parser and compiler // how should the responsibility be split.
 * [ ] Error on duplicate keys.
 * [ ] Row pointers (why?).
+* [ ] Language documentation should have links to other grammar rules.
+* [ ] Explore pro's / con's of typed arrays.
 
 .Shell
 * [ ] Better error messages.

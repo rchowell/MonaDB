@@ -1,0 +1,38 @@
+= Insert Statement
+
+.Example
+[source,rql]
+----
+insert into points { x: 1, y: 2 };
+
+insert into points [
+    { x: 1, y: 2 },
+    { x: 3, y: 4 },
+];
+----
+
+== Syntax
+
+[source,mckeeman]
+----
+insert
+    "insert" "into" insert_target insert_source
+
+insert_target
+    table_name
+
+insert_source
+    insert_value
+    insert_values
+    insert_query
+
+insert_value
+    expr_object
+
+insert_values
+    "[" insert_values_list "]"
+
+insert_values_list
+    insert_value
+    insert_values_list "," insert_value
+----

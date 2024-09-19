@@ -1,9 +1,6 @@
-use std::borrow::BorrowMut;
 use std::vec;
 use crate::catalog::Catalog;
 use crate::parser::RqlParser;
-use crate::sqlparser::Parser;
-use crate::table::Table;
 use crate::value::Row;
 use crate::{Program, Result, Vop};
 use crate::ir::*;
@@ -25,10 +22,7 @@ macro_rules! unsupported {
 pub struct Compiler<'cat> {
     catalog: &'cat Catalog,
     program: Program,
-    ptr: usize,
-    // scope information
-    // scope_dest: usize,
-    // scope_size: usize,
+    ptr: usize, // <- next register
 }
 
 impl<'cat> Compiler<'cat> {
@@ -43,22 +37,12 @@ impl<'cat> Compiler<'cat> {
     pub fn compile(mut self, rql: &str) -> Result<Program> {
         self.push(Vop::init());
         match &parse(rql)? {
+            Statement::Create(create) => self.cc_create(create)?,
             Statement::Delete(delete) => self.cc_delete(delete),
             Statement::Drop(drop) => self.cc_drop(drop),
-            Statement::Insert(_) => todo!(),
+            Statement::Insert(_) => todo!("isnert statement"),
             Statement::Select(select) => self.cc_select(select)?,
         };
-        self.push(Vop::exit());
-        Ok(self.program)
-    }
-
-    // TODO REMOVE ME
-    pub fn compile_old(mut self, rql: &str) -> Result<Program> {
-        self.push(Vop::init());
-        {
-            let mut parser = Parser::new(self.borrow_mut());
-            parser.parse(rql)?;
-        }
         self.push(Vop::exit());
         Ok(self.program)
     }
@@ -85,6 +69,13 @@ impl<'cat> Compiler<'cat> {
     #[inline]
     fn push(&mut self, op: Vop) {
         self.program.push(op);
+    }
+
+    pub fn cc_create(&mut self, create: &Create) -> Result<()> {
+        match create {
+            Create::Table(table) => self.push(Vop::create_table(table.clone()))
+        }
+        Ok(())
     }
 
     pub fn cc_drop(&mut self, table: &str) {

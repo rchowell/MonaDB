@@ -1,7 +1,7 @@
 use std::env;
 use std::path::PathBuf;
 
-use rho::{table::{Schema, Table}, value::JValue, Rho};
+use rho::{value::JValue, Rho};
 use rustyline::{error::ReadlineError, history::DefaultHistory, validate::{ValidationContext, ValidationResult, Validator}, Completer, Config, EditMode, Editor, Helper, Highlighter, Hinter};
 
 use clap::{Parser, Subcommand};
@@ -147,9 +147,9 @@ fn main() {
                     break;
                 }
                 Command::Create { table } => {
-                    let schema = Schema::empty();
-                    let table = Table::new(table, schema);
-                    rho.create_table(&table).expect("Could not create table");
+                    // this would require table being public
+                    // what can I do differently?
+                    todo!("create table {}", table);
                 },
                 Command::Insert { table, value } => {
                     let row = JValue::from_str(&value).expect("Could not parse row");

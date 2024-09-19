@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    error::Error, sqlparser, table::{self, Table}, value::Row, Result
+    error::Error, ir::Table, parser::RqlParser, value::Row, Result
 };
 use rusqlite::{named_params, Connection};
 
@@ -124,8 +124,8 @@ impl Catalog {
         let mut tables = HashMap::new();
         while let Some(row) = rows.next()? {
             let name: String = row.get(0)?;
-            let rql: String = row.get(1)?;
-            let table = sqlparser::parse_table(&rql)?;
+            let ddl: String = row.get(1)?;
+            let table = parse_table(&ddl)?;
             if table.name != name {
                 return Err(Error::Unknown("Table name mismatch".to_string()));
             }
@@ -149,7 +149,7 @@ impl Debug for Catalog {
 }
 
 mod sql {
-    use crate::table::Table;
+    use crate::ir::Table;
 
     pub const SYNC: &str = "SELECT name, rql FROM catalog;";
 
@@ -162,16 +162,29 @@ mod sql {
     }
 }
 
+fn parse_table(ddl: &str) -> Result<Table> {
+    use crate::ir::*;
+    if let Statement::Create(Create::Table(table)) = RqlParser::new().parse(ddl)? {
+        Ok(table)
+    } else {
+        Err(Error::Unknown("Expected CREATE TABLE statement".to_string()))
+    }
+}
+
 mod tests {
-    use super::*;
-    use rusqlite::Connection;
-    use table::Schema;
+    use crate::{catalog::Catalog, ir::{self, Table, Type}};
 
     #[test]
     fn test_catalog() {
         let mut catalog = Catalog::memory().unwrap();
-        let schema = Schema::empty();
-        let table = Table::new("foo".to_string(), schema);
+        let table = Table {
+            name: "foo".to_string(),
+            members: vec![
+                ir::table_member("id".into(), Type::Number),
+                ir::table_member("name".into(), Type::String),
+            ],
+        };
+        println!("{}", table);
         catalog.create_table(&table).unwrap();
         let table = catalog.load_table("foo").unwrap();
         assert_eq!(table.name, "foo");
