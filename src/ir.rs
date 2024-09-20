@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::value::JValue;
+use crate::{unsupported, value::JValue};
 
 //------------------------------
 // Statements
@@ -157,6 +157,31 @@ pub fn select_list(members: Vec<Member>, from: From) -> Select {
     }
 }
 
+pub fn select_item_no_alias(val: Expr) -> Member {
+    let key = match &val {
+        Expr::Var(var) => var.clone(),
+        Expr::Jpk(jpk) => jpk.key.clone(),
+        _ => panic!("select_item_no_alias: {:?}", val),
+    };
+    select_item(val, key)
+}
+
+#[inline]
+pub fn select_item(val: Expr, key: String) -> Member {
+    Member { key, val }
+}
+
+#[inline]
+pub fn from_no_alias(tbl: String) -> From {
+    let var = tbl.clone();
+    From { tbl, var }
+}
+
+#[inline]
+pub fn from(tbl: String, var: String) -> From {
+    From { tbl, var }
+}
+
 #[inline]
 pub fn member(key: String, val: Expr) -> Member {
     Member { key, val }
@@ -195,9 +220,9 @@ pub fn expr_jpi(inp: Expr, idx: usize) -> Expr {
 }
 
 #[inline]
-pub fn expr_jpk(inp: Expr, key: &str) -> Expr {
+pub fn expr_jpk(inp: Expr, key: String) -> Expr {
     Expr::Jpk(Jpk {
         inp: Box::new(inp),
-        key: key.to_string(),
+        key,
     })
 }

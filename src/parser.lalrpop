@@ -36,24 +36,13 @@ Select: ir::Select = {
 SelectList: Vec<ir::Member> = List<SelectItem>;
 
 SelectItem: ir::Member = {
-    <var:Name> => {
-        let key = var.clone();
-        let val = ir::expr_var(var);
-        ir::member(key, val)
-    },
-    <val:Expr> "as" <key:Name> => ir::member(key, val),
+    <Expr>              => ir::select_item_no_alias(<>),
+    <Expr> "as" <Name>  => ir::select_item(<>),
 }
 
-// TODO move logic out of grammar
 From: ir::From = {
-    "from" <tbl:Name> => {
-        let tbl = tbl;
-        let var = tbl.clone();
-        ir::From { tbl, var }
-    },
-    "from" <tbl:Name> "as" <var:Name> => {
-        ir::From { tbl, var }
-    },
+    "from" <Name>               => ir::from_no_alias(<>),
+    "from" <Name> "as" <Name>   => ir::from(<>)
 }
 
 Insert: ir::Insert = {
@@ -104,6 +93,7 @@ Expr: ir::Expr = {
     Name                    => ir::expr_var(<>),
     Number                  => ir::expr_number(<>), 
     <Expr> "[" <Number> "]" => ir::expr_jpi(<>),
+    <Expr> "." <Name>       => ir::expr_jpk(<>),
     "{" <Members> "}"       => ir::expr_obj(<>),
     "(" <Expr> ")"          => <>,
 };

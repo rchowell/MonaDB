@@ -9,7 +9,6 @@ _This section contains a list of features/ideas that are not yet implemented._
 .Uncategorized
 * [ ] Testing framework, dbgen, performance and language comparison to jq and sqlite jsonb.
 * [ ] UPDATE and conditional DELETE (needs row pointers)
-* [ ] Can I merge parser and compiler // how should the responsibility be split.
 * [ ] Error on duplicate keys.
 * [ ] Row pointers (why?).
 * [ ] Language documentation should have links to other grammar rules.
@@ -22,7 +21,6 @@ _This section contains a list of features/ideas that are not yet implemented._
 
 .Optimizations (??)
 * [ ] Common factors i.e. check to see if value exists in a register.
-* [ ] Store rows as sqlite jsonb.
 
 == Worklog
 
@@ -66,6 +64,8 @@ For September, I would like to have the CRUD operations working and start the RQ
 ** [x] JSON Path index (literals)
 ** [x] JSON Path documentation
 * [x] Fix bug when table has exactly one value.
+* [x] Store rows as sqlite jsonb.
+* [x] (DONT) Can I merge parser and compiler // how should the responsibility be split.
 
 === G3 Oct 2024
 

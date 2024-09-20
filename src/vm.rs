@@ -54,14 +54,14 @@ pub enum Vop {
     },
     /// JSON Path Index
     Jpi { 
-        idx: usize,
         inp: usize,
+        idx: usize,
         dst: usize,
     },
     /// JSON Path Key
     Jpk {
-        key: String,
         inp: usize,
+        key: String,
         dst: usize,
     },
     ///
@@ -190,17 +190,13 @@ impl Vop {
     }
 
     #[inline]
-    pub fn jpk(key: &str, inp: usize, dest: usize) -> Vop {
-        Vop::Jpk {
-            key: key.to_string(),
-            inp,
-            dst: dest,
-        }
+    pub fn jpk(inp: usize, key: String, dst: usize) -> Vop {
+        Vop::Jpk { inp, key, dst }
     }
 
     #[inline]
-    pub fn jpi(inp: usize, idx: usize, dest: usize) -> Vop {
-        Vop::Jpi { idx, inp, dst: dest }
+    pub fn jpi(inp: usize, idx: usize, dst: usize) -> Vop {
+        Vop::Jpi { idx, inp, dst }
     }
 }
 

@@ -52,7 +52,8 @@ impl From<ParseError<usize, Token<'_>, Error>> for Error {
             }
             ParseError::UnrecognizedToken { token, expected } => {
                 // expected something different
-                err_syntax(&format!("unexpected token at {:?}, expected {:?}", token.0, expected))
+                let expected = expected.join(", ");
+                err_syntax(&format!("unexpected token at {:?}, expected {}", token.0, expected))
             },
             ParseError::ExtraToken { token } => {
                 // unexpected

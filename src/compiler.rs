@@ -1,7 +1,7 @@
 use std::vec;
 use crate::catalog::Catalog;
 use crate::parser::RqlParser;
-use crate::value::{JValue, Row};
+use crate::value::JValue;
 use crate::{Program, Result, Vop};
 use crate::ir::*;
 
@@ -143,41 +143,6 @@ impl<'cat> Compiler<'cat> {
         Ok(())
     }
 
-    /// Push a `Vop::Row` instruction for SELECT *.
-    fn spread(&mut self) -> usize {
-        let dest = self.alloc(1);
-        self.push(Vop::spread(dest));
-        dest
-    }
-
-    /// Push a `Vop::Obj` instruction.
-    fn obj(&mut self, members: Vec<(String, usize)>) -> usize {
-        let dest = self.alloc(1);
-        self.push(Vop::obj(members, dest));
-        dest
-    }
-
-    /// Push a `Vop::Var` instruction.
-    fn var(&mut self, name: String) -> usize {
-        let dest = self.alloc(1);
-        self.push(Vop::var(name, dest));
-        dest
-    }
-
-    /// JSON Path Index
-    fn json_path_index(&mut self, operand: usize, index: usize) -> usize {
-        let dest = self.alloc(1);
-        self.push(Vop::jpi(operand, index, dest));
-        dest
-    }
-
-    /// JSON Path Key
-    fn json_path_key(&mut self, operand: usize, key: &str) -> usize {
-        let dest = self.alloc(1);
-        self.push(Vop::jpk(&key, operand, dest));
-        dest
-    }
-
     //------------------------------
     // EXPRESSIONS
     //------------------------------
@@ -188,7 +153,7 @@ impl<'cat> Compiler<'cat> {
             Expr::Val(val) => self.cc_expr_val(val),
             Expr::Obj(obj) => self.cc_expr_obj(obj),
             Expr::Jpi(jpi) => self.cc_expr_jpi(jpi),
-            Expr::Jpk { .. } => todo!(),
+            Expr::Jpk(jpk) => self.cc_expr_jpk(jpk),
             Expr::Spread(_) => todo!(),
         }
     }
@@ -222,6 +187,14 @@ impl<'cat> Compiler<'cat> {
         let idx = jpi.idx;
         let dst = self.alloc(1);
         self.push(Vop::jpi(inp, idx, dst));
+        Ok(dst)
+    }
+
+    fn cc_expr_jpk(&mut self, jpk: Jpk) -> Result<usize> {
+        let inp = self.cc_expr(*jpk.inp)?;
+        let key = jpk.key;
+        let dst = self.alloc(1);
+        self.push(Vop::jpk(inp, key, dst));
         Ok(dst)
     }
 }
