@@ -6,14 +6,6 @@ use crate::ir;
 
 grammar;
 
-// goals
-//  xx select var1, var2, ...
-//  xx select *
-//  xx drop table <tbl>
-//  xx delete from <tbl>
-//  create table <tbl> (var1 type, var2 type, ...)
-//  insert into <tbl> values '...'
-
 extern {
     type Error = Error;
 }
@@ -52,6 +44,7 @@ SelectItem: ir::Member = {
     <val:Expr> "as" <key:Name> => ir::member(key, val),
 }
 
+// TODO move logic out of grammar
 From: ir::From = {
     "from" <tbl:Name> => {
         let tbl = tbl;
@@ -63,18 +56,32 @@ From: ir::From = {
     },
 }
 
-// TODO
-Insert: () = "insert" "into" <table:Name> "values" => {
-    println!("parse insert");
+Insert: ir::Insert = {
+    "insert" "into" <InsertTarget> <InsertSource> => ir::insert(<>),
+}
+
+InsertTarget: String = Name;
+
+InsertSource: Vec<ir::Obj> = {
+    InsertValue     => vec![<>],
+    InsertValues    => <>,
 };
+
+InsertValue: ir::Obj = {
+    "{" <Members> "}" => <>,
+};
+
+InsertValues: Vec<ir::Obj> = {
+    "[" <InsertValuesList> "]" => <>,
+};
+
+InsertValuesList: Vec<ir::Obj> = List<InsertValue>;
 
 // KISS
 Delete: String = "delete" "from" <Name>;
 
 // KISS
 Drop: String = "drop" "table" <Name>;
- 
-Alias: String = "as" <Name>;
 
 //------------------------------
 // TYPES
@@ -94,8 +101,9 @@ Type: ir::Type = {
 //------------------------------
 
 Expr: ir::Expr = {
-    <Name>                  => ir::expr_var(<>),
-    <Expr> "[" <Num> "]"    => ir::expr_jpi(<>),
+    Name                    => ir::expr_var(<>),
+    Number                  => ir::expr_number(<>), 
+    <Expr> "[" <Number> "]" => ir::expr_jpi(<>),
     "{" <Members> "}"       => ir::expr_obj(<>),
     "(" <Expr> ")"          => <>,
 };
@@ -109,7 +117,7 @@ Member: ir::Member = <Name> ":" <Expr> => ir::member(<>);
 //------------------------------
 
 Name: String = r"[a-zA-Z_][a-zA-Z0-9_]*" => String::from_str(<>).unwrap();
-Num: usize = r"[0-9]+" => usize::from_str(<>).unwrap();
+Number: usize = r"[0-9]+" => usize::from_str(<>).unwrap();
 
 //------------------------------
 // MACROS

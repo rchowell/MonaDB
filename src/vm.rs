@@ -26,6 +26,8 @@ pub enum Vop {
     /// Delete all rows of the table.
     Clear { table: String },
     ///
+    Commit,
+    ///
     /// Insert the table into the catalog table.
     ///   * table   : table to create
     ///
@@ -45,26 +47,32 @@ pub enum Vop {
     /// Consider replacing with a `Delete` instruction on the catalog table.
     ///
     Drop { table: String },
-    /// Insert a row into a table.
-    Insert { table: String, row: Row },
+    /// Insert row into a table.
+    Insert { 
+        tbl: String,
+        row: usize,
+    },
     /// JSON Path Index
-    ///   * idx     : index to lookup
-    ///   * inp     : operand register
-    ///   * dest    : result register
-    Jpi {
+    Jpi { 
         idx: usize,
         inp: usize,
-        dest: usize,
+        dst: usize,
     },
     /// JSON Path Key
-    ///   * key     : key to lookup
-    ///   * inp     : input register
-    ///   * dest    : result register
     Jpk {
         key: String,
         inp: usize,
-        dest: usize,
+        dst: usize,
     },
+    ///
+    /// Next
+    ///  * jmp  :   jump location
+    ///
+    /// Description:
+    ///   Advances the cursor, assigning the row to `var`.
+    ///   If there is a row, then jump to `jmp`; otherwise goto next.
+    ///
+    Next { jmp: usize },
     ///
     /// Obj
     ///   * members : key:register pairs.
@@ -72,9 +80,14 @@ pub enum Vop {
     ///
     /// TODO use contiguous memory // two-pass for objects!!
     ///
-    Obj { 
+    Obj {
         members: Vec<(String, usize)>,
         dest: usize,
+    },
+    /// Opens a table for reading with the cursor positioned at the first row.
+    Open {
+        /// TODO replace table with cursor.
+        table: String,
     },
     /// Returns the value in register `ptr`.
     Return { ptr: usize },
@@ -87,15 +100,6 @@ pub enum Vop {
     ///
     Rewind { jmp: usize },
     ///
-    /// Next
-    ///  * jmp  :   jump location
-    ///
-    /// Description:
-    ///   Advances the cursor, assigning the row to `var`.
-    ///   If there is a row, then jump to `jmp`; otherwise goto next.
-    ///
-    Next { jmp: usize },
-    ///
     /// Spread
     ///
     /// Description:
@@ -103,17 +107,17 @@ pub enum Vop {
     ///   Non-struct values are omitted, and members may be overridden.
     ///
     Spread { dest: usize },
-    /// Opens a table for reading with the cursor positioned at the first row.
-    Open {
-        /// TODO replace table with cursor.
-        table: String,
-    },
+    /// Begin a transaction.
+    Transaction,
     /// Load the variable `name` from the environment into the destination register.
-    Var { name: String, dest: usize },
+    Var { var: String, dst: usize },
+    /// Load a literal value into a register.
+    Val { val: JValue, dst: usize },
     /// Exit the VM.
     Exit,
 }
 
+/// These are methods so that I can later optimize the Vop representation.
 impl Vop {
     #[inline]
     pub fn exit() -> Vop {
@@ -121,16 +125,13 @@ impl Vop {
     }
 
     #[inline]
-    pub fn bind(binder: &str) -> Vop {
-        Vop::Bind {
-            cursor: 0,
-            binder: binder.to_string(),
-        }
+    pub fn bind(binder: String) -> Vop {
+        Vop::Bind { cursor: 0, binder }
     }
 
     #[inline]
-    pub fn clear(table: &str) -> Vop {
-        Vop::Clear { table: table.to_string() }
+    pub fn clear(table: String) -> Vop {
+        Vop::Clear { table }
     }
 
     #[inline]
@@ -139,13 +140,13 @@ impl Vop {
     }
 
     #[inline]
-    pub fn drop(table: &str) -> Vop {
-        Vop::Drop { table: table.to_string() }
+    pub fn drop(table: String) -> Vop {
+        Vop::Drop { table }
     }
 
     #[inline]
-    pub fn insert(table: String, row: Row) -> Vop {
-        Vop::Insert { table, row }
+    pub fn insert(tbl: String, row: usize) -> Vop {
+        Vop::Insert { tbl, row }
     }
 
     #[inline]
@@ -164,10 +165,8 @@ impl Vop {
     }
 
     #[inline]
-    pub fn open(table: &str) -> Vop {
-        Vop::Open {
-            table: table.to_string(),
-        }
+    pub fn open(table: String) -> Vop {
+        Vop::Open { table }
     }
 
     #[inline]
@@ -181,11 +180,13 @@ impl Vop {
     }
 
     #[inline]
-    pub fn var(name: &str, dest: usize) -> Vop {
-        Vop::Var {
-            name: name.to_string(),
-            dest,
-        }
+    pub fn var(var: String, dst: usize) -> Vop {
+        Vop::Var { var, dst }
+    }
+
+    #[inline]
+    pub fn val(val: JValue, dst: usize) -> Vop {
+        Vop::Val { val, dst }
     }
 
     #[inline]
@@ -193,17 +194,13 @@ impl Vop {
         Vop::Jpk {
             key: key.to_string(),
             inp,
-            dest,
+            dst: dest,
         }
     }
 
     #[inline]
     pub fn jpi(inp: usize, idx: usize, dest: usize) -> Vop {
-        Vop::Jpi {
-            idx,
-            inp,
-            dest,
-        }
+        Vop::Jpi { idx, inp, dst: dest }
     }
 }
 
@@ -290,6 +287,9 @@ impl<'a> VM<'a> {
                 Vop::CreateTable { table } => {
                     self.db.create_table(table)?;
                 }
+                Vop::Commit => {
+                    self.db.commit()?;
+                }
                 // TEMP – bind the row to the environment
                 Vop::Bind { binder, .. } => {
                     let row = self.cursor.row();
@@ -298,16 +298,17 @@ impl<'a> VM<'a> {
                 Vop::Drop { table } => {
                     self.db.drop_table(table)?;
                 }
-                Vop::Insert { table, row } => {
-                    self.db.insert(table, row.clone())?;
+                Vop::Insert { tbl, row } => {
+                    let v = self.mem[*row].clone();
+                    self.db.insert(tbl, v)?;
                 }
-                Vop::Jpi { inp, idx, dest } => {
+                Vop::Jpi { inp, idx, dst: dest } => {
                     self.mem[*dest] = match self.mem[*inp].jpi(*idx) {
                         Some(v) => v,
                         None => JValue::null(),
                     };
                 }
-                Vop::Jpk { key, inp, dest } => {
+                Vop::Jpk { key, inp, dst: dest } => {
                     self.mem[*dest] = match self.mem[*inp].jpk(key) {
                         Some(v) => v,
                         None => JValue::null(),
@@ -344,8 +345,14 @@ impl<'a> VM<'a> {
                         self.pc = *jmp;
                     }
                 }
-                Vop::Var { name, dest } => {
-                    self.mem[*dest] = self.env.get(name);
+                Vop::Transaction => {
+                    self.db.transaction();
+                }
+                Vop::Var { var,  dst } => {
+                    self.mem[*dst] = self.env.get(var);
+                }
+                Vop::Val { val,  dst } => {
+                    self.mem[*dst] = val.clone();
                 }
                 Vop::Exit => {
                     return Ok(None);

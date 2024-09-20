@@ -4,7 +4,7 @@ use std::fmt::{Debug, Display};
 use crate::Result;
 
 /// JSON value.
-#[derive(Clone)]
+#[derive(Clone, Hash, PartialEq)]
 pub struct JValue(serde_json::Value);
 
 /// Row (for now) is just a JSON value
@@ -86,6 +86,12 @@ impl From<Value> for JValue {
 impl Into<Value> for JValue {
     fn into(self) -> Value {
         self.0
+    }
+}
+
+impl From<usize> for JValue {
+    fn from(value: usize) -> Self {
+        JValue(Value::Number(value.into()))
     }
 }
 

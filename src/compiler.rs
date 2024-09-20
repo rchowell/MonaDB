@@ -1,7 +1,7 @@
 use std::vec;
 use crate::catalog::Catalog;
 use crate::parser::RqlParser;
-use crate::value::Row;
+use crate::value::{JValue, Row};
 use crate::{Program, Result, Vop};
 use crate::ir::*;
 
@@ -36,11 +36,11 @@ impl<'cat> Compiler<'cat> {
 
     pub fn compile(mut self, rql: &str) -> Result<Program> {
         self.push(Vop::init());
-        match &parse(rql)? {
+        match parse(rql)? {
             Statement::Create(create) => self.cc_create(create)?,
             Statement::Delete(delete) => self.cc_delete(delete),
             Statement::Drop(drop) => self.cc_drop(drop),
-            Statement::Insert(_) => todo!("isnert statement"),
+            Statement::Insert(insert) => self.cc_insert(insert)?,
             Statement::Select(select) => self.cc_select(select)?,
         };
         self.push(Vop::exit());
@@ -71,49 +71,48 @@ impl<'cat> Compiler<'cat> {
         self.program.push(op);
     }
 
-    pub fn cc_create(&mut self, create: &Create) -> Result<()> {
+    fn cc_create(&mut self, create: Create) -> Result<()> {
         match create {
-            Create::Table(table) => self.push(Vop::create_table(table.clone()))
+            Create::Table(table) => self.push(Vop::create_table(table))
         }
         Ok(())
     }
 
-    pub fn cc_drop(&mut self, table: &str) {
+    fn cc_drop(&mut self, table: String) {
         self.push(Vop::drop(table));
     }
 
-    pub fn cc_delete(&mut self, table: &str) {
+    fn cc_delete(&mut self, table: String) {
         self.push(Vop::clear(table));
     }
 
-    fn cc_select(&mut self, select: &Select) -> Result<()> {
-        let jmp = self.cc_from(&select.inp)?;
-        let dst = self.cc_expr_obj(&select.sel)?;
+    fn cc_insert(&mut self, insert: Insert) -> Result<()> {
+        self.push(Vop::Transaction);
+        for obj in insert.source {
+            let tbl = insert.target.clone();
+            let row = self.cc_expr_obj(obj)?;
+            self.push(Vop::insert(tbl, row));
+        }
+        self.push(Vop::Commit);
+        Ok(())
+    }
+
+    fn cc_select(&mut self, select: Select) -> Result<()> {
+        let jmp = self.cc_from(select.inp)?;
+        let dst = self.cc_expr_obj(select.sel)?;
         self.return_(dst);
         self.next(jmp) // <-- loop and patch jmp
     }
 
-    fn cc_from(&mut self, from: &From) -> Result<usize> {
-        let tbl = &from.tbl;
-        let var = &from.var;
+    fn cc_from(&mut self, from: From) -> Result<usize> {
+        let tbl = from.tbl;
+        let var = from.var;
         self.open(tbl, var)
     }
 
-    /// Push a `Vop::CreateTable` instruction.
-    pub fn create_table(&mut self, table: Table) -> Result<()> {
-        self.push(Vop::create_table(table));
-        Ok(())
-    }
-
-    /// Push a `Vop::Insert` instruction.
-    pub fn insert(&mut self, table: String, row: Row) -> Result<()> {
-        self.push(Vop::insert(table, row));
-        Ok(())
-    }
-
     /// Push a `Vop::Open` for the given table, scan into the binding, and return the pc.
-    pub fn open(&mut self, tbl: &str, var: &str) -> Result<usize> {
-        self.push(Vop::open(tbl));
+    fn open(&mut self, table: String, var: String) -> Result<usize> {
+        self.push(Vop::open(table));
         self.push(Vop::rewind(0)); // <-- PATCH ME
         self.push(Vop::bind(var));
         Ok(self.pc())
@@ -124,19 +123,19 @@ impl<'cat> Compiler<'cat> {
     /// 1. Emit a `Vop::Next` with jmp to start of loop.
     /// 2. Patch the rewind instruction BEFORE the loop.
     ///
-    pub fn next(&mut self, jmp: usize) -> Result<()> {
+    fn next(&mut self, jmp: usize) -> Result<()> {
         self.push(Vop::next(jmp));
         self.patch(jmp - 1, self.pc() + 1)?;
         Ok(())
     }
 
     /// Push a `Vop::Return` instruction.
-    pub fn return_(&mut self, ptr: usize) {
+    fn return_(&mut self, ptr: usize) {
         self.push(Vop::Return { ptr });
     }
 
     /// Patch the jump at pc[offset] = dest with the current pc.
-    pub fn patch(&mut self, offset: usize, dest: usize) -> Result<()> {
+    fn patch(&mut self, offset: usize, dest: usize) -> Result<()> {
         match self.program.get_mut(offset).unwrap() {
             Vop::Rewind { jmp } => *jmp = dest,
             _ => unsupported!("cannot patch jump at pc[{}]", offset),
@@ -145,35 +144,35 @@ impl<'cat> Compiler<'cat> {
     }
 
     /// Push a `Vop::Row` instruction for SELECT *.
-    pub fn spread(&mut self) -> usize {
+    fn spread(&mut self) -> usize {
         let dest = self.alloc(1);
         self.push(Vop::spread(dest));
         dest
     }
 
     /// Push a `Vop::Obj` instruction.
-    pub fn obj(&mut self, members: Vec<(String, usize)>) -> usize {
+    fn obj(&mut self, members: Vec<(String, usize)>) -> usize {
         let dest = self.alloc(1);
         self.push(Vop::obj(members, dest));
         dest
     }
 
     /// Push a `Vop::Var` instruction.
-    pub fn var(&mut self, name: &str) -> usize {
+    fn var(&mut self, name: String) -> usize {
         let dest = self.alloc(1);
         self.push(Vop::var(name, dest));
         dest
     }
 
     /// JSON Path Index
-    pub fn json_path_index(&mut self, operand: usize, index: usize) -> usize {
+    fn json_path_index(&mut self, operand: usize, index: usize) -> usize {
         let dest = self.alloc(1);
         self.push(Vop::jpi(operand, index, dest));
         dest
     }
 
     /// JSON Path Key
-    pub fn json_path_key(&mut self, operand: usize, key: &str) -> usize {
+    fn json_path_key(&mut self, operand: usize, key: &str) -> usize {
         let dest = self.alloc(1);
         self.push(Vop::jpk(&key, operand, dest));
         dest
@@ -183,10 +182,10 @@ impl<'cat> Compiler<'cat> {
     // EXPRESSIONS
     //------------------------------
 
-    fn cc_expr(&mut self, expr: &Expr) -> Result<usize> {
+    fn cc_expr(&mut self, expr: Expr) -> Result<usize> {
         match expr {
-            Expr::Var(col) => Ok(self.var(col)),
-            Expr::Lit(_) => todo!(),
+            Expr::Var(var) => self.cc_expr_var(var),
+            Expr::Val(val) => self.cc_expr_val(val),
             Expr::Obj(obj) => self.cc_expr_obj(obj),
             Expr::Jpi(jpi) => self.cc_expr_jpi(jpi),
             Expr::Jpk { .. } => todo!(),
@@ -194,20 +193,32 @@ impl<'cat> Compiler<'cat> {
         }
     }
 
-    fn cc_expr_obj(&mut self, members: &Obj) -> Result<usize> {
+    fn cc_expr_var(&mut self, var: String) -> Result<usize> {
+        let dst = self.alloc(1);
+        self.push(Vop::var(var, dst));
+        Ok(dst)
+    }
+
+    fn cc_expr_val(&mut self, val: JValue) -> Result<usize> {
+        let dst = self.alloc(1);
+        self.push(Vop::val(val, dst));
+        Ok(dst)
+    }
+
+    fn cc_expr_obj(&mut self, members: Obj) -> Result<usize> {
         let dst = self.alloc(1);
         let mut mem: Vec<(String, usize)> = vec![];
         for m in members {
             let k = m.key.clone();
-            let v = self.cc_expr(&m.val)?;
+            let v = self.cc_expr(m.val)?;
             mem.push((k, v));
         }
         self.push(Vop::obj(mem, dst));
         Ok(dst)
     }
 
-    fn cc_expr_jpi(&mut self, jpi: &Jpi) -> Result<usize> {
-        let inp = self.cc_expr(&jpi.inp)?;
+    fn cc_expr_jpi(&mut self, jpi: Jpi) -> Result<usize> {
+        let inp = self.cc_expr(*jpi.inp)?;
         let idx = jpi.idx;
         let dst = self.alloc(1);
         self.push(Vop::jpi(inp, idx, dst));
@@ -218,6 +229,6 @@ impl<'cat> Compiler<'cat> {
 /// Parse the RQL query into the IR.
 fn parse(rql: &str) -> Result<Statement> {
     let rp = RqlParser::new();
-    let ir = rp.parse(rql).unwrap();
+    let ir = rp.parse(rql)?;
     Ok(ir)
 }

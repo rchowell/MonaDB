@@ -97,7 +97,7 @@ impl Rho {
         self.catalog.borrow_mut().drop(table)
     }
 
-    // Insert a row into the table.
+    // Insert rows into the table.
     pub fn insert(&self, table: &str, row: Row) -> Result<()> {
         self.catalog.borrow_mut().insert(table, row)
     }
@@ -105,6 +105,14 @@ impl Rho {
     // TODO TEMPORARY – REMOVE ME ??
     pub fn select(&self, table: &str) -> Result<Vec<Row>> {
         self.catalog.borrow_mut().scan(table)
+    }
+
+    pub fn transaction(&self) {
+        self.catalog.borrow_mut().transaction()
+    }
+
+    pub fn commit(&self) -> Result<()> {
+        self.catalog.borrow_mut().commit()
     }
 }
 

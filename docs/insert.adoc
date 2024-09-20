@@ -34,5 +34,5 @@ insert_values
 
 insert_values_list
     insert_value
-    insert_values_list "," insert_value
+    insert_value "," insert_values_list
 ----

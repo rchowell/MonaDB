@@ -1,17 +1,18 @@
 use std::{
-    collections::HashMap,
-    fmt::{self, Debug, Formatter}, path::Path,
+    any::Any, collections::HashMap, fmt::{self, Debug, Formatter}, path::Path
 };
 
 use crate::{
     error::Error, ir::Table, parser::RqlParser, value::Row, Result
 };
-use rusqlite::{named_params, Connection};
+use rusqlite::{named_params, params_from_iter, Connection, Params, ToSql};
 
 /// Catalog manages the database tables.
 pub struct Catalog {
     conn: Connection,
     tables: HashMap<String, Table>,
+    //
+    transaction: Vec<String>,
 }
 
 const CREATE_CATALOG: &str = "
@@ -43,6 +44,7 @@ impl Catalog {
         Ok(Catalog {
             conn,
             tables: HashMap::new(),
+            transaction: vec![],
         })
     }
 
@@ -57,7 +59,7 @@ impl Catalog {
 
     /// Create a table in the catalog.
     pub fn create_table(&mut self, table: &Table) -> Result<()> {
-        let create = format!("CREATE TABLE IF NOT EXISTS {} (row TEXT);", table.name);
+        let create = format!("CREATE TABLE IF NOT EXISTS {} (row JSON);", table.name);
         let insert = "INSERT INTO catalog VALUES (:name, :rql);";
         //
         let tx = self.conn.transaction()?;
@@ -95,9 +97,16 @@ impl Catalog {
     /// Insert a row into the given table.
     pub fn insert(&mut self, table: &str, row: Row) -> Result<()> {
         let table = self.load_table(table)?;
-        let insert = sql::insert(table);
-        let mut stmt = self.conn.prepare(&insert)?;
-        stmt.execute(named_params! { ":row": row.to_string() })?;
+        let insert = format!("INSERT INTO {} VALUES (?);", table.name);
+        let mut insert = self.conn.prepare(&insert)?;
+        insert.raw_bind_parameter(1, row)?;
+        insert.expanded_sql();
+        let insert = insert.expanded_sql().unwrap();
+        if self.transaction.is_empty() {
+            self.conn.execute(&insert, [])?;
+        } else {
+            self.transaction.push(insert);
+        }
         Ok(())
     }
 
@@ -105,7 +114,7 @@ impl Catalog {
     /// TODO use some kind of iterator instead of returning a Vec. 
     pub fn scan(&mut self, table: &str) -> Result<Vec<Row>> {
         let table = self.load_table(table)?;
-        let scan = sql::scan(&table);
+        let scan = format!("SELECT row FROM {};", table.name);
         let mut stmt = self.conn.prepare(&scan)?;
         let mut rows = stmt.query([])?;
         let mut values: Vec<Row> = vec![];
@@ -115,6 +124,22 @@ impl Catalog {
             values.push(value);
         }
         Ok(values)
+    }
+
+    /// Begin a (goofy) transaction (really just a batch of SQL statements).
+    pub fn transaction(&mut self) {
+        self.transaction.clear();
+    }
+
+    /// Commit the current transaction.
+    pub fn commit(&mut self) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        for sql in &self.transaction {
+            tx.execute(sql, [])?;
+        }
+        tx.commit()?;
+        self.transaction.clear();
+        Ok(())
     }
 
     /// Sync the catalog with the sqlite3 `catalog` table.
@@ -135,6 +160,7 @@ impl Catalog {
         self.tables = tables;
         Ok(())
     }
+
 }
 
 impl Debug for Catalog {
@@ -148,18 +174,16 @@ impl Debug for Catalog {
     }
 }
 
+impl ToSql for Row {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        Ok(rusqlite::types::ToSqlOutput::Owned(rusqlite::types::Value::Text(self.to_string())))
+    }
+}
+
 mod sql {
     use crate::ir::Table;
 
     pub const SYNC: &str = "SELECT name, rql FROM catalog;";
-
-    pub fn insert(table: &Table) -> String {
-        format!("INSERT INTO {} VALUES (:row);", table.name)
-    }
-
-    pub fn scan(table: &Table) -> String {
-        format!("SELECT row FROM {};", table.name)
-    }
 }
 
 fn parse_table(ddl: &str) -> Result<Table> {
@@ -169,6 +193,20 @@ fn parse_table(ddl: &str) -> Result<Table> {
     } else {
         Err(Error::Unknown("Expected CREATE TABLE statement".to_string()))
     }
+}
+
+// Helper function to return a comma-separated sequence of `?`.
+// - `repeat_vars(0) => panic!(...)`
+// - `repeat_vars(1) => "?"`
+// - `repeat_vars(2) => "?,?"`
+// - `repeat_vars(3) => "?,?,?"`
+// - ...
+fn repeat_vars(count: usize) -> String {
+    assert_ne!(count, 0);
+    let mut s = "?,".repeat(count);
+    // Remove trailing comma
+    s.pop();
+    s
 }
 
 mod tests {

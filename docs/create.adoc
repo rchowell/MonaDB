@@ -18,7 +18,7 @@ create_table
 
 table_members
     table_member
-    table_members table_member
+    table_member "," table_member
 
 table_member
     member_name member_type
@@ -30,9 +30,9 @@ member_type
     type
 
 type
-    "boolean" // bool
-    "number"  // num
-    "string"  // str
-    "object"  // obj
-    "array"   // arr
+    "boolean"
+    "number"
+    "string"
+    "object"
+    "array"
 ----

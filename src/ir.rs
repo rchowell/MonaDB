@@ -1,20 +1,36 @@
 use std::fmt::Display;
 
-#[derive(Clone, Debug, Hash, PartialEq, PartialOrd)]
+use crate::value::JValue;
+
+//------------------------------
+// Statements
+//------------------------------
+
+#[derive(Clone, Debug, Hash, PartialEq)]
 pub enum Statement {
     Create(Create),
     Delete(String),
     Drop(String),
-    Insert(()),
+    Insert(Insert),
     Select(Select),
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Hash, PartialEq)]
 pub enum Create {
     Table(Table),
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Hash, PartialEq)]
+pub struct Insert {
+    pub target: String,
+    pub source: Vec<Obj>,
+}
+
+//------------------------------
+// Table
+//------------------------------
+
+#[derive(Clone, Debug, Hash, PartialEq)]
 pub struct Table {
     pub name: String,
     pub members: Vec<TableMember>,
@@ -31,26 +47,26 @@ impl Display for Table {
     }
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Hash, PartialEq)]
 pub struct TableMember {
     pub name: String,
     pub typ_: Type,
 }
 
 /// SELECT <sel> ...
-#[derive(Clone, Debug, Hash, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Hash, PartialEq)]
 pub struct Select {
     pub inp: From,
     pub sel: Vec<Member>,
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Hash, PartialEq)]
 pub struct Member {
     pub key: String,
     pub val: Expr,
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Hash, PartialEq)]
 pub struct From {
     pub tbl: String, // table name
     pub var: String, // AS <var>
@@ -58,10 +74,10 @@ pub struct From {
 
 pub type ExprRef = Box<Expr>;
 
-#[derive(Clone, Debug, Hash, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Hash, PartialEq)]
 pub enum Expr {
     Var(String),
-    Lit(String),
+    Val(JValue),
     Obj(Obj),
     Jpi(Jpi),
     Jpk(Jpk),
@@ -69,7 +85,7 @@ pub enum Expr {
 }
 
 /// JSON data types.
-#[derive(Clone, Debug, Hash, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Hash, PartialEq)]
 pub enum Type {
     Bool,
     Number,
@@ -95,21 +111,30 @@ impl Display for Type {
 /// Consider a map .. but also orderedness ??
 pub type Obj = Vec<Member>;
 
-#[derive(Clone, Debug, Hash, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Hash, PartialEq)]
 pub struct Jpi {
     pub inp: ExprRef,
     pub idx: usize,
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Hash, PartialEq)]
 pub struct Jpk {
     pub inp: ExprRef,
     pub key: String,
 }
 
+//------------------------------
+// Parser Actions
+//------------------------------
+
 #[inline]
 pub fn create_table(name: String, members: Vec<TableMember>) -> Create {
     Create::Table(Table { name, members })
+}
+
+#[inline]
+pub fn insert(target: String, source: Vec<Obj>) -> Insert {
+    Insert { target, source }
 }
 
 #[inline]
@@ -151,9 +176,10 @@ pub fn expr_var(var: String) -> Expr {
     Expr::Var(var)
 }
 
-// pub fn expr_lit(lit: &str) -> Expr {
-//     Expr::Lit(lit.to_string())
-// }
+#[inline]
+pub fn expr_number(number: usize) -> Expr {
+    Expr::Val(number.into())
+}
 
 #[inline]
 pub fn expr_obj(obj: Obj) -> Expr {
