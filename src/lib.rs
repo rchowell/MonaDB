@@ -1,6 +1,7 @@
 // public modules
 pub mod error;
 pub mod value;
+pub mod lexer;
 
 // lalrpop module
 lalrpop_mod!(
@@ -113,18 +114,5 @@ impl Rho {
 
     pub fn commit(&self) -> Result<()> {
         self.catalog.borrow_mut().commit()
-    }
-}
-
-mod test {
-
-    use super::*;
-
-    #[test]
-    fn test_rho() {
-        let input = "SELECT a AS b FROM foo;";
-        let parser = parser::RqlParser::new();
-        let stmt = parser.parse(input).unwrap();
-        println!("{:?}", stmt);
     }
 }

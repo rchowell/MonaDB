@@ -1,11 +1,11 @@
 use std::{
-    any::Any, collections::HashMap, fmt::{self, Debug, Formatter}, path::Path
+    collections::HashMap, fmt::{self, Debug, Formatter}, path::Path
 };
 
 use crate::{
-    error::Error, ir::Table, parser::RqlParser, value::Row, Result
+    error::Error, ir::Table, lexer::Lexer, parser::RqlParser, value::Row, Result
 };
-use rusqlite::{named_params, params_from_iter, Connection, Params, ToSql};
+use rusqlite::{named_params, Connection, ToSql};
 
 /// Catalog manages the database tables.
 pub struct Catalog {
@@ -152,7 +152,7 @@ impl Catalog {
             let ddl: String = row.get(1)?;
             let table = parse_table(&ddl)?;
             if table.name != name {
-                return Err(Error::Unknown("Table name mismatch".to_string()));
+                return Err(Error::TableNotFound("Table name mismatch".to_string()));
             }
             tables.insert(name, table);
         }
@@ -181,17 +181,18 @@ impl ToSql for Row {
 }
 
 mod sql {
-    use crate::ir::Table;
-
     pub const SYNC: &str = "SELECT name, rql FROM catalog;";
 }
 
 fn parse_table(ddl: &str) -> Result<Table> {
     use crate::ir::*;
-    if let Statement::Create(Create::Table(table)) = RqlParser::new().parse(ddl)? {
+    let rl = Lexer::new(ddl);
+    let rp = RqlParser::new();
+    let ddl = rp.parse(rl)?;
+    if let Statement::Create(Create::Table(table)) = ddl {
         Ok(table)
     } else {
-        Err(Error::Unknown("Expected CREATE TABLE statement".to_string()))
+        Err(Error::SyntaxError("Expected CREATE TABLE statement".to_string()))
     }
 }
 

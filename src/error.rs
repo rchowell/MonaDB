@@ -1,13 +1,17 @@
-use lalrpop_util::{lexer::Token, ParseError};
+use std::default;
+
+use lalrpop_util::ParseError;
+use crate::lexer::Token;
 
 /// TODO DOCUMENTATION
-#[derive(Debug)]
+#[derive(Default, Debug, Clone, PartialEq)]
 pub enum Error {
-    IoError(std::io::Error),
+    IoError(String),
     TableNotFound(String),
     SyntaxError(String),
     Unsupported(String),
-    Unknown(String),
+    #[default]
+    Unknown,
 }
 
 #[macro_export]
@@ -18,20 +22,21 @@ macro_rules! error {
     }}
 }
 
-impl From<&str> for Error {
-    fn from(s: &str) -> Error {
-        Error::Unknown(s.to_string())
-    }
-}
+// impl From<&str> for Error {
+//     fn from(s: &str) -> Error {
+//         Error::Unknown(s.to_string())
+//     }
+// }
 
 impl From<std::io::Error> for Error {
     fn from(e: std::io::Error) -> Error {
-        Error::IoError(e)
+        Error::IoError(e.to_string())
     }
 }
+
 impl From<rusqlite::Error> for Error {
     fn from(e: rusqlite::Error) -> Error {
-        Error::IoError(std::io::Error::new(std::io::ErrorKind::Other, e))
+        Error::IoError(e.to_string())
     }
 }
 
@@ -41,8 +46,8 @@ impl From<serde_json::Error> for Error {
     }
 }
 
-impl From<ParseError<usize, Token<'_>, Error>> for Error {
-    fn from(e: ParseError<usize, Token<'_>, Error>) -> Error {
+impl From<ParseError<usize, Token, Error>> for Error {
+    fn from(e: ParseError<usize, Token, Error>) -> Error {
         match e {
             ParseError::User { error } => error,
             ParseError::UnrecognizedEof { .. } => err_syntax("unexpected EOF"),

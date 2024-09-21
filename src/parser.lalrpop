@@ -3,11 +3,48 @@ use lalrpop_util::ParseError;
 use crate::error::Error;
 use crate::compiler::Compiler;
 use crate::ir;
+use crate::lexer::Token;
 
 grammar;
 
 extern {
+    type Location = usize;
     type Error = Error;
+
+    enum Token {
+        // symbols
+        ","         => Token::Comma,
+        ":"         => Token::Colon,
+        "."         => Token::Period,
+        ";"         => Token::SemiColon,
+        "*"         => Token::Star,
+        "("         => Token::ParenL,
+        ")"         => Token::ParenR,
+        "{"         => Token::BraceL,
+        "}"         => Token::BraceR,
+        "["         => Token::BracketL,
+        "]"         => Token::BracketR,
+        // keywords
+        "as"        => Token::As,
+        "create"    => Token::Create,
+        "delete"    => Token::Delete,
+        "drop"      => Token::Drop,
+        "from"      => Token::From,
+        "insert"    => Token::Insert,
+        "into"      => Token::Into,
+        "select"    => Token::Select,
+        "table"     => Token::Table,
+        // types
+        "t_bool"      => Token::TypeBool,
+        "t_number"    => Token::TypeNumber,
+        "t_string"    => Token::TypeString,
+        "t_object"    => Token::TypeObject,
+        "t_array"     => Token::TypeArray,
+        "t_any"       => Token::TypeAny,
+        // literals
+        "number"    => Token::Number(<usize>),
+        "string"    => Token::String(<String>),
+    }
 }
 
 pub Rql = <Statement> ";";
@@ -77,12 +114,12 @@ Drop: String = "drop" "table" <Name>;
 //------------------------------
 
 Type: ir::Type = {
-    "bool"      => ir::Type::Bool,
-    "number"    => ir::Type::Number,
-    "string"    => ir::Type::String,
-    "object"    => ir::Type::Object,
-    "array"     => ir::Type::Array,
-    "any"       => ir::Type::Any,
+    "t_bool"    => ir::Type::Bool,
+    "t_number"  => ir::Type::Number,
+    "t_string"  => ir::Type::String,
+    "t_object"  => ir::Type::Object,
+    "t_array"   => ir::Type::Array,
+    "t_any"     => ir::Type::Any,
 };
 
 //------------------------------
@@ -102,12 +139,9 @@ Members: Vec<ir::Member> = List<Member>;
 
 Member: ir::Member = <Name> ":" <Expr> => ir::member(<>);
 
-//------------------------------
-// TOKENS
-//------------------------------
-
-Name: String = r"[a-zA-Z_][a-zA-Z0-9_]*" => String::from_str(<>).unwrap();
-Number: usize = r"[0-9]+" => usize::from_str(<>).unwrap();
+// TODO replace references
+Name: String = "string";
+Number: usize = "number";
 
 //------------------------------
 // MACROS

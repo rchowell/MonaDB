@@ -1,5 +1,6 @@
 use std::vec;
 use crate::catalog::Catalog;
+use crate::lexer::Lexer;
 use crate::parser::RqlParser;
 use crate::value::JValue;
 use crate::{Program, Result, Vop};
@@ -201,7 +202,8 @@ impl<'cat> Compiler<'cat> {
 
 /// Parse the RQL query into the IR.
 fn parse(rql: &str) -> Result<Statement> {
+    let rl = Lexer::new(rql);
     let rp = RqlParser::new();
-    let ir = rp.parse(rql)?;
+    let ir = rp.parse(rl)?;
     Ok(ir)
 }
