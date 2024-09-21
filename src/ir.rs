@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::value::JValue;
+use crate::value::Value;
 
 //------------------------------
 // Statements
@@ -77,7 +77,7 @@ pub type ExprRef = Box<Expr>;
 #[derive(Clone, Debug, Hash, PartialEq)]
 pub enum Expr {
     Var(String),
-    Val(JValue),
+    Lit(Value),
     Obj(Obj),
     Jpi(Jpi),
     Jpk(Jpk),
@@ -202,8 +202,8 @@ pub fn expr_var(var: String) -> Expr {
 }
 
 #[inline]
-pub fn expr_number(number: usize) -> Expr {
-    Expr::Val(number.into())
+pub fn expr_lit(val: Value) -> Expr {
+    Expr::Lit(val)
 }
 
 #[inline]

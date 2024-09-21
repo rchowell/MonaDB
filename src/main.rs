@@ -1,7 +1,7 @@
 use std::env;
 use std::path::PathBuf;
 
-use rho::{value::JValue, Rho};
+use rho::{value::Value, Rho};
 use rustyline::{error::ReadlineError, history::DefaultHistory, validate::{ValidationContext, ValidationResult, Validator}, Completer, Config, EditMode, Editor, Helper, Highlighter, Hinter};
 
 use clap::{Parser, Subcommand};
@@ -152,7 +152,7 @@ fn main() {
                     todo!("create table {}", table);
                 },
                 Command::Insert { table, value } => {
-                    let row = JValue::from_str(&value).expect("Could not parse row");
+                    let row = Value::from_str(&value).expect("Could not parse row");
                     rho.insert(&table, row).expect("Could not insert row");
                 },
                 Command::Drop { table } => {

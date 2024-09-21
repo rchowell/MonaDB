@@ -1,10 +1,8 @@
 use std::collections::HashMap;
 use std::vec;
 
-use serde_json::Value;
-
 use crate::ir::Table;
-use crate::value::JValue;
+use crate::value::Value;
 use crate::Result;
 use crate::{value::Row, Rho};
 
@@ -12,7 +10,7 @@ use crate::{value::Row, Rho};
 pub type Program = Vec<Vop>;
 
 /// Registers are the VM's working memory.
-pub type Vmem = Vec<JValue>;
+pub type Vmem = Vec<Value>;
 
 /// Vop is a virtual machine instruction code.
 #[derive(Debug)]
@@ -112,7 +110,7 @@ pub enum Vop {
     /// Load the variable `name` from the environment into the destination register.
     Var { var: String, dst: usize },
     /// Load a literal value into a register.
-    Val { val: JValue, dst: usize },
+    Lit { val: Value, dst: usize },
     /// Exit the VM.
     Exit,
 }
@@ -185,8 +183,8 @@ impl Vop {
     }
 
     #[inline]
-    pub fn val(val: JValue, dst: usize) -> Vop {
-        Vop::Val { val, dst }
+    pub fn lit(val: Value, dst: usize) -> Vop {
+        Vop::Lit { val, dst }
     }
 
     #[inline]
@@ -202,7 +200,7 @@ impl Vop {
 
 /// The bindings environment.
 pub struct Env {
-    bindings: HashMap<String, JValue>,
+    bindings: HashMap<String, Value>,
 }
 
 impl Env {
@@ -219,16 +217,16 @@ impl Env {
     }
 
     /// Gets the current binding for this key (or null).
-    pub fn get(&mut self, key: &str) -> JValue {
+    pub fn get(&mut self, key: &str) -> Value {
         if let Some(v) = self.bindings.get(key) {
             v.clone()
         } else {
-            JValue::null()
+            Value::null()
         }
     }
 
     /// Produces a row by spreading all structs in the environment into the result.
-    pub fn spread(&self) -> JValue {
+    pub fn spread(&self) -> Value {
         let mut members = serde_json::Map::new();
         for (_, v) in &self.bindings {
             if let Some(member) = v.members() {
@@ -237,7 +235,7 @@ impl Env {
                 }
             }
         }
-        Value::Object(members).into()
+        Value::new(serde_json::Value::Object(members))
     }
 }
 
@@ -257,7 +255,7 @@ impl<'a> VM<'a> {
     pub fn init(db: &Rho, program: Program) -> VM {
         // temporary (??)
         let mut mem: Vmem = vec![];
-        mem.resize(100, JValue::null());
+        mem.resize(100, Value::null());
 
         VM {
             db,
@@ -301,13 +299,13 @@ impl<'a> VM<'a> {
                 Vop::Jpi { inp, idx, dst: dest } => {
                     self.mem[*dest] = match self.mem[*inp].jpi(*idx) {
                         Some(v) => v,
-                        None => JValue::null(),
+                        None => Value::null(),
                     };
                 }
                 Vop::Jpk { key, inp, dst: dest } => {
                     self.mem[*dest] = match self.mem[*inp].jpk(key) {
                         Some(v) => v,
-                        None => JValue::null(),
+                        None => Value::null(),
                     };
                 }
                 Vop::Open { table } => {
@@ -331,7 +329,7 @@ impl<'a> VM<'a> {
                         let k = k.clone();
                         map.insert(k, v.into());
                     }
-                    self.mem[*dest] = Value::Object(map).into();
+                    self.mem[*dest] = serde_json::Value::Object(map).into();
                 }
                 Vop::Spread { dest } => {
                     self.mem[*dest] = self.env.spread();
@@ -347,7 +345,7 @@ impl<'a> VM<'a> {
                 Vop::Var { var,  dst } => {
                     self.mem[*dst] = self.env.get(var);
                 }
-                Vop::Val { val,  dst } => {
+                Vop::Lit { val,  dst } => {
                     self.mem[*dst] = val.clone();
                 }
                 Vop::Exit => {

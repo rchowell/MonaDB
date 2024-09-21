@@ -4,6 +4,7 @@ use crate::error::Error;
 use crate::compiler::Compiler;
 use crate::ir;
 use crate::lexer::Token;
+use crate::value::Value;
 
 grammar;
 
@@ -35,15 +36,20 @@ extern {
         "select"    => Token::Select,
         "table"     => Token::Table,
         // types
-        "t_bool"      => Token::TypeBool,
-        "t_number"    => Token::TypeNumber,
-        "t_string"    => Token::TypeString,
-        "t_object"    => Token::TypeObject,
-        "t_array"     => Token::TypeArray,
-        "t_any"       => Token::TypeAny,
+        "t_bool"    => Token::TypeBool,
+        "t_number"  => Token::TypeNumber,
+        "t_string"  => Token::TypeString,
+        "t_object"  => Token::TypeObject,
+        "t_array"   => Token::TypeArray,
+        "t_any"     => Token::TypeAny,
         // literals
-        "number"    => Token::Number(<usize>),
+        "null"      => Token::Null,
+        "true"      => Token::True,
+        "false"     => Token::False,
+        "number"    => Token::Number(<f64>),
         "string"    => Token::String(<String>),
+        // names and identifiers
+        "ident"     => Token::Identifier(<String>),
     }
 }
 
@@ -58,12 +64,12 @@ Statement: ir::Statement = {
 };
 
 Create: ir::Create = {
-    "create" "table" <Name> "(" <TableMembers> ")" => ir::create_table(<>)
+    "create" "table" <Ident> "(" <TableMembers> ")" => ir::create_table(<>)
 };
 
 TableMembers: Vec<ir::TableMember> = List<TableMember>;
 
-TableMember: ir::TableMember = <Name> <Type> => ir::table_member(<>);
+TableMember: ir::TableMember = <Ident> <Type> => ir::table_member(<>);
 
 Select: ir::Select = {
     "select" "*"          <From>    => ir::select_star(<>),
@@ -74,19 +80,19 @@ SelectList: Vec<ir::Member> = List<SelectItem>;
 
 SelectItem: ir::Member = {
     <Expr>              => ir::select_item_no_alias(<>),
-    <Expr> "as" <Name>  => ir::select_item(<>),
+    <Expr> "as" <Ident> => ir::select_item(<>),
 }
 
 From: ir::From = {
-    "from" <Name>               => ir::from_no_alias(<>),
-    "from" <Name> "as" <Name>   => ir::from(<>)
+    "from" <Ident>              => ir::from_no_alias(<>),
+    "from" <Ident> "as" <Ident> => ir::from(<>)
 }
 
 Insert: ir::Insert = {
     "insert" "into" <InsertTarget> <InsertSource> => ir::insert(<>),
 }
 
-InsertTarget: String = Name;
+InsertTarget: String = Ident;
 
 InsertSource: Vec<ir::Obj> = {
     InsertValue     => vec![<>],
@@ -104,10 +110,10 @@ InsertValues: Vec<ir::Obj> = {
 InsertValuesList: Vec<ir::Obj> = List<InsertValue>;
 
 // KISS
-Delete: String = "delete" "from" <Name>;
+Delete: String = "delete" "from" <Ident>;
 
 // KISS
-Drop: String = "drop" "table" <Name>;
+Drop: String = "drop" "table" <Ident>;
 
 //------------------------------
 // TYPES
@@ -127,21 +133,27 @@ Type: ir::Type = {
 //------------------------------
 
 Expr: ir::Expr = {
-    Name                    => ir::expr_var(<>),
-    Number                  => ir::expr_number(<>), 
-    <Expr> "[" <Number> "]" => ir::expr_jpi(<>),
-    <Expr> "." <Name>       => ir::expr_jpk(<>),
+    Ident                   => ir::expr_var(<>),
+    Value                   => ir::expr_lit(<>),
+    // <Expr> "[" <Expr> "]"   => ir::expr_jpi(<>),
+    <Expr> "." <Ident>      => ir::expr_jpk(<>),
     "{" <Members> "}"       => ir::expr_obj(<>),
     "(" <Expr> ")"          => <>,
 };
 
 Members: Vec<ir::Member> = List<Member>;
 
-Member: ir::Member = <Name> ":" <Expr> => ir::member(<>);
+Member: ir::Member = <Ident> ":" <Expr> => ir::member(<>);
 
-// TODO replace references
-Name: String = "string";
-Number: usize = "number";
+Value: Value = {
+    "null"      => Value::null(),
+    "true"      => Value::bool(true),
+    "false"     => Value::bool(false),
+    "number"    => Value::number(<>),
+    "string"    => Value::string(<>),
+};
+
+Ident: String = "ident";
 
 //------------------------------
 // MACROS

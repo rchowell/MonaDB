@@ -2,7 +2,7 @@ use std::vec;
 use crate::catalog::Catalog;
 use crate::lexer::Lexer;
 use crate::parser::RqlParser;
-use crate::value::JValue;
+use crate::value::Value;
 use crate::{Program, Result, Vop};
 use crate::ir::*;
 
@@ -151,7 +151,7 @@ impl<'cat> Compiler<'cat> {
     fn cc_expr(&mut self, expr: Expr) -> Result<usize> {
         match expr {
             Expr::Var(var) => self.cc_expr_var(var),
-            Expr::Val(val) => self.cc_expr_val(val),
+            Expr::Lit(val) => self.cc_expr_val(val),
             Expr::Obj(obj) => self.cc_expr_obj(obj),
             Expr::Jpi(jpi) => self.cc_expr_jpi(jpi),
             Expr::Jpk(jpk) => self.cc_expr_jpk(jpk),
@@ -165,9 +165,9 @@ impl<'cat> Compiler<'cat> {
         Ok(dst)
     }
 
-    fn cc_expr_val(&mut self, val: JValue) -> Result<usize> {
+    fn cc_expr_val(&mut self, val: Value) -> Result<usize> {
         let dst = self.alloc(1);
-        self.push(Vop::val(val, dst));
+        self.push(Vop::lit(val, dst));
         Ok(dst)
     }
 

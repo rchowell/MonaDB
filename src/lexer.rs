@@ -98,14 +98,19 @@ pub enum Token {
     //-------------------------
     #[token("null")]
     Null,
-    // #[regex(r"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?", |lex| lex.slice().parse::<f64>().unwrap())]
-    // Number(f64),
-    #[regex(r"-?(?:0|[1-9]\d*)", |lex| lex.slice().parse::<usize>().unwrap())]
-    Number(usize),
-    // #[regex(r#""([^"\\]|\\["\\bnfrt]|u[a-fA-F0-9]{4})*""#, |lex| lex.slice().to_owned())]
-    // String(String),
-    #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*", |lex| lex.slice().to_owned())]
+    #[token("true")]
+    True,
+    #[token("false")]
+    False,
+    #[regex(r"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?", |lex| lex.slice().parse::<f64>().unwrap())]
+    Number(f64),
+    #[regex(r#""([^"\\]|\\["\\bnfrt]|u[a-fA-F0-9]{4})*""#, |lex| lex.slice().to_owned())]
     String(String),
+    //-------------------------
+    // Names and Identifiers
+    //-------------------------
+    #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*", |lex| lex.slice().to_owned())]
+    Identifier(String),
 }
 
 impl fmt::Display for Token {
