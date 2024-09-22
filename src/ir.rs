@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::value::Value;
+use crate::value::*;
 
 //------------------------------
 // Statements
@@ -81,11 +81,12 @@ pub enum Expr {
     Obj(Obj),
     Jpi(Jpi),
     Jpk(Jpk),
+    Jpe(Jpe),
     Spread(Vec<Obj>),
 }
 
 /// JSON data types.
-#[derive(Clone, Debug, Hash, PartialEq)]
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub enum Type {
     Bool,
     Number,
@@ -108,7 +109,8 @@ impl Display for Type {
     }
 }
 
-/// Consider a map .. but also orderedness ??
+/// Consider a map .. but also orderedness ?? (indexmap)
+/// Also this is an object _expression_ not a value.
 pub type Obj = Vec<Member>;
 
 #[derive(Clone, Debug, Hash, PartialEq)]
@@ -121,6 +123,12 @@ pub struct Jpi {
 pub struct Jpk {
     pub inp: ExprRef,
     pub key: String,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq)]
+pub struct Jpe {
+    pub inp: ExprRef,
+    pub exp: ExprRef,
 }
 
 //------------------------------
@@ -224,5 +232,13 @@ pub fn expr_jpk(inp: Expr, key: String) -> Expr {
     Expr::Jpk(Jpk {
         inp: Box::new(inp),
         key,
+    })
+}
+
+#[inline]
+pub fn expr_jpe(inp: Expr, exp: Expr) -> Expr {
+    Expr::Jpe(Jpe {
+        inp: Box::new(inp),
+        exp: Box::new(exp),
     })
 }

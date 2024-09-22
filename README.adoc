@@ -1,4 +1,4 @@
-= Rho
+= rho
 
 What if SQLite were a xref:DESIGN.adoc[JSON Database]?
 

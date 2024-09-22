@@ -155,6 +155,7 @@ impl<'cat> Compiler<'cat> {
             Expr::Obj(obj) => self.cc_expr_obj(obj),
             Expr::Jpi(jpi) => self.cc_expr_jpi(jpi),
             Expr::Jpk(jpk) => self.cc_expr_jpk(jpk),
+            Expr::Jpe(jpe) => self.cc_expr_jpe(jpe),
             Expr::Spread(_) => todo!(),
         }
     }
@@ -188,6 +189,14 @@ impl<'cat> Compiler<'cat> {
         let idx = jpi.idx;
         let dst = self.alloc(1);
         self.push(Vop::jpi(inp, idx, dst));
+        Ok(dst)
+    }
+
+    fn cc_expr_jpe(&mut self, jpe: Jpe) -> Result<usize> {
+        let inp = self.cc_expr(*jpe.inp)?;
+        let exp = self.cc_expr(*jpe.exp)?;
+        let dst = self.alloc(1);
+        self.push(Vop::jpe(inp, exp, dst));
         Ok(dst)
     }
 

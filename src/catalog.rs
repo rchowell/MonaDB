@@ -176,7 +176,9 @@ impl Debug for Catalog {
 
 impl ToSql for Row {
     fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
-        Ok(rusqlite::types::ToSqlOutput::Owned(rusqlite::types::Value::Text(self.to_string())))
+        use rusqlite::types::ToSqlOutput;
+        use rusqlite::types::Value;
+        Ok(ToSqlOutput::Owned(Value::Text(self.to_string())))
     }
 }
 
@@ -210,8 +212,10 @@ fn repeat_vars(count: usize) -> String {
     s
 }
 
+#[cfg(test)]
 mod tests {
-    use crate::{catalog::Catalog, ir::{self, Table, Type}};
+    use crate::ir::{self, Type};
+    use super::*;
 
     #[test]
     fn test_catalog() {

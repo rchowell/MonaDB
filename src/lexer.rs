@@ -109,7 +109,7 @@ pub enum Token {
     //-------------------------
     // Names and Identifiers
     //-------------------------
-    #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*", |lex| lex.slice().to_owned())]
+    #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*", |lex| lex.slice().trim_matches('"').to_owned())]
     Identifier(String),
 }
 

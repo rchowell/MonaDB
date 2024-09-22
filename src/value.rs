@@ -1,44 +1,38 @@
 use std::fmt::{Debug, Display};
 
 use crate::Result;
+use serde_json::Value as JsonValue;
 
 /// JSON value.
 #[derive(Clone, Hash, PartialEq)]
-pub struct Value(serde_json::Value);
+pub struct Value(JsonValue);
 
 /// Row (for now) is just a JSON value
 pub type Row = Value;
 
-#[macro_export]
-macro_rules! row {
-    ($($json:tt)+) => {
-        rho::value::Value::new(serde_json::json!($($json)+))
-    };
-}
-
 impl Value {
-    pub fn new(value: serde_json::Value) -> Self {
+    pub fn new(value: JsonValue) -> Self {
         Self(value)
     }
 
     #[inline]
     pub fn null() -> Value {
-        Value(serde_json::Value::Null)
+        Value(JsonValue::Null)
     }
 
     #[inline]
     pub fn bool(value: bool) -> Value {
-        Value(serde_json::Value::Bool(value))
+        Value(JsonValue::Bool(value))
     }
 
     #[inline]
     pub fn number(value: f64) -> Value {
-        Value(serde_json::Value::Number(serde_json::Number::from_f64(value).unwrap()))
+        Value(JsonValue::Number(serde_json::Number::from_f64(value).unwrap()))
     }
 
     #[inline]
     pub fn string(value: String) -> Value {
-        Value(serde_json::Value::String(value))
+        Value(JsonValue::String(value))
     }
 
     /// TryFrom str.
@@ -62,7 +56,7 @@ impl Value {
     /// Consider an `into_members(self)` version of this.
     /// 
     pub fn members(&self) -> Option<Vec<(String, Value)>> {
-        if let serde_json::Value::Object(members) = &self.0 {
+        if let JsonValue::Object(members) = &self.0 {
             let members = members
                 .iter()
                 .map(|(k, v)| (k.to_string(), Value(v.clone())))
@@ -73,9 +67,49 @@ impl Value {
         }
     }
 
+    pub fn is_bool(&self) -> bool {
+        self.0.is_boolean()
+    }
+
+    pub fn is_null(&self) -> bool {
+        self.0.is_null()
+    }
+
+    pub fn is_number(&self) -> bool {
+        self.0.is_number()
+    }
+
+    pub fn is_u64(&self) -> bool {
+        self.0.is_u64()
+    }
+
+    pub fn as_u64(&self) -> Option<u64> {
+        self.0.as_u64()
+    }
+
+    pub fn is_f64(&self) -> bool {
+        self.0.is_f64()
+    }
+
+    pub fn is_string(&self) -> bool {
+        self.0.is_string()
+    }
+
+    pub fn as_str(&self) -> Option<&str> {
+        self.0.as_str()
+    }
+
+    pub fn is_array(&self) -> bool {
+        self.0.is_array()
+    }
+
+    pub fn is_object(&self) -> bool {
+        self.0.is_object()
+    }
+
     /// JSON Path Index
     pub fn jpi(&self, index: usize) -> Option<Value> {
-        if let serde_json::Value::Array(values) = &self.0 {
+        if let JsonValue::Array(values) = &self.0 {
             values.get(index).map(|v| Value::new(v.clone()))
         } else {
             None
@@ -84,7 +118,7 @@ impl Value {
 
     /// JSON Path Key
     pub fn jpk(&self, key: &str) -> Option<Value> {
-        if let serde_json::Value::Object(members) = &self.0 {
+        if let JsonValue::Object(members) = &self.0 {
             members.get(key).map(|v| Value::new(v.clone()))
         } else {
             None
@@ -92,21 +126,21 @@ impl Value {
     }
 }
 
-impl From<serde_json::Value> for Value {
-    fn from(value: serde_json::Value) -> Self {
+impl From<JsonValue> for Value {
+    fn from(value: JsonValue) -> Self {
         Value(value)
     }
 }
 
-impl Into<serde_json::Value> for Value {
-    fn into(self) -> serde_json::Value {
+impl Into<JsonValue> for Value {
+    fn into(self) -> JsonValue {
         self.0
     }
 }
 
 impl From<usize> for Value {
     fn from(value: usize) -> Self {
-        Value(serde_json::Value::Number(value.into()))
+        Value(JsonValue::Number(value.into()))
     }
 }
 

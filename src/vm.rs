@@ -62,6 +62,12 @@ pub enum Vop {
         key: String,
         dst: usize,
     },
+    /// JSON Path Expression
+    Jpe {
+        inp: usize,
+        exp: usize,
+        dst: usize,
+    },
     ///
     /// Next
     ///  * jmp  :   jump location
@@ -194,7 +200,12 @@ impl Vop {
 
     #[inline]
     pub fn jpi(inp: usize, idx: usize, dst: usize) -> Vop {
-        Vop::Jpi { idx, inp, dst }
+        Vop::Jpi { inp, idx, dst }
+    }
+
+    #[inline]
+    pub fn jpe(inp: usize, exp: usize, dst: usize) -> Vop {
+        Vop::Jpe { inp, exp, dst }
     }
 }
 
@@ -296,17 +307,37 @@ impl<'a> VM<'a> {
                     let v = self.mem[*row].clone();
                     self.db.insert(tbl, v)?;
                 }
-                Vop::Jpi { inp, idx, dst: dest } => {
-                    self.mem[*dest] = match self.mem[*inp].jpi(*idx) {
+                Vop::Jpi { inp, idx, dst } => {
+                    self.mem[*dst] = match self.mem[*inp].jpi(*idx) {
                         Some(v) => v,
                         None => Value::null(),
                     };
                 }
-                Vop::Jpk { key, inp, dst: dest } => {
-                    self.mem[*dest] = match self.mem[*inp].jpk(key) {
+                Vop::Jpk { inp, key, dst } => {
+                    self.mem[*dst] = match self.mem[*inp].jpk(key) {
                         Some(v) => v,
                         None => Value::null(),
                     };
+                }
+                Vop::Jpe { inp, exp, dst  } => {
+                    let e = &self.mem[*exp];
+                    // json path index
+                    if let Some(idx) = e.as_u64() {
+                        self.mem[*dst] = match self.mem[*inp].jpi(idx as usize) {
+                            Some(v) => v,
+                            None => Value::null(),
+                        };
+                        continue;
+                    }
+                    // json path key
+                    if let Some(key) = e.as_str() {
+                        self.mem[*dst] = match self.mem[*inp].jpk(key) {
+                            Some(v) => v,
+                            None => Value::null(),
+                        };
+                        continue;
+                    }
+                    self.mem[*dst] = Value::null();
                 }
                 Vop::Open { table } => {
                     // TEMP – load all into the fake "cursor"
