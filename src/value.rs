@@ -1,7 +1,7 @@
 use std::fmt::{Debug, Display};
 
 use crate::Result;
-use serde_json::Value as JsonValue;
+use serde_json::{Map, Value as JsonValue};
 
 /// JSON value.
 #[derive(Clone, Hash, PartialEq)]
@@ -153,5 +153,36 @@ impl Display for Value {
 impl Debug for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.0.to_string())
+    }
+}
+
+pub struct ObjInitializer {
+    members: Map<String, JsonValue>,
+}
+
+impl ObjInitializer {
+    pub fn init() -> Self {
+        Self {
+            members: Map::new(),
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.members.clear();
+    }
+
+    pub fn assign(&mut self, name: &str, value: Value) {
+        self.members.insert(name.to_string(), value.0);
+    }
+
+    pub fn spread(&mut self, value: Value) {
+        todo!("obj initializer spread");
+        // if let Some(members) = value.members() {
+        //     self.members.extend(members);
+        // }
+    }
+
+    pub fn done(&self) -> Value {
+        Value(JsonValue::Object(self.members.clone()))
     }
 }

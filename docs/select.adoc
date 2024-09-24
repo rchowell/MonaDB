@@ -4,6 +4,25 @@
 [source,rql]
 ----
 select p.x, p.y from points as p;
+
+select * from points;
+select points.* from points;
+select ...points from points;
+
+select { x, y } from points;
+select { ... } from points;
+select * from points;
+
+x.* <-> { ...x }
+
+-- equialences
+select * from points;
+select points.* from points;
+select p.* from points as p;
+select { ... }
+
+select { ...x, ...y } from points;
+
 ----
 
 == Syntax
@@ -11,21 +30,25 @@ select p.x, p.y from points as p;
 [source,mckeeman]
 ----
 select_statement
-    "SELECT" select_list "FROM" table_name
+    "select" select_constructor "from" table_name
+
+select_constructor
+    select_object
+    select_list
+
+select_object
+    expr_obj
 
 select_list
     select_item
     select_item "," select_list
 
 select_item
-    expr "AS" ident
+    expr_var
+    expr_jpk
+    expr "as" ident
 ----
 
-== Names and Keywords
+== Description
 
-
-
-[source,mckeeman]
-----
-
-----
+The Select Statement _maps_ the input bindings and applies the constructor; the constructor may be an object or a list of select items.

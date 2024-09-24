@@ -1,8 +1,9 @@
+use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::vec;
 
 use crate::ir::Table;
-use crate::value::Value;
+use crate::value::{ObjInitializer, Value};
 use crate::Result;
 use crate::{value::Row, Rho};
 
@@ -68,6 +69,11 @@ pub enum Vop {
         exp: usize,
         dst: usize,
     },
+    /// Load a value into a register.
+    Load {
+        val: Value,
+        dst: usize,
+    },
     ///
     /// Next
     ///  * jmp  :   jump location
@@ -77,16 +83,20 @@ pub enum Vop {
     ///   If there is a row, then jump to `jmp`; otherwise goto next.
     ///
     Next { jmp: usize },
-    ///
-    /// Obj
-    ///   * members : key:register pairs.
-    ///   * dest    : result register.
-    ///
-    /// TODO use contiguous memory // two-pass for objects!!
-    ///
-    Obj {
-        members: Vec<(String, usize)>,
-        dest: usize,
+    /// Begin an object initializer.
+    ObjInit,
+    /// Assgin the value in `expr` to `name` the current object initializer.
+    ObjAssign {
+        name: String,
+        expr: usize,
+    },
+    /// Spread the value in `expr` into the current object initializer.
+    ObjSpread {
+        expr: usize,
+    },
+    /// Complete the object initializer.
+    ObjDone {
+        dst: usize,
     },
     /// Opens a table for reading with the cursor positioned at the first row.
     Open {
@@ -103,25 +113,19 @@ pub enum Vop {
     ///   Set cursor to the start; jump to `jmp` if the table is empty.
     ///
     Rewind { jmp: usize },
-    ///
-    /// Spread
-    ///
-    /// Description:
-    ///   Produces a row by spreading all structs in the environment into the result.
-    ///   Non-struct values are omitted, and members may be overridden.
-    ///
-    Spread { dest: usize },
     /// Begin a transaction.
     Transaction,
     /// Load the variable `name` from the environment into the destination register.
-    Var { var: String, dst: usize },
-    /// Load a literal value into a register.
-    Lit { val: Value, dst: usize },
+    Var { 
+        var: String,
+        dst: usize,
+    },
     /// Exit the VM.
     Exit,
 }
 
 /// These are methods so that I can later optimize the Vop representation.
+/// ... without having to gut compiler.rs
 impl Vop {
     #[inline]
     pub fn exit() -> Vop {
@@ -159,13 +163,48 @@ impl Vop {
     }
 
     #[inline]
+    pub fn jpk(inp: usize, key: String, dst: usize) -> Vop {
+        Vop::Jpk { inp, key, dst }
+    }
+
+    #[inline]
+    pub fn jpi(inp: usize, idx: usize, dst: usize) -> Vop {
+        Vop::Jpi { inp, idx, dst }
+    }
+
+    #[inline]
+    pub fn jpe(inp: usize, exp: usize, dst: usize) -> Vop {
+        Vop::Jpe { inp, exp, dst }
+    }
+
+    #[inline]
+    pub fn load(val: Value, dst: usize) -> Vop {
+        Vop::Load { val, dst }
+    }
+
+    #[inline]
     pub fn next(jmp: usize) -> Vop {
         Vop::Next { jmp }
     }
 
     #[inline]
-    pub fn obj(members: Vec<(String, usize)>, dest: usize) -> Vop {
-        Vop::Obj { members, dest }
+    pub fn obj_init() -> Vop {
+        Vop::ObjInit
+    }
+
+    #[inline]
+    pub fn obj_assign(name: String, expr: usize) -> Vop {
+        Vop::ObjAssign { name, expr }
+    }
+
+    #[inline]
+    pub fn obj_spread(expr: usize) -> Vop {
+        Vop::ObjSpread { expr }
+    }
+
+    #[inline]
+    pub fn obj_done(dst: usize) -> Vop {
+        Vop::ObjDone { dst }
     }
 
     #[inline]
@@ -179,33 +218,8 @@ impl Vop {
     }
 
     #[inline]
-    pub fn spread(dest: usize) -> Vop {
-        Vop::Spread { dest }
-    }
-
-    #[inline]
     pub fn var(var: String, dst: usize) -> Vop {
         Vop::Var { var, dst }
-    }
-
-    #[inline]
-    pub fn lit(val: Value, dst: usize) -> Vop {
-        Vop::Lit { val, dst }
-    }
-
-    #[inline]
-    pub fn jpk(inp: usize, key: String, dst: usize) -> Vop {
-        Vop::Jpk { inp, key, dst }
-    }
-
-    #[inline]
-    pub fn jpi(inp: usize, idx: usize, dst: usize) -> Vop {
-        Vop::Jpi { inp, idx, dst }
-    }
-
-    #[inline]
-    pub fn jpe(inp: usize, exp: usize, dst: usize) -> Vop {
-        Vop::Jpe { inp, exp, dst }
     }
 }
 
@@ -235,19 +249,6 @@ impl Env {
             Value::null()
         }
     }
-
-    /// Produces a row by spreading all structs in the environment into the result.
-    pub fn spread(&self) -> Value {
-        let mut members = serde_json::Map::new();
-        for (_, v) in &self.bindings {
-            if let Some(member) = v.members() {
-                for (k, v) in member {
-                    members.insert(k, v.into());
-                }
-            }
-        }
-        Value::new(serde_json::Value::Object(members))
-    }
 }
 
 /// VM holds the state of the virtual machine.
@@ -260,6 +261,8 @@ pub struct VM<'a> {
     env: Env,
     // temporary until I have an actual cursor
     cursor: Vcursor,
+    // Current Object Initliazer .. temporary until I have an environment stack
+    coi: ObjInitializer,
 }
 
 impl<'a> VM<'a> {
@@ -275,6 +278,7 @@ impl<'a> VM<'a> {
             program,
             env: Env::new(),
             cursor: Vcursor::empty(),
+            coi: ObjInitializer::init(),
         }
     }
 
@@ -353,18 +357,20 @@ impl<'a> VM<'a> {
                         self.pc = *jmp;
                     }
                 }
-                Vop::Obj { members, dest } => {
-                    let mut map = serde_json::Map::new();
-                    for (k, v) in members {
-                        let v = self.mem[*v].clone();
-                        let k = k.clone();
-                        map.insert(k, v.into());
-                    }
-                    self.mem[*dest] = serde_json::Value::Object(map).into();
-                }
-                Vop::Spread { dest } => {
-                    self.mem[*dest] = self.env.spread();
-                }
+                Vop::ObjInit => {
+                    self.coi.clear();
+                },
+                Vop::ObjAssign { name, expr } => {
+                    let v = self.mem[*expr].clone();
+                    self.coi.assign(name, v);
+                },
+                Vop::ObjSpread { expr } => {
+                    let v = self.mem[*expr].clone();
+                    self.coi.spread(v);
+                },
+                Vop::ObjDone { dst } => {
+                    self.mem[*dst] = self.coi.done();
+                },
                 Vop::Next { jmp } => {
                     if self.cursor.next() {
                         self.pc = *jmp;
@@ -376,7 +382,7 @@ impl<'a> VM<'a> {
                 Vop::Var { var,  dst } => {
                     self.mem[*dst] = self.env.get(var);
                 }
-                Vop::Lit { val,  dst } => {
+                Vop::Load { val,  dst } => {
                     self.mem[*dst] = val.clone();
                 }
                 Vop::Exit => {

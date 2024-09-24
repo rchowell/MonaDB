@@ -16,8 +16,8 @@ An *object constructor* is zero or more pairs of member names and associated val
 
 [source,mckeeman]
 ----
-object
-    '{' ws '}'
+expr_obj
+    '{' '}'
     '{' members '}'
 
 members
@@ -25,14 +25,25 @@ members
     member ',' members
 
 member
-    ws key ws ':' element
+    member_var      // `a`
+    member_assign   // `a: 1`
+    member_spread   // `...a`
 
-key
+member_var
+    expr_var
+
+member_assign
+    member_name ':' member_element
+
+member_name
     name
     string
 
-element
-    ws expr ws
+member_element
+    expr
+
+member_spread
+    '...' expr
 
 name
     utf8 // no surrogate or noncharacter code points
@@ -42,3 +53,10 @@ name
 
 An object constructor is an expression that describes the initialization of an Object. Objects consist of members, which are used to describe an object. The values of object members can either contain primitive data types or other objects.
 
+== Specifications
+
+|===
+
+| link:https://tc39.es/ecma262/multipage/ecmascript-language-expressions.html#sec-object-initializer[ECMA262 Object Initializer]
+
+|===

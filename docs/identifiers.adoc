@@ -1,0 +1,29 @@
+= Identifiers
+
+.Example
+[source,rql]
+----
+-- todo
+----
+
+== Syntax
+
+[source,mckeeman]
+----
+identifier
+    name // but not `reserved`
+
+name
+    utf8 // no surrogate or noncharacter code points
+
+reserved
+    as
+    create
+    delete
+    drop
+    from
+    insert
+    into
+    select
+    table
+----

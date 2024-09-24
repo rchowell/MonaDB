@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, mem};
 
 use crate::value::*;
 
@@ -61,9 +61,9 @@ pub struct Select {
 }
 
 #[derive(Clone, Debug, Hash, PartialEq)]
-pub struct Member {
-    pub key: String,
-    pub val: Expr,
+pub enum Member {
+    Assign(String, Expr),
+    Spread(Expr),
 }
 
 #[derive(Clone, Debug, Hash, PartialEq)]
@@ -82,7 +82,6 @@ pub enum Expr {
     Jpi(Jpi),
     Jpk(Jpk),
     Jpe(Jpe),
-    Spread(Vec<Obj>),
 }
 
 /// JSON data types.
@@ -147,10 +146,8 @@ pub fn insert(target: String, source: Vec<Obj>) -> Insert {
 
 #[inline]
 pub fn select_star(from: From) -> Select {
-    let member = Member {
-        key: from.var.clone(),
-        val: Expr::Var(from.var.clone()),
-    };
+    let var = Expr::Var(from.var.clone());
+    let member = Member::Spread(var);
     Select {
         inp: from,
         sel: vec![member],
@@ -165,18 +162,18 @@ pub fn select_list(members: Vec<Member>, from: From) -> Select {
     }
 }
 
-pub fn select_item_no_alias(val: Expr) -> Member {
-    let key = match &val {
+pub fn select_item_no_alias(expr: Expr) -> Member {
+    let name = match &expr {
         Expr::Var(var) => var.clone(),
         Expr::Jpk(jpk) => jpk.key.clone(),
-        _ => panic!("select_item_no_alias: {:?}", val),
+        _ => panic!("select_item_no_alias: {:?}", expr),
     };
-    select_item(val, key)
+    select_item(expr, name)
 }
 
 #[inline]
-pub fn select_item(val: Expr, key: String) -> Member {
-    Member { key, val }
+pub fn select_item(expr: Expr, name: String) -> Member {
+    Member::Assign(name, expr)
 }
 
 #[inline]
@@ -191,8 +188,8 @@ pub fn from(tbl: String, var: String) -> From {
 }
 
 #[inline]
-pub fn member(key: String, val: Expr) -> Member {
-    Member { key, val }
+pub fn member(name: String, expr: Expr) -> Member {
+    Member::Assign(name, expr)
 }
 
 #[inline]

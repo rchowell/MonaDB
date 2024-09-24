@@ -49,14 +49,14 @@ impl<'cat> Compiler<'cat> {
     }
 
     /// "Allocates" n registers and returns a pointer to the first register.
-    pub fn alloc(&mut self, n: usize) -> usize {
+    fn alloc(&mut self, n: usize) -> usize {
         let curr = self.ptr;
         self.ptr = curr + n;
         curr
     }
 
     /// Free n registers.
-    pub fn free(&mut self, n: usize) {
+    fn free(&mut self, n: usize) {
         self.ptr -= n;
     }
 
@@ -151,12 +151,11 @@ impl<'cat> Compiler<'cat> {
     fn cc_expr(&mut self, expr: Expr) -> Result<usize> {
         match expr {
             Expr::Var(var) => self.cc_expr_var(var),
-            Expr::Lit(val) => self.cc_expr_val(val),
+            Expr::Lit(val) => self.cc_expr_lit(val),
             Expr::Obj(obj) => self.cc_expr_obj(obj),
             Expr::Jpi(jpi) => self.cc_expr_jpi(jpi),
             Expr::Jpk(jpk) => self.cc_expr_jpk(jpk),
             Expr::Jpe(jpe) => self.cc_expr_jpe(jpe),
-            Expr::Spread(_) => todo!(),
         }
     }
 
@@ -166,21 +165,28 @@ impl<'cat> Compiler<'cat> {
         Ok(dst)
     }
 
-    fn cc_expr_val(&mut self, val: Value) -> Result<usize> {
+    fn cc_expr_lit(&mut self, val: Value) -> Result<usize> {
         let dst = self.alloc(1);
-        self.push(Vop::lit(val, dst));
+        self.push(Vop::load(val, dst));
         Ok(dst)
     }
 
     fn cc_expr_obj(&mut self, members: Obj) -> Result<usize> {
         let dst = self.alloc(1);
-        let mut mem: Vec<(String, usize)> = vec![];
+        self.push(Vop::obj_init());
         for m in members {
-            let k = m.key.clone();
-            let v = self.cc_expr(m.val)?;
-            mem.push((k, v));
+            match m {
+                Member::Assign(name, expr) => {
+                    let expr = self.cc_expr(expr)?;
+                    self.push(Vop::obj_assign(name, expr));
+                },
+                Member::Spread(expr) => {
+                    let expr = self.cc_expr(expr)?;
+                    self.push(Vop::obj_spread(expr));
+                },
+            }
         }
-        self.push(Vop::obj(mem, dst));
+        self.push(Vop::obj_done(dst));
         Ok(dst)
     }
 

@@ -8,11 +8,15 @@ _This section contains a list of features/ideas that are not yet implemented._
 
 .Uncategorized
 * [ ] Testing framework, dbgen, performance and language comparison to jq and sqlite jsonb.
+* [ ] Render language documents to HTML.
 * [ ] UPDATE and conditional DELETE (needs row pointers)
 * [ ] Error on duplicate keys.
 * [ ] Row pointers (why?).
 * [ ] Language documentation should have links to other grammar rules.
 * [ ] Explore pro's / con's of typed arrays.
+* [ ] Computed property names in objects.
+* [ ] Naming?? prop, key, name, member, field, etc.
+* [ ] Evaluate simplicity of using a stack rather than registers...
 
 .Shell
 * [ ] Better error messages.
@@ -26,18 +30,15 @@ _This section contains a list of features/ideas that are not yet implemented._
 
 _This section contains various mini-goals to drive the project._
 
-=== G1 Aug 2024
+=== G3 Oct 2024
 
 .Goals
-* [x] Load jsonlines into an in-memory "table".
-* [x] Run a scan against the in-memory "table".
-* [x] Send results to stdout.
-* [x] Make the most rudimentary file format!
-
-.Notes
-* I have a VM loop and cursor.
-* Start with loading jsonlines from stdin.
-* Figure out a projection operator
+* [x] Removal of sqlparser
+* [ ] The cursor should be an iterator over the sqlite connection.
+* [ ] Cleanup the VM and VOP factoring with some consistent naming.
+* [ ] Standardize naming of bindings/attributes/fields/members including rows/objs/tables/etc.
+* [ ] Document and use consistent ABNF
+* [ ] Object initializers.
 
 === G2 Sep 2024
 
@@ -67,10 +68,15 @@ For September, I would like to have the CRUD operations working and start the RQ
 * [x] Store rows as sqlite jsonb.
 * [x] (DONT) Can I merge parser and compiler // how should the responsibility be split.
 
-=== G3 Oct 2024
+=== G1 Aug 2024
 
 .Goals
-* [ ] Removal of sqlparser
-* [ ] The cursor should be an iterator over the sqlite connection.
-* [ ] Cleanup the VM and VOP factoring with some consistent naming.
-* [ ] Standardize naming of bindings/attributes/fields/members including rows/objs/tables/etc.
+* [x] Load jsonlines into an in-memory "table".
+* [x] Run a scan against the in-memory "table".
+* [x] Send results to stdout.
+* [x] Make the most rudimentary file format!
+
+.Notes
+* I have a VM loop and cursor.
+* Start with loading jsonlines from stdin.
+* Figure out a projection operator
