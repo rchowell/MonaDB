@@ -1,20 +1,16 @@
-use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::vec;
 
 use crate::ir::Table;
-use crate::value::{ObjInitializer, Value};
+use crate::value::Value;
 use crate::Result;
 use crate::{value::Row, Rho};
 
 /// Program is a sequence of virtual machine instructions.
 pub type Program = Vec<Vop>;
 
-/// Registers are the VM's working memory.
-pub type Vmem = Vec<Value>;
-
 /// Vop is a virtual machine instruction code.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Vop {
     ///
     /// Init is always the first instruction.
@@ -83,19 +79,8 @@ pub enum Vop {
     ///   If there is a row, then jump to `jmp`; otherwise goto next.
     ///
     Next { jmp: usize },
-    /// Begin an object initializer.
-    ObjInit,
-    /// Assgin the value in `expr` to `name` the current object initializer.
-    ObjAssign {
-        name: String,
-        expr: usize,
-    },
-    /// Spread the value in `expr` into the current object initializer.
-    ObjSpread {
-        expr: usize,
-    },
-    /// Complete the object initializer.
-    ObjDone {
+    /// Initialize an empty object.
+    Obj {
         dst: usize,
     },
     /// Opens a table for reading with the cursor positioned at the first row.
@@ -105,14 +90,16 @@ pub enum Vop {
     },
     /// Returns the value in register `ptr`.
     Return { ptr: usize },
-    ///
-    /// Rewind
-    ///  * jmp  :   jump location
-    ///
-    /// Description:
-    ///   Set cursor to the start; jump to `jmp` if the table is empty.
-    ///
-    Rewind { jmp: usize },
+    /// Set cursor to the start; jump to `jmp` if the table is empty.
+    Rewind {
+        jmp: usize,
+    },
+    /// obj[name] = expr // if name is None, then spread.
+    Set {
+        obj: usize,
+        name: Option<String>,
+        expr: usize,
+    },
     /// Begin a transaction.
     Transaction,
     /// Load the variable `name` from the environment into the destination register.
@@ -188,23 +175,8 @@ impl Vop {
     }
 
     #[inline]
-    pub fn obj_init() -> Vop {
-        Vop::ObjInit
-    }
-
-    #[inline]
-    pub fn obj_assign(name: String, expr: usize) -> Vop {
-        Vop::ObjAssign { name, expr }
-    }
-
-    #[inline]
-    pub fn obj_spread(expr: usize) -> Vop {
-        Vop::ObjSpread { expr }
-    }
-
-    #[inline]
-    pub fn obj_done(dst: usize) -> Vop {
-        Vop::ObjDone { dst }
+    pub fn obj(dst: usize) -> Vop {
+        Vop::Obj { dst }
     }
 
     #[inline]
@@ -216,6 +188,16 @@ impl Vop {
     pub fn rewind(jmp: usize) -> Vop {
         Vop::Rewind { jmp }
     }
+
+    #[inline]
+    pub fn set(obj: usize, name: Option<String>, expr: usize) -> Vop {
+        Vop::Set { 
+            obj,
+            name,
+            expr,
+         }
+    }
+
 
     #[inline]
     pub fn var(var: String, dst: usize) -> Vop {
@@ -254,39 +236,32 @@ impl Env {
 /// VM holds the state of the virtual machine.
 pub struct VM<'a> {
     db: &'a Rho,
-    mem: Vmem,
+    mem: Vec<Value>,
     pc: usize,
     program: Program,
     // temporary until the registers are implemented
     env: Env,
     // temporary until I have an actual cursor
     cursor: Vcursor,
-    // Current Object Initliazer .. temporary until I have an environment stack
-    coi: ObjInitializer,
 }
 
 impl<'a> VM<'a> {
     pub fn init(db: &Rho, program: Program) -> VM {
-        // temporary (??)
-        let mut mem: Vmem = vec![];
-        mem.resize(100, Value::null());
-
         VM {
             db,
-            mem,
+            mem: vec![Value::null(); 100],
             pc: 0,
             program,
             env: Env::new(),
             cursor: Vcursor::empty(),
-            coi: ObjInitializer::init(),
         }
     }
 
     pub fn next(&mut self) -> Result<Option<Row>> {
         loop {
-            let op = &self.program[self.pc];
+            let op = self.program[self.pc].clone(); // <-- CLONE INSTRUCTION
             self.pc += 1;
-            match op {
+            match &op {
                 Vop::Init => {
                     // do nothing (for now)
                 }
@@ -308,7 +283,7 @@ impl<'a> VM<'a> {
                     self.db.drop_table(table)?;
                 }
                 Vop::Insert { tbl, row } => {
-                    let v = self.mem[*row].clone();
+                    let v = self.load(*row).clone(); // TODO NO CLONE
                     self.db.insert(tbl, v)?;
                 }
                 Vop::Jpi { inp, idx, dst } => {
@@ -349,7 +324,7 @@ impl<'a> VM<'a> {
                     self.cursor = Vcursor::new(rows)
                 }
                 Vop::Return { ptr } => {
-                    let v = self.mem[*ptr].clone();
+                    let v = self.mem[*ptr].clone(); // TODO NO CLONE
                     return Ok(Some(v));
                 }
                 Vop::Rewind { jmp } => {
@@ -357,19 +332,17 @@ impl<'a> VM<'a> {
                         self.pc = *jmp;
                     }
                 }
-                Vop::ObjInit => {
-                    self.coi.clear();
+                Vop::Obj { dst } => {
+                    self.mem[*dst] = Value::object();
                 },
-                Vop::ObjAssign { name, expr } => {
-                    let v = self.mem[*expr].clone();
-                    self.coi.assign(name, v);
-                },
-                Vop::ObjSpread { expr } => {
-                    let v = self.mem[*expr].clone();
-                    self.coi.spread(v);
-                },
-                Vop::ObjDone { dst } => {
-                    self.mem[*dst] = self.coi.done();
+                Vop::Set { obj, name, expr } => {
+                    let val = self.load(*expr).clone(); // <-- TODO NO CLONE; BORROW+DROP
+                    let obj = self.loadm(*obj); // <-- MUTABLE BORROW OCCURS HERE
+                    match name {
+                        Some(name) => obj.set(name.to_string(), val),
+                        None => obj.spread(val),
+                    }
+                    // MUTABLE BORROW IS DROPPED
                 },
                 Vop::Next { jmp } => {
                     if self.cursor.next() {
@@ -390,6 +363,14 @@ impl<'a> VM<'a> {
                 }
             }
         }
+    }
+
+    fn loadm(&mut self, idx: usize) -> &mut Value {
+        self.mem.get_mut(idx).unwrap()
+    }
+
+    fn load(&self, idx: usize) -> &Value {
+        self.mem.get(idx).unwrap()
     }
 }
 

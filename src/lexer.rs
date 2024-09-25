@@ -5,11 +5,11 @@ use crate::error::Error;
 
 pub type Spanned<Tok, Loc, Error> = Result<(Loc, Tok, Loc), Error>;
 
-pub struct Lexer<'input> {
+pub struct RqlLexer<'input> {
     tokens: SpannedIter<'input, Token>,
 }
 
-impl<'input> Lexer<'input> {
+impl<'input> RqlLexer<'input> {
     pub fn new(input: &'input str) -> Self {
         Self {
             tokens: Token::lexer(input).spanned(),
@@ -17,7 +17,7 @@ impl<'input> Lexer<'input> {
     }
 }
 
-impl<'input> Iterator for Lexer<'input> {
+impl<'input> Iterator for RqlLexer<'input> {
     type Item = Spanned<Token, usize, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -104,12 +104,12 @@ pub enum Token {
     False,
     #[regex(r"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?", |lex| lex.slice().parse::<f64>().unwrap())]
     Number(f64),
-    #[regex(r#""([^"\\]|\\["\\bnfrt]|u[a-fA-F0-9]{4})*""#, |lex| lex.slice().to_owned())]
+    #[regex(r#""([^"\\]|\\["\\bnfrt]|u[a-fA-F0-9]{4})*""#, |lex| lex.slice().trim_matches('"').to_owned())]
     String(String),
     //-------------------------
     // Names and Identifiers
     //-------------------------
-    #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*", |lex| lex.slice().trim_matches('"').to_owned())]
+    #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*", |lex| lex.slice().to_owned())]
     Identifier(String),
 }
 

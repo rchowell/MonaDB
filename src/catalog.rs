@@ -3,7 +3,7 @@ use std::{
 };
 
 use crate::{
-    error::Error, ir::Table, lexer::Lexer, parser::RqlParser, value::Row, Result
+    error::Error, ir::Table, lexer::RqlLexer, parser::RqlParser, value::Row, Result
 };
 use rusqlite::{named_params, Connection, ToSql};
 
@@ -188,7 +188,7 @@ mod sql {
 
 fn parse_table(ddl: &str) -> Result<Table> {
     use crate::ir::*;
-    let rl = Lexer::new(ddl);
+    let rl = RqlLexer::new(ddl);
     let rp = RqlParser::new();
     let ddl = rp.parse(rl)?;
     if let Statement::Create(Create::Table(table)) = ddl {

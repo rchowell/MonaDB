@@ -1,6 +1,6 @@
 use std::vec;
 use crate::catalog::Catalog;
-use crate::lexer::Lexer;
+use crate::lexer::RqlLexer;
 use crate::parser::RqlParser;
 use crate::value::Value;
 use crate::{Program, Result, Vop};
@@ -173,20 +173,19 @@ impl<'cat> Compiler<'cat> {
 
     fn cc_expr_obj(&mut self, members: Obj) -> Result<usize> {
         let dst = self.alloc(1);
-        self.push(Vop::obj_init());
+        self.push(Vop::obj(dst));
         for m in members {
             match m {
                 Member::Assign(name, expr) => {
                     let expr = self.cc_expr(expr)?;
-                    self.push(Vop::obj_assign(name, expr));
+                    self.push(Vop::set(dst, Some(name), expr));
                 },
                 Member::Spread(expr) => {
                     let expr = self.cc_expr(expr)?;
-                    self.push(Vop::obj_spread(expr));
+                    self.push(Vop::set(dst, None, expr));
                 },
             }
         }
-        self.push(Vop::obj_done(dst));
         Ok(dst)
     }
 
@@ -217,7 +216,7 @@ impl<'cat> Compiler<'cat> {
 
 /// Parse the RQL query into the IR.
 fn parse(rql: &str) -> Result<Statement> {
-    let rl = Lexer::new(rql);
+    let rl = RqlLexer::new(rql);
     let rp = RqlParser::new();
     let ir = rp.parse(rl)?;
     Ok(ir)

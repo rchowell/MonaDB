@@ -35,6 +35,11 @@ impl Value {
         Value(JsonValue::String(value))
     }
 
+    #[inline]
+    pub fn object() -> Value {
+        Value(JsonValue::Object(Map::new()))
+    }
+
     /// TryFrom str.
     pub fn from_str(s: &str) -> Result<Value> {
         let inner = serde_json::from_str(s)?;
@@ -122,6 +127,21 @@ impl Value {
             members.get(key).map(|v| Value::new(v.clone()))
         } else {
             None
+        }
+    }
+
+    /// Set obj[key] = value
+    pub fn set(&mut self, key: String, value: Value) {
+        if let JsonValue::Object(members) = &mut self.0 {
+            members.insert(key, value.0);
+        }
+    }
+
+    pub fn spread(&mut self, value: Value) {
+        if let JsonValue::Object(members) = &mut self.0 {
+            if let JsonValue::Object(other) = value.0 {
+                members.extend(other);
+            }
         }
     }
 }

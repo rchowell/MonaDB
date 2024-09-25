@@ -38,6 +38,10 @@ The catalog provides all access to schemas and tables. It is backed by sqlite so
 - Consider prefixing with _ to avoid conflicts with user tables.
 - Beam has link:https://github.com/apache/beam/tree/master/sdks/java/testing/tpcds/src/main/resources/schemas[TPC schemas as Avro JSON].
 
+== Values
+
+Why must I write my own value representation .. why not use serde_json?
+
 == Appendices
 
 === Appendix I – JSON
@@ -259,3 +263,7 @@ CREATE TABLE catalog (
     - If you insert an object into a "closed" table, the extra fields are ignored.
     - If you insert an object into an "open" table, the extra fields are stored in a hidden object column.
 - Optimizations such as page compaction.
+
+== Advice
+
+> Take the extra time you saved not rewriting your parsing code and spend it improving the compile error messages your compiler shows users. Good error handling and reporting is more valuable to users than almost anything else you can put time into in the front end. - Bob Nystrom
