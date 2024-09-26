@@ -25,12 +25,13 @@ members
     member ',' members
 
 member
-    member_var      // `a`
+    member_path     // `a`
     member_assign   // `a: 1`
     member_spread   // `...a`
 
-member_var
+member_path
     expr_var
+    expr_jpk
 
 member_assign
     member_name ':' member_element

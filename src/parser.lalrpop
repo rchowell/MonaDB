@@ -16,6 +16,7 @@ extern {
         // symbols
         ","         => Token::Comma,
         ":"         => Token::Colon,
+        "..."       => Token::Ellipsis,
         "."         => Token::Period,
         ";"         => Token::SemiColon,
         "*"         => Token::Star,
@@ -72,14 +73,13 @@ TableMembers: Vec<ir::TableMember> = List<TableMember>;
 TableMember: ir::TableMember = <Ident> <Type> => ir::table_member(<>);
 
 Select: ir::Select = {
-    "select" "*"          <From>    => ir::select_star(<>),
-    "select" <SelectList> <From>    => ir::select_list(<>),
+    "select" "*"                <From>  => ir::select_star(<>),
+    "select" "{" <Members> "}"  <From>  => ir::select_list(<>),
+    "select" <List<SelectItem>> <From>  => ir::select_list(<>),
 };
 
-SelectList: Vec<ir::Member> = List<SelectItem>;
-
 SelectItem: ir::Member = {
-    <Expr>              => ir::select_item_no_alias(<>),
+    <Path>              => ir::select_path(<>),
     <Expr> "as" <Ident> => ir::select_item(<>),
 }
 
@@ -99,20 +99,14 @@ InsertSource: Vec<ir::Obj> = {
     InsertValues    => <>,
 };
 
-InsertValue: ir::Obj = {
-    "{" <Members> "}" => <>,
-};
+InsertValue: ir::Obj = "{" <Members> "}";
 
-InsertValues: Vec<ir::Obj> = {
-    "[" <InsertValuesList> "]" => <>,
-};
+InsertValues: Vec<ir::Obj> = "[" <List<InsertValue>> "]";
 
-InsertValuesList: Vec<ir::Obj> = List<InsertValue>;
-
-// KISS
+// TODO
 Delete: String = "delete" "from" <Ident>;
 
-// KISS
+// TODO
 Drop: String = "drop" "table" <Ident>;
 
 //------------------------------
@@ -141,9 +135,19 @@ Expr: ir::Expr = {
     "(" <Expr> ")"          => <>,
 };
 
+Path: ir::Expr = {
+    Ident               => ir::expr_var(<>),
+    <Expr> "." <Ident>  => ir::expr_jpk(<>),
+};
+
 Members: Vec<ir::Member> = List<Member>;
 
-Member: ir::Member = <Ident> ":" <Expr> => ir::member(<>);
+Member: ir::Member = {
+    Path                    => ir::member_path(<>),
+    <"ident">  ":" <Expr>   => ir::member_assign(<>),
+    <"string"> ":" <Expr>   => ir::member_assign(<>),
+    "..." <Expr>            => ir::member_spread(<>),
+}
 
 Value: Value = {
     "null"      => Value::null(),
@@ -159,7 +163,6 @@ Ident: String = "ident";
 // MACROS
 //------------------------------
 
-// List of comma separated elements T.
 List<T>: Vec<T> = {
     <mut v:(<T> ",")*> <e:T?> => match e {
         None => v,

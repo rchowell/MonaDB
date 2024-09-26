@@ -5,24 +5,11 @@
 ----
 select p.x, p.y from points as p;
 
-select * from points;
-select points.* from points;
-select ...points from points;
+-- equivalences
 
-select { x, y } from points;
-select { ... } from points;
-select * from points;
-
-x.* <-> { ...x }
-
--- equialences
-select * from points;
-select points.* from points;
-select p.* from points as p;
-select { ... }
-
-select { ...x, ...y } from points;
-
+select   * from v;
+select v.* from v;
+select { ...v } from v;
 ----
 
 == Syntax
@@ -33,7 +20,8 @@ select_statement
     "select" select_constructor "from" table_name
 
 select_constructor
-    select_object
+    "*"
+    select_obj
     select_list
 
 select_object
@@ -47,6 +35,10 @@ select_item
     expr_var
     expr_jpk
     expr "as" ident
+
+select_path
+    expr_var
+    expr_jpk
 ----
 
 == Description

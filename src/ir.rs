@@ -162,11 +162,11 @@ pub fn select_list(members: Vec<Member>, from: From) -> Select {
     }
 }
 
-pub fn select_item_no_alias(expr: Expr) -> Member {
+pub fn select_path(expr: Expr) -> Member {
     let name = match &expr {
         Expr::Var(var) => var.clone(),
         Expr::Jpk(jpk) => jpk.key.clone(),
-        _ => panic!("select_item_no_alias: {:?}", expr),
+        _ => panic!("select_path: {:?}", expr),
     };
     select_item(expr, name)
 }
@@ -188,8 +188,23 @@ pub fn from(tbl: String, var: String) -> From {
 }
 
 #[inline]
-pub fn member(name: String, expr: Expr) -> Member {
+pub fn member_path(expr: Expr) -> Member {
+    let name = match &expr {
+        Expr::Var(var) => var.clone(),
+        Expr::Jpk(jpk) => jpk.key.clone(),
+        _ => panic!("select_item_no_alias: {:?}", expr),
+    };
     Member::Assign(name, expr)
+}
+
+#[inline]
+pub fn member_assign(name: String, expr: Expr) -> Member {
+    Member::Assign(name, expr)
+}
+
+#[inline]
+pub fn member_spread(expr: Expr) -> Member {
+    Member::Spread(expr)
 }
 
 #[inline]

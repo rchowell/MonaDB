@@ -39,6 +39,8 @@ pub enum Token {
     Comma,
     #[token(":")]
     Colon,
+    #[token("...")]
+    Ellipsis,
     #[token(".")]
     Period,
     #[token(";")]

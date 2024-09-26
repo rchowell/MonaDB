@@ -18,6 +18,7 @@ _This section contains a list of features/ideas that are not yet implemented._
 * [ ] Naming?? prop, key, name, member, field, etc.
 * [ ] Evaluate simplicity of using a stack rather than registers...
 * [ ] Add `emit_op` style methods in compiler to replace vop helpers (easy-ish find+replace).
+* [ ] See if the notion of "path" can be simplified.
 
 .Shell
 * [ ] Better error messages.
@@ -39,11 +40,12 @@ _This section contains various mini-goals to drive the project._
 * [ ] Cleanup the VM and VOP factoring with some consistent naming.
 * [ ] Standardize naming of bindings/attributes/fields/members including rows/objs/tables/etc.
 * [ ] Document and use consistent ABNF
-* [ ] Object initializers.
+* [x] Object initializers.
 * [ ] Object constructor in select list.
 * [ ] Scalar functions
 * [ ] Shread on storage + hash/sort keys.
 * [ ] Basic documentation and understanding of efficient registers/value storage (aka stop cloning..)
+* [ ] Support for .* syntax
 
 === G2 Sep 2024
 
