@@ -10,6 +10,21 @@ pub struct Value(JsonValue);
 /// Row (for now) is just a JSON value
 pub type Row = Value;
 
+/// Row2 is temporary because I've accidentally used Row in too many places.
+#[derive(Debug)]
+pub struct Row2 {
+    arr: Vec<(String, Value)>,
+    map: Map<String, JsonValue>,
+}
+
+impl Row2 {
+
+    /// Stich a row into an object value; see shred.
+    pub fn stitch() -> Value {
+        todo!()
+    }
+}
+
 impl Value {
     pub fn new(value: JsonValue) -> Self {
         Self(value)
@@ -144,6 +159,28 @@ impl Value {
             }
         }
     }
+
+    /// Shred an object value into a row; see stitch.
+    /// TODO MEMBER DEFINITIONS FOR DEFAULTS AND NULLABILITY...
+    pub fn shred(self, columns: Vec<&str>) -> Row2 {
+        if let JsonValue::Object(mut members) = self.0 {
+            // initialize the arr and map parts of a row.
+            let mut arr: Vec<(String, Value)> = vec![];
+            let mut map = Map::new();
+            // shred the known members to the arr part.
+            for c in columns {
+                // take the value (or null)
+                let v = match members.remove(c) {
+                    Some(v) => Value(v),
+                    None => Value::null()
+                };
+                arr.push((c.to_string(), v));
+            }
+            Row2 { arr, map }
+        } else {
+            panic!("shred: not an object");
+        }
+    }
 }
 
 impl From<JsonValue> for Value {
@@ -204,5 +241,27 @@ impl ObjInitializer {
 
     pub fn done(&self) -> Value {
         Value(JsonValue::Object(self.members.clone()))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn test_shred() {
+        let value = Value::new(json!(
+            {
+                "name": "Alice",
+                "age": 42,
+                "city": "New York"
+            }
+        ));
+        let columns = vec!["name", "age"];
+        let row = value.shred(columns);
+        println!("{:?}", row);
+        assert_eq!(row.arr.len(), 2);
     }
 }

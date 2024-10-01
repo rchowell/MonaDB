@@ -42,6 +42,18 @@ The catalog provides all access to schemas and tables. It is backed by sqlite so
 
 Why must I write my own value representation .. why not use serde_json?
 
+== Tables
+
+There are three types of tables:
+
+* K-Table - unique primary key, backed by a kv-store.
+* HS-Tables - hash and sort keys, backed by b-trees.
+* Other - unsorted collections, backed by ??
+
+=== K-Table
+
+A k-table is a table with a singular primary key
+
 == Appendices
 
 === Appendix I – JSON

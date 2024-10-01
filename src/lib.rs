@@ -49,6 +49,14 @@ impl Rho {
         })
     }
 
+    pub fn memory() -> Result<Rho> {
+        let catalog = Catalog::memory()?;
+        Ok(Rho {
+            debug: true,
+            catalog: RefCell::new(catalog),
+        })
+    }
+
     pub fn info(&self) {
         println!("{:?}", self.catalog.borrow());
     }

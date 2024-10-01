@@ -41,11 +41,17 @@ _This section contains various mini-goals to drive the project._
 * [ ] Standardize naming of bindings/attributes/fields/members including rows/objs/tables/etc.
 * [ ] Document and use consistent ABNF
 * [x] Object initializers.
-* [ ] Object constructor in select list.
+* [x] Object constructor in select list.
 * [ ] Scalar functions
 * [ ] Shread on storage + hash/sort keys.
 * [ ] Basic documentation and understanding of efficient registers/value storage (aka stop cloning..)
 * [ ] Support for .* syntax
+* [ ] Constraints
+** [ ] PRIMARY KEY
+** [ ] NOT NULL
+** [ ] UNIQUE
+** [ ] CHECK
+** [ ] DEFAULT
 
 === G2 Sep 2024
 

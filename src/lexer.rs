@@ -43,6 +43,8 @@ pub enum Token {
     Ellipsis,
     #[token(".")]
     Period,
+    #[token("|")]
+    Pipe,
     #[token(";")]
     SemiColon,
     #[token("*")]

@@ -107,12 +107,19 @@ fn main() {
 
     // OPEN DATABASE 
     let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        eprintln!("Usage: {} <file>", args[0]);
-        std::process::exit(1);
-    }
-    let path: PathBuf = PathBuf::from(&args[1]);
-    let mut rho = Rho::open(&path).expect("Could not open rho");
+    let mut rho = match args.len() {
+        1 => {
+            Rho::memory().expect("Could not open rho")
+        },
+        2 => {
+            let path: PathBuf = PathBuf::from(&args[1]);
+            Rho::open(&path).expect("Could not open rho")
+        },
+        _ => {
+            eprintln!("Usage: {} <file>", args[0]);
+            std::process::exit(1);
+        },
+    };
 
     // REPL 
     let mut line_reader = LineReader::new();

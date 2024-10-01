@@ -6,6 +6,24 @@
 create table points (
     x number,
     y number,
+    z number|null,
+    ...
+);
+
+-- with constraints
+create table customers (
+    first   string,
+    last    string,
+    age     number,
+    dob     string,
+    address address,
+    phones  array,
+    email   string|null,
+    ---
+    key     (last),
+    unique  (email),
+    check   (age > 0),
+    default (dob = '01/01/1970'),
 );
 ----
 
@@ -13,21 +31,29 @@ create table points (
 
 [source,mckeeman]
 ----
-create_table
+table_definition
     "create" "table" table_name "(" table_members ")"
+    "create" "table" table_name "(" table_members "---" table_constraints ")"
+
+table_name
+    identifier 
 
 table_members
     table_member
     table_member "," table_member
 
 table_member
-    member_name member_type
+    identifier type
 
-member_name
-    name
+table_constraints
 
-member_type
-    type
+
+table_constraint
+    "key"
+    "not null"
+    "unique"
+    "check" "(" expr ")"
+    "default" "(" expr ")"
 
 type
     "boolean"
@@ -35,4 +61,38 @@ type
     "string"
     "object"
     "array"
+----
+
+== Rules
+
+. A table MAY have a _key_ member OR _hash/sort_ members.
+. A table MUST NOT have a _hash_ member without a _sort_ member.
+. A table MUST NOT have a _key_ member and _hash/sort_ members.
+. If a member has one of the key constraints, then _<constraint_not_null>_ is implicit.
+. A column is "NOT NULL" by default.
+. A column with type T MAY be declared nullable by appending a `|null` to the column type definition.
+
+== Ideas
+
+. Does the concept of hash/sort even make sense .. seems a sort key is all that's needed.
+. Consider derived keys.
+. Consider using typescript for type definitions.
+. Column constraints are redundant, so constraints will only be modeled as table constraints.
+. The type of a column is a type definition like typescript, but I am starting simple and only allowing "|null" to model the "[NOT] NULL" column constraint.
+
+[source]
+----
+type foo = {
+    x: number,
+    y: number,
+    [key: string]: any,
+};
+
+-- equivalent
+
+type foo = {
+    x number,
+    y number,
+    ...
+};
 ----

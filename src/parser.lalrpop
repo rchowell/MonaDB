@@ -18,6 +18,7 @@ extern {
         ":"         => Token::Colon,
         "..."       => Token::Ellipsis,
         "."         => Token::Period,
+        "|"         => Token::Pipe,
         ";"         => Token::SemiColon,
         "*"         => Token::Star,
         "("         => Token::ParenL,
@@ -65,12 +66,28 @@ Statement: ir::Statement = {
 };
 
 Create: ir::Create = {
-    "create" "table" <Ident> "(" <TableMembers> ")" => ir::create_table(<>)
+    TableDefinition => ir::Create::Table(<>),
 };
+
+TableDefinition: ir::Table = {
+    "create" "table" <TableName> "(" <TableMembers> ")" => ir::table_definition(<>),
+};
+
+TableName: String = "ident";
 
 TableMembers: Vec<ir::TableMember> = List<TableMember>;
 
-TableMember: ir::TableMember = <Ident> <Type> => ir::table_member(<>);
+TableMember: ir::TableMember = {
+    <Ident> <Type>            => ir::table_member(<>, false),
+    <Ident> <Type> "|" "null" => ir::table_member(<>, true),
+}
+
+// TableConstraints: Vec<ir::TableConstraint> = "---" <List<TableConstraint>>;
+
+// TableConstraint: ir::TableConstraint = {
+//     <"ident">
+//     <"ident"> "(" <Expr> ")" => ir::table_constraint_key(<>),
+// };
 
 Select: ir::Select = {
     "select" "*"                <From>  => ir::select_star(<>),

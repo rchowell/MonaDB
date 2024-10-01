@@ -1,4 +1,4 @@
-use std::{fmt::Display, mem};
+use std::fmt::Display;
 
 use crate::value::*;
 
@@ -27,20 +27,29 @@ pub struct Insert {
 }
 
 //------------------------------
-// Table
+// Table Definition
 //------------------------------
 
 #[derive(Clone, Debug, Hash, PartialEq)]
 pub struct Table {
     pub name: String,
     pub members: Vec<TableMember>,
+    pub constraints: Vec<TableConstraint>,
 }
+
+#[derive(Clone, Debug, Hash, PartialEq)]
+pub enum TableConstraint {
+    Key(String),
+    Unique(String),
+    Check(Expr),
+    Default(String, Value),
+} 
 
 impl Display for Table {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "create table {} (", self.name)?;
         for m in &self.members {
-            writeln!(f, "  {} {},", m.name, m.typ_)?;
+            writeln!(f, "  {},", m)?;
         }
         writeln!(f, ");")?;
         Ok(())
@@ -51,6 +60,17 @@ impl Display for Table {
 pub struct TableMember {
     pub name: String,
     pub typ_: Type,
+    pub nullable: bool,
+}
+
+impl Display for TableMember {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.nullable {
+            write!(f, "{} {}|null", self.name, self.typ_)
+        } else {
+            write!(f, "{} {}", self.name, self.typ_)
+        }
+    }
 }
 
 /// SELECT <sel> ...
@@ -85,6 +105,8 @@ pub enum Expr {
 }
 
 /// JSON data types.
+/// 
+/// TODO research TypeScript type definition modeling.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub enum Type {
     Bool,
@@ -135,8 +157,8 @@ pub struct Jpe {
 //------------------------------
 
 #[inline]
-pub fn create_table(name: String, members: Vec<TableMember>) -> Create {
-    Create::Table(Table { name, members })
+pub fn table_definition(name: String, members: Vec<TableMember>) -> Table {
+    Table { name, members, constraints: vec![] }
 }
 
 #[inline]
@@ -192,7 +214,7 @@ pub fn member_path(expr: Expr) -> Member {
     let name = match &expr {
         Expr::Var(var) => var.clone(),
         Expr::Jpk(jpk) => jpk.key.clone(),
-        _ => panic!("select_item_no_alias: {:?}", expr),
+        _ => panic!("member_path: {:?}", expr),
     };
     Member::Assign(name, expr)
 }
@@ -208,8 +230,8 @@ pub fn member_spread(expr: Expr) -> Member {
 }
 
 #[inline]
-pub fn table_member(name: String, typ_: Type) -> TableMember {
-    TableMember { name, typ_ }
+pub fn table_member(name: String, typ_: Type, nullable: bool) -> TableMember {
+    TableMember { name, typ_, nullable }
 }
 
 //------------------------------
