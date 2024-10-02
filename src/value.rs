@@ -1,27 +1,35 @@
 use std::fmt::{Debug, Display};
 
-use crate::Result;
+use crate::{ir::TableMember, Result};
 use serde_json::{Map, Value as JsonValue};
 
 /// JSON value.
 #[derive(Clone, Hash, PartialEq)]
 pub struct Value(JsonValue);
 
-/// Row (for now) is just a JSON value
-pub type Row = Value;
+/// Record (for now) is just a JSON value
+pub type Record = Value;
 
 /// Row2 is temporary because I've accidentally used Row in too many places.
 #[derive(Debug)]
-pub struct Row2 {
+pub struct Row {
     arr: Vec<(String, Value)>,
     map: Map<String, JsonValue>,
 }
 
-impl Row2 {
-
+impl Row {
     /// Stich a row into an object value; see shred.
     pub fn stitch() -> Value {
         todo!()
+    }
+
+    /// Flatten a row into a vector of key-value pairs, with the hidden "_" member.
+    pub fn values(self) -> Vec<Value> {
+        let mut values: Vec<Value> = self.arr.into_iter().map(|(_, v)| v).collect();
+        // TODO OPEN PART OF THE MAP
+        // let map = Value(JsonValue::Object(self.map));
+        // values.push(map);
+        values
     }
 }
 
@@ -162,21 +170,19 @@ impl Value {
 
     /// Shred an object value into a row; see stitch.
     /// TODO MEMBER DEFINITIONS FOR DEFAULTS AND NULLABILITY...
-    pub fn shred(self, columns: Vec<&str>) -> Row2 {
-        if let JsonValue::Object(mut members) = self.0 {
-            // initialize the arr and map parts of a row.
-            let mut arr: Vec<(String, Value)> = vec![];
-            let mut map = Map::new();
+    pub fn shred(self, members: &Vec<TableMember>) -> Row {
+        if let JsonValue::Object(mut map) = self.0 {
             // shred the known members to the arr part.
-            for c in columns {
+            let mut arr: Vec<(String, Value)> = vec![];
+            for m in members {
                 // take the value (or null)
-                let v = match members.remove(c) {
+                let v = match map.remove(&m.name) {
                     Some(v) => Value(v),
                     None => Value::null()
                 };
-                arr.push((c.to_string(), v));
+                arr.push((m.name.clone(), v));
             }
-            Row2 { arr, map }
+            Row { arr, map }
         } else {
             panic!("shred: not an object");
         }
@@ -247,6 +253,7 @@ impl ObjInitializer {
 #[cfg(test)]
 mod test {
     use serde_json::json;
+    use crate::ir::{self};
 
     use super::*;
 
@@ -259,8 +266,11 @@ mod test {
                 "city": "New York"
             }
         ));
-        let columns = vec!["name", "age"];
-        let row = value.shred(columns);
+        let members = vec![
+            ir::table_member("name".to_string(), ir::Type::String, false),
+            ir::table_member("age".to_string(), ir::Type::Number, false),
+        ];
+        let row = value.shred(&members);
         println!("{:?}", row);
         assert_eq!(row.arr.len(), 2);
     }

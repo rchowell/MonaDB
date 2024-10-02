@@ -4,7 +4,7 @@ use std::vec;
 use crate::ir::Table;
 use crate::value::Value;
 use crate::Result;
-use crate::{value::Row, Rho};
+use crate::{value::Record, Rho};
 
 /// Program is a sequence of virtual machine instructions.
 pub type Program = Vec<Vop>;
@@ -219,7 +219,7 @@ impl Env {
     }
 
     /// Sets the current binding to this
-    pub fn set(&mut self, key: &str, row: Row) {
+    pub fn set(&mut self, key: &str, row: Record) {
         self.bindings.insert(key.to_string(), row);
     }
 
@@ -257,7 +257,7 @@ impl<'a> VM<'a> {
         }
     }
 
-    pub fn next(&mut self) -> Result<Option<Row>> {
+    pub fn next(&mut self) -> Result<Option<Record>> {
         loop {
             let op = self.program[self.pc].clone(); // <-- CLONE INSTRUCTION
             self.pc += 1;
@@ -379,7 +379,7 @@ impl<'a> VM<'a> {
 /// TODO this is preliminary.
 pub struct Vcursor {
     /// for now, hold onto a vector.
-    rows: Vec<Row>,
+    rows: Vec<Record>,
     /// pos holds the cursor's current index.
     pos: usize,
     /// end holds the cursor's last index.
@@ -397,7 +397,7 @@ impl Vcursor {
     }
 
     /// Create a cursor over the vector of rows.
-    pub fn new(rows: Vec<Row>) -> Self {
+    pub fn new(rows: Vec<Record>) -> Self {
         let pos = 0;
         let end = rows.len();
         Self { rows, pos, end }
@@ -413,7 +413,7 @@ impl Vcursor {
     }
 
     #[inline]
-    pub fn row(&self) -> Row {
+    pub fn row(&self) -> Record {
         self.rows[self.pos].clone()
     }
 }

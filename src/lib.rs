@@ -25,7 +25,7 @@ use error::Error;
 use catalog::Catalog;
 use ir::Table;
 use lalrpop_util::lalrpop_mod;
-use value::Row;
+use value::Record;
 
 use crate::vm::*;
 
@@ -107,12 +107,12 @@ impl Rho {
     }
 
     // Insert rows into the table.
-    pub fn insert(&self, table: &str, row: Row) -> Result<()> {
-        self.catalog.borrow_mut().insert(table, row)
+    pub fn insert(&self, table: &str, record: Record) -> Result<usize> {
+        self.catalog.borrow_mut().insert(table, record)
     }
 
     // TODO TEMPORARY – REMOVE ME ??
-    pub fn select(&self, table: &str) -> Result<Vec<Row>> {
+    pub fn select(&self, table: &str) -> Result<Vec<Record>> {
         self.catalog.borrow_mut().scan(table)
     }
 

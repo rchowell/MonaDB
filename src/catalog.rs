@@ -3,17 +3,15 @@ use std::{
 };
 
 use crate::{
-    error::Error, ir::{self, Table}, lexer::RqlLexer, parser::RqlParser, value::Row, Result
+    error::Error, ir::{self, Table}, lexer::RqlLexer, parser::RqlParser, value::{Record, Value}, Result
 };
-use rusqlite::{named_params, Connection, ToSql};
+use rusqlite::{named_params, params_from_iter, Connection, ParamsFromIter, ToSql};
 use sqlite::ToSqlite;
 
 /// Catalog manages the database tables.
 pub struct Catalog {
     conn: Connection,
     tables: HashMap<String, Table>,
-    //
-    transaction: Vec<String>,
 }
 
 impl Catalog {
@@ -39,7 +37,6 @@ impl Catalog {
         Ok(Catalog {
             conn,
             tables: HashMap::new(),
-            transaction: vec![],
         })
     }
 
@@ -89,24 +86,20 @@ impl Catalog {
         self.sync()
     }
 
-    /// Insert a row into the given table.
-    pub fn insert(&mut self, table: &str, row: Row) -> Result<()> {
+    /// Insert a record into the given table.
+    /// 
+    /// TODO `insert_batch` which prepares then calls execute many times in a transaction.
+    /// 
+    pub fn insert(&mut self, table: &str, record: Record) -> Result<usize> {
         let table = self.load_table(table)?;
-        let insert = format!("INSERT INTO {} VALUES (?);", table.name);
-        let mut insert = self.conn.prepare(&insert)?;
-        insert.raw_bind_parameter(1, row)?;
-        insert.expanded_sql();
-        let insert = insert.expanded_sql().unwrap();
-        if self.transaction.is_empty() {
-            self.conn.execute(&insert, [])?;
-        } else {
-            self.transaction.push(insert);
-        }
-        Ok(())
+        let insert = table.to_sqlite_insert();
+        let params = to_params(record, table);
+        let n = self.conn.execute(&insert, params)?;
+        Ok(n)
     }
 
     /// Scan all rows from the given table.
-    pub fn scan(&mut self, table: &str) -> Result<Vec<Row>> {
+    pub fn scan(&mut self, table: &str) -> Result<Vec<Record>> {
 
         let table = self.load_table(table)?;
         let scan = table.to_scan();
@@ -114,10 +107,10 @@ impl Catalog {
         let mut rows = stmt.query([])?;
 
         // TODO use some kind of iterator instead of returning a Vec. 
-        let mut values: Vec<Row> = vec![];
+        let mut values: Vec<Record> = vec![];
         while let Some(row) = rows.next()? {
             let value: String = row.get(0)?;
-            let value = Row::from_str(&value)?;
+            let value = Record::from_str(&value)?;
             values.push(value);
         }
         Ok(values)
@@ -125,17 +118,17 @@ impl Catalog {
 
     /// Begin a (goofy) transaction (really just a batch of SQL statements).
     pub fn transaction(&mut self) {
-        self.transaction.clear();
+        // self.transaction.clear();
     }
 
     /// Commit the current transaction.
     pub fn commit(&mut self) -> Result<()> {
-        let tx = self.conn.transaction()?;
-        for sql in &self.transaction {
-            tx.execute(sql, [])?;
-        }
-        tx.commit()?;
-        self.transaction.clear();
+        // let tx = self.conn.transaction()?;
+        // for sql in &self.transaction {
+        //     tx.execute(sql, [])?;
+        // }
+        // tx.commit()?;
+        // self.transaction.clear();
         Ok(())
     }
 
@@ -157,7 +150,12 @@ impl Catalog {
         self.tables = tables;
         Ok(())
     }
+}
 
+fn to_params(record: Record, table: &Table) -> ParamsFromIter<Vec<Value>> {
+    let row = record.shred(&table.members);
+    let iter = row.values();
+    params_from_iter(iter)
 }
 
 impl Debug for Catalog {
@@ -171,7 +169,7 @@ impl Debug for Catalog {
     }
 }
 
-impl ToSql for Row {
+impl ToSql for Value {
     fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
         use rusqlite::types::ToSqlOutput;
         use rusqlite::types::Value;
@@ -187,7 +185,7 @@ fn parse_table(ddl: &str) -> Result<Table> {
     if let Statement::Create(Create::Table(table)) = ddl {
         Ok(table)
     } else {
-        Err(Error::SyntaxError("Expected CREATE TABLE statement".to_string()))
+        Err(Error::SyntaxError("Expected `create table` statement".to_string()))
     }
 }
 
@@ -198,14 +196,28 @@ impl ir::Table {
     }
 
     pub fn to_sqlite_insert(&self) -> String {
-        // stable column ordering for the insert statement
-        let cols: String = self.members
+        let members: String = self.members
             .iter()
             .map(|m| m.name.as_str())
             .collect::<Vec<&str>>()
             .join(", ");
-        format!("INSERT INTO TABLE {} ({}) VALUES ()", self.name, cols)
+        let params = repeat_vars(self.members.len());
+        format!("INSERT INTO {} ({}) VALUES ({})", self.name, members, params)
     }
+}
+
+// Helper function to return a comma-separated sequence of `?`.
+// - `repeat_vars(0) => panic!(...)`
+// - `repeat_vars(1) => "?"`
+// - `repeat_vars(2) => "?,?"`
+// - `repeat_vars(3) => "?,?,?"`
+// - ...
+fn repeat_vars(count: usize) -> String {
+    assert_ne!(count, 0);
+    let mut s = "?,".repeat(count);
+    // Remove trailing comma
+    s.pop();
+    s
 }
 
 /// sqlite3 tranlsations
@@ -270,7 +282,6 @@ mod sqlite {
 mod tests {
     use crate::ir::{self, Type};
     use super::*;
-    use super::sqlite::*;
 
     #[test]
     fn test_create_table() {
