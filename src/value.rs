@@ -219,6 +219,7 @@ impl Debug for Value {
     }
 }
 
+// TODO preserve order of members
 pub struct ObjInitializer {
     members: Map<String, JsonValue>,
 }

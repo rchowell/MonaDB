@@ -1,11 +1,12 @@
+use core::str;
 use std::{
     collections::HashMap, fmt::{self, Debug, Formatter}, path::Path
 };
 
 use crate::{
-    error::Error, ir::{self, Table}, lexer::RqlLexer, parser::RqlParser, value::{Record, Value}, Result
+    error::Error, ir::{self, Table}, lexer::RqlLexer, parser::RqlParser, value::{ObjInitializer, Record, Row, Value}, Result
 };
-use rusqlite::{named_params, params_from_iter, Connection, ParamsFromIter, ToSql};
+use rusqlite::{named_params, params_from_iter, types::FromSql, Connection, ParamsFromIter, ToSql};
 use sqlite::ToSqlite;
 
 /// Catalog manages the database tables.
@@ -100,20 +101,25 @@ impl Catalog {
 
     /// Scan all rows from the given table.
     pub fn scan(&mut self, table: &str) -> Result<Vec<Record>> {
-
+        // query
         let table = self.load_table(table)?;
-        let scan = table.to_scan();
+        let scan = table.to_sqlite_select();
         let mut stmt = self.conn.prepare(&scan)?;
         let mut rows = stmt.query([])?;
+        // TODO: use some kind of iterator instead of returning a Vec. 
+        // TODO: use a struct that implements Iterator
 
-        // TODO use some kind of iterator instead of returning a Vec. 
-        let mut values: Vec<Record> = vec![];
+        let mut iter: Vec<Record> = vec![];
         while let Some(row) = rows.next()? {
-            let value: String = row.get(0)?;
-            let value = Record::from_str(&value)?;
-            values.push(value);
+            let mut obj = ObjInitializer::init();
+            for (idx, m) in table.members.iter().enumerate() {
+                let value: Value = row.get(idx)?;
+                obj.assign(&m.name, value);
+            }
+            let v = obj.done();
+            iter.push(v);
         }
-        Ok(values)
+        Ok(iter)
     }
 
     /// Begin a (goofy) transaction (really just a batch of SQL statements).
@@ -158,6 +164,23 @@ fn to_params(record: Record, table: &Table) -> ParamsFromIter<Vec<Value>> {
     params_from_iter(iter)
 }
 
+/// Convert a `rusqlite::types::ValueRef` to a `Value`.
+impl FromSql for Value {
+
+    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
+        use rusqlite::types::ValueRef;
+        // BUG 
+        let v = match value {
+            ValueRef::Null => Value::null(),
+            ValueRef::Integer(i) => Value::number(i as f64),
+            ValueRef::Real(r) => Value::number(r),
+            ValueRef::Text(b) => Value::string(str::from_utf8(b).unwrap().to_string()),
+            ValueRef::Blob(_) => unimplemented!("invalid data type 'blob'"),
+        };
+        Ok(v)
+    }
+}
+
 impl Debug for Catalog {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         writeln!(f, "\nCatalog")?;
@@ -189,12 +212,19 @@ fn parse_table(ddl: &str) -> Result<Table> {
     }
 }
 
+// TODO pre-compute these because they do not change.
 impl ir::Table {
     /// Convert the table to a scan query.
-    pub fn to_scan(&self) -> String {
-        format!("SELECT * FROM {}", self.name)
+    pub fn to_sqlite_select(&self) -> String {
+        let members: String = self.members
+            .iter()
+            .map(|m| m.name.as_str())
+            .collect::<Vec<&str>>()
+            .join(", ");
+        format!("SELECT {} FROM {}", members, self.name)
     }
 
+    /// Convert the table to an insert query with the appropriate parameters (i.e. ?).
     pub fn to_sqlite_insert(&self) -> String {
         let members: String = self.members
             .iter()
@@ -283,6 +313,8 @@ mod tests {
     use crate::ir::{self, Type};
     use super::*;
 
+    const DDL: &str = "create table example ( x number, y number|null, );";
+
     #[test]
     fn test_create_table() {
         let mut catalog = Catalog::memory().unwrap();
@@ -305,19 +337,21 @@ mod tests {
 
     #[test]
     fn test_to_sqlite_ddl() {
-        let rql = "create table example ( x number, y number|null, );";
-        let tbl = parse_table(rql).unwrap();
+        let tbl = parse_table(DDL).unwrap();
         let sql = tbl.to_sqlite_ddl();
         println!("{}", sql);
     }
 
     #[test]
+    fn test_to_sqlite_select() {
+        let tbl = parse_table(DDL).unwrap();
+        let sql = tbl.to_sqlite_select();
+        println!("{}", sql);
+    }
+
+    #[test]
     fn test_to_sqlite_insert() {
-        // let mut catalog = Catalog::memory().unwrap();
-        // catalog.create_table(&tbl).unwrap();
-        // catalog.insert("example", row)
-        let rql = "create table example ( x number, y number|null, );";
-        let tbl = parse_table(rql).unwrap();
+        let tbl = parse_table(DDL).unwrap();
         let sql = tbl.to_sqlite_insert();
         println!("{}", sql);
     }
