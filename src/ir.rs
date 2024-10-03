@@ -184,15 +184,24 @@ pub fn select_list(members: Vec<Member>, from: From) -> Select {
     }
 }
 
-pub fn select_path(expr: Expr) -> Member {
+// select_item with no alias; derive an alias.
+#[inline]
+pub fn select_item_path(expr: Expr) -> Member {
     let name = match &expr {
         Expr::Var(var) => var.clone(),
         Expr::Jpk(jpk) => jpk.key.clone(),
-        _ => panic!("select_path: {:?}", expr),
+        _ => panic!("select_item_path: {:?}", expr),
     };
     select_item(expr, name)
 }
 
+// select_item with .* (spread).
+#[inline]
+pub fn select_item_star(expr: Expr) -> Member {
+    member_spread(expr)
+}
+
+// select_item with alias.
 #[inline]
 pub fn select_item(expr: Expr, name: String) -> Member {
     Member::Assign(name, expr)

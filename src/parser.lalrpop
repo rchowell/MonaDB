@@ -96,7 +96,8 @@ Select: ir::Select = {
 };
 
 SelectItem: ir::Member = {
-    <Path>              => ir::select_path(<>),
+    <Path>              => ir::select_item_path(<>),
+    <Expr> "." "*"      => ir::select_item_star(<>),
     <Expr> "as" <Ident> => ir::select_item(<>),
 }
 

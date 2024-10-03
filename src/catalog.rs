@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    error::Error, ir::{self, Table}, lexer::RqlLexer, parser::RqlParser, value::{ObjInitializer, Record, Row, Value}, Result
+    error::Error, ir::{self, Table}, lexer::RqlLexer, parser::RqlParser, value::{ObjInitializer, Record, Value}, Result
 };
 use rusqlite::{named_params, params_from_iter, types::FromSql, Connection, ParamsFromIter, ToSql};
 use sqlite::ToSqlite;

@@ -7,11 +7,14 @@ select p.x, p.y from points as p;
 
 -- equivalences
 
-select   * from v;
-select v.* from v;
-select { ...v } from v;
-----
+select * from t;
+select t.* from t;
+select { ...t } from t;
 
+select * from t, s;
+select t.*, s.* from t, s;
+select { ...t, ...s } from t, s;
+----
 == Syntax
 
 [source,mckeeman]

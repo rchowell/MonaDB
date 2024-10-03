@@ -48,7 +48,7 @@ _This section contains various mini-goals to drive the project._
 * [x] Shred on insert.
 * [x] Stitch on select.
 * [ ] Basic documentation and understanding of efficient registers/value storage (aka stop cloning..)
-* [ ] Support for .* syntax
+* [x] Support for .* syntax
 * [ ] Constraints
 ** [ ] PRIMARY KEY
 ** [ ] NOT NULL

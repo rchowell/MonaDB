@@ -1,5 +1,3 @@
-use std::default;
-
 use lalrpop_util::ParseError;
 use crate::lexer::Token;
 
@@ -7,6 +5,7 @@ use crate::lexer::Token;
 #[derive(Default, Debug, Clone, PartialEq)]
 pub enum Error {
     IoError(String),
+    InternalError(String),
     TableNotFound(String),
     SyntaxError(String),
     Unsupported(String),
@@ -22,12 +21,6 @@ macro_rules! error {
     }}
 }
 
-// impl From<&str> for Error {
-//     fn from(s: &str) -> Error {
-//         Error::Unknown(s.to_string())
-//     }
-// }
-
 impl From<std::io::Error> for Error {
     fn from(e: std::io::Error) -> Error {
         Error::IoError(e.to_string())
@@ -36,7 +29,7 @@ impl From<std::io::Error> for Error {
 
 impl From<rusqlite::Error> for Error {
     fn from(e: rusqlite::Error) -> Error {
-        Error::IoError(e.to_string())
+        Error::InternalError(e.to_string())
     }
 }
 
