@@ -13,6 +13,7 @@ lalrpop_mod!(
 // internal modules
 mod catalog;
 mod compiler;
+mod cursor;
 mod ir;
 mod vm;
 
@@ -21,6 +22,7 @@ use std::path::Path;
 use std::result;
 
 use compiler::Compiler;
+use cursor::Cursor;
 use error::Error;
 use catalog::Catalog;
 use ir::Table;
@@ -112,7 +114,7 @@ impl Rho {
     }
 
     // TODO TEMPORARY – REMOVE ME ??
-    pub fn select(&self, table: &str) -> Result<Vec<Record>> {
+    pub fn select(&self, table: &str) -> Result<Box<dyn Cursor>> {
         self.catalog.borrow_mut().scan(table)
     }
 

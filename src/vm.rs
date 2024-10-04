@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::vec;
 
+use crate::cursor::Cursor;
 use crate::ir::Table;
 use crate::value::Value;
 use crate::Result;
@@ -242,7 +243,7 @@ pub struct VM<'a> {
     // temporary until the registers are implemented
     env: Env,
     // temporary until I have an actual cursor
-    cursor: Vcursor,
+    cursor: Box<dyn Cursor>,
 }
 
 impl<'a> VM<'a> {
@@ -253,7 +254,7 @@ impl<'a> VM<'a> {
             pc: 0,
             program,
             env: Env::new(),
-            cursor: Vcursor::empty(),
+            cursor: Box::new(Vcursor::empty()),
         }
     }
 
@@ -319,9 +320,7 @@ impl<'a> VM<'a> {
                     self.mem[*dst] = Value::null();
                 }
                 Vop::Open { table } => {
-                    // TEMP – load all into the fake "cursor"
-                    let rows = self.db.select(table)?;
-                    self.cursor = Vcursor::new(rows)
+                    self.cursor = self.db.select(table)?;
                 }
                 Vop::Return { ptr } => {
                     let v = self.mem[*ptr].clone(); // TODO NO CLONE
@@ -403,17 +402,20 @@ impl Vcursor {
         Self { rows, pos, end }
     }
 
-    pub fn is_empty(&self) -> bool {
+}
+
+impl Cursor for Vcursor {
+
+    fn is_empty(&self) -> bool {
         self.end == 0
     }
 
-    pub fn next(&mut self) -> bool {
+    fn next(&mut self) -> bool {
         self.pos += 1;
         self.pos < self.end
     }
 
-    #[inline]
-    pub fn row(&self) -> Record {
+    fn row(&self) -> Record {
         self.rows[self.pos].clone()
     }
 }

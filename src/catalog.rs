@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    error::Error, ir::{self, Table}, lexer::RqlLexer, parser::RqlParser, value::{ObjInitializer, Record, Value}, Result
+    cursor::{self, Cursor}, error::Error, ir::{self, Table}, lexer::RqlLexer, parser::RqlParser, value::{ObjInitializer, Record, Value}, Result, Vcursor
 };
 use rusqlite::{named_params, params_from_iter, types::FromSql, Connection, ParamsFromIter, ToSql};
 use sqlite::ToSqlite;
@@ -100,7 +100,7 @@ impl Catalog {
     }
 
     /// Scan all rows from the given table.
-    pub fn scan(&mut self, table: &str) -> Result<Vec<Record>> {
+    pub fn scan(&mut self, table: &str) -> Result<Box<dyn Cursor>> {
         // query
         let table = self.load_table(table)?;
         let scan = table.to_sqlite_select();
@@ -109,7 +109,7 @@ impl Catalog {
         // TODO: use some kind of iterator instead of returning a Vec. 
         // TODO: use a struct that implements Iterator
 
-        let mut iter: Vec<Record> = vec![];
+        let mut vec: Vec<Record> = vec![];
         while let Some(row) = rows.next()? {
             let mut obj = ObjInitializer::init();
             for (idx, m) in table.members.iter().enumerate() {
@@ -117,9 +117,10 @@ impl Catalog {
                 obj.assign(&m.name, value);
             }
             let v = obj.done();
-            iter.push(v);
+            vec.push(v);
         }
-        Ok(iter)
+        let cursor = Vcursor::new(vec);
+        Ok(Box::new(cursor))
     }
 
     /// Begin a (goofy) transaction (really just a batch of SQL statements).
@@ -169,7 +170,6 @@ impl FromSql for Value {
 
     fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
         use rusqlite::types::ValueRef;
-        // BUG 
         let v = match value {
             ValueRef::Null => Value::null(),
             ValueRef::Integer(i) => Value::number(i as f64),
@@ -192,6 +192,7 @@ impl Debug for Catalog {
     }
 }
 
+// Convert a `Value` to a `rusqlite::types::Value`.
 impl ToSql for Value {
     fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
         use rusqlite::types::ToSqlOutput;
@@ -200,6 +201,7 @@ impl ToSql for Value {
     }
 }
 
+// TODO add to `extern { .. }` of lalrpop.
 fn parse_table(ddl: &str) -> Result<Table> {
     use crate::ir::*;
     let rl = RqlLexer::new(ddl);

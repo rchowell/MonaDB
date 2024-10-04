@@ -166,9 +166,9 @@ fn main() {
                     rho.drop_table(&table).expect("Could not drop table");
                 },
                 Command::Select { table } => {
-                    let values = rho.select(&table).expect("Could not select rows");
-                    for value in values {
-                        println!("{}", value);
+                    let mut cursor = rho.select(&table).expect("Could not select rows");
+                    while cursor.next() {
+                        println!("{:?}", cursor.row());
                     }
                 },
             }
