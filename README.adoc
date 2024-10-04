@@ -21,6 +21,8 @@ _This section contains a list of features/ideas that are not yet implemented._
 * [ ] See if the notion of "path" can be simplified.
 * [ ] Pre-commpute a table's sqlite queries because they are always the same.
 * [ ] Support for open tables.
+* [ ] Document JSONPath and unnesting syntax.
+* [ ] Cross-join.
 
 .Shell
 * [ ] Better error messages.

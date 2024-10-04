@@ -243,7 +243,7 @@ pub struct VM<'a> {
     // temporary until the registers are implemented
     env: Env,
     // temporary until I have an actual cursor
-    cursor: Box<dyn Cursor>,
+    cursor: Cursor,
 }
 
 impl<'a> VM<'a> {
@@ -254,7 +254,7 @@ impl<'a> VM<'a> {
             pc: 0,
             program,
             env: Env::new(),
-            cursor: Box::new(Vcursor::empty()),
+            cursor: Cursor::empty(),
         }
     }
 
@@ -370,52 +370,5 @@ impl<'a> VM<'a> {
 
     fn load(&self, idx: usize) -> &Value {
         self.mem.get(idx).unwrap()
-    }
-}
-
-/// Vcursor is an iterator-like interface backed by a table.
-///
-/// TODO this is preliminary.
-pub struct Vcursor {
-    /// for now, hold onto a vector.
-    rows: Vec<Record>,
-    /// pos holds the cursor's current index.
-    pos: usize,
-    /// end holds the cursor's last index.
-    end: usize,
-}
-
-impl Vcursor {
-    /// Hack to have an empty cursor for VM state.
-    pub fn empty() -> Self {
-        Self {
-            rows: vec![],
-            pos: 0,
-            end: 0,
-        }
-    }
-
-    /// Create a cursor over the vector of rows.
-    pub fn new(rows: Vec<Record>) -> Self {
-        let pos = 0;
-        let end = rows.len();
-        Self { rows, pos, end }
-    }
-
-}
-
-impl Cursor for Vcursor {
-
-    fn is_empty(&self) -> bool {
-        self.end == 0
-    }
-
-    fn next(&mut self) -> bool {
-        self.pos += 1;
-        self.pos < self.end
-    }
-
-    fn row(&self) -> Record {
-        self.rows[self.pos].clone()
     }
 }

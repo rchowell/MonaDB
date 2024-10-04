@@ -114,7 +114,7 @@ impl Rho {
     }
 
     // TODO TEMPORARY – REMOVE ME ??
-    pub fn select(&self, table: &str) -> Result<Box<dyn Cursor>> {
+    pub fn select(&self, table: &str) -> Result<Cursor> {
         self.catalog.borrow_mut().scan(table)
     }
 
