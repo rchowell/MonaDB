@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    cursor::Cursor, error::Error, ir::{self, Table}, lexer::RqlLexer, parser::RqlParser, value::{Record, Value}, Result, Rho
+    cursor::Cursor, error::Error, ir::{self, Table}, lexer::RqlLexer, parser::RqlParser, value::{Record, Value}, Result
 };
 use rusqlite::{named_params, params_from_iter, types::FromSql, Connection, ParamsFromIter, ToSql};
 use sqlite::ToSqlite;
@@ -99,13 +99,14 @@ impl Catalog {
         Ok(n)
     }
 
-    /// Scan all rows from the given table.
+    /// Open a cursor to the given table.
     pub fn scan(&mut self, table: &str) -> Result<Cursor> {
-        // get a reference to the sqlite prepared statement
         let table = self.load_table(table)?;
         let select = table.to_sqlite_select();
         let statement = self.conn.prepare(&select)?;
-        Ok(Cursor::new(statement))
+        // FEATURE projection pushdown goes here (project all for now)
+        let columns = table.members.clone();
+        Ok(Cursor::new(columns, statement))
     }
 
     /// Begin a (goofy) transaction (really just a batch of SQL statements).

@@ -25,11 +25,11 @@ impl Row {
 
     /// Flatten a row into a vector of key-value pairs, with the hidden "_" member.
     pub fn values(self) -> Vec<Value> {
-        let mut values: Vec<Value> = self.arr.into_iter().map(|(_, v)| v).collect();
+        // let mut values: Vec<Value> = self.arr.into_iter().map(|(_, v)| v).collect();
         // TODO OPEN PART OF THE MAP
         // let map = Value(JsonValue::Object(self.map));
         // values.push(map);
-        values
+        self.arr.into_iter().map(|(_, v)| v).collect()
     }
 }
 
@@ -170,6 +170,9 @@ impl Value {
 
     /// Shred an object value into a row; see stitch.
     /// TODO MEMBER DEFINITIONS FOR DEFAULTS AND NULLABILITY...
+    /// 
+    /// This API is used to INSERT a JsonValue into a relational row.
+    /// 
     pub fn shred(self, members: &Vec<TableMember>) -> Row {
         if let JsonValue::Object(mut map) = self.0 {
             // shred the known members to the arr part.
@@ -219,12 +222,12 @@ impl Debug for Value {
     }
 }
 
-// TODO preserve order of members
-pub struct ObjInitializer {
+/// Object initializer.
+pub struct Obj {
     members: Map<String, JsonValue>,
 }
 
-impl ObjInitializer {
+impl Obj {
     pub fn init() -> Self {
         Self {
             members: Map::new(),
@@ -240,13 +243,13 @@ impl ObjInitializer {
     }
 
     pub fn spread(&mut self, value: Value) {
-        todo!("obj initializer spread");
-        // if let Some(members) = value.members() {
-        //     self.members.extend(members);
-        // }
+        if let Some(mut members) = value.members() {
+            // unpack inner JsonValue to get (String, JsonValue) tuples
+            self.members.extend(members.drain(..).map(|v| (v.0, v.1.0)));
+        }
     }
 
-    pub fn done(&self) -> Value {
+    pub fn build(&self) -> Value {
         Value(JsonValue::Object(self.members.clone()))
     }
 }

@@ -56,9 +56,9 @@ impl<'cat> Compiler<'cat> {
     }
 
     /// Free n registers.
-    fn free(&mut self, n: usize) {
-        self.ptr -= n;
-    }
+    // fn free(&mut self, n: usize) {
+    //     self.ptr -= n;
+    // }
 
     /// Return current pc index.
     #[inline]

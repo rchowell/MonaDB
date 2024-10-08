@@ -1,9 +1,10 @@
 use rusqlite::Statement;
 
-use crate::value::{Record, Row, Value};
+use crate::{ir::TableMember, value::{Obj, Record}};
 
 /// Cursor holds a prepared SQLite statement that can be stepped.
 pub struct Cursor {
+    // cols: Vec<TableMember>,
     /// for now, hold onto a vector.
     rows: Vec<Record>,
     /// pos holds the cursor's current index.
@@ -13,18 +14,19 @@ pub struct Cursor {
 }
 
 impl Cursor {
-    pub fn new(statement: Statement<'_>) -> Self {
+
+    pub fn new(cols: Vec<TableMember>, statement: Statement<'_>) -> Self {
 
         // TODO use rows and make it lazy.
         let mut statement = Box::new(statement);
         let mut query = statement.query([]).unwrap();
         let mut rows: Vec<Record> = vec![];
-        while let Some(_) = query.next().unwrap() {
-            rows.push(Value::null())
-            // TODO stitch the row
-            // let value: String = row.get(0).unwrap();
-            // let value = Record::from_str(&value).unwrap();
-            // rows.push(value);
+        while let Some(row) = query.next().unwrap() {
+            let mut obj = Obj::init();
+            for (idx, m) in cols.iter().enumerate() {
+                obj.assign(&m.name, row.get(idx).unwrap());
+            }
+            rows.push(obj.build());
         }
 
         let pos = 0;
