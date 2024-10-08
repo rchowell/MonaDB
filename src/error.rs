@@ -13,6 +13,8 @@ pub enum Error {
     Unknown,
 }
 
+// TODO impl Error
+
 #[macro_export]
 macro_rules! error {
     ($($arg:tt)*) => {{

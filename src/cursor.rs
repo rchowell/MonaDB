@@ -1,8 +1,8 @@
-use crate::value::Record;
+use rusqlite::Statement;
 
-/// Cursor is an iterator-like interface backed by a table.
-///
-/// TODO this is preliminary.
+use crate::value::{Record, Row, Value};
+
+/// Cursor holds a prepared SQLite statement that can be stepped.
 pub struct Cursor {
     /// for now, hold onto a vector.
     rows: Vec<Record>,
@@ -13,17 +13,20 @@ pub struct Cursor {
 }
 
 impl Cursor {
-    /// Hack to have an empty cursor for VM state.
-    pub fn empty() -> Self {
-        Self {
-            rows: vec![],
-            pos: 0,
-            end: 0,
-        }
-    }
+    pub fn new(statement: Statement<'_>) -> Self {
 
-    /// Create a cursor over the vector of rows.
-    pub fn new(rows: Vec<Record>) -> Self {
+        // TODO use rows and make it lazy.
+        let mut statement = Box::new(statement);
+        let mut query = statement.query([]).unwrap();
+        let mut rows: Vec<Record> = vec![];
+        while let Some(_) = query.next().unwrap() {
+            rows.push(Value::null())
+            // TODO stitch the row
+            // let value: String = row.get(0).unwrap();
+            // let value = Record::from_str(&value).unwrap();
+            // rows.push(value);
+        }
+
         let pos = 0;
         let end = rows.len();
         Self { rows, pos, end }

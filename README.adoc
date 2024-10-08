@@ -23,6 +23,8 @@ _This section contains a list of features/ideas that are not yet implemented._
 * [ ] Support for open tables.
 * [ ] Document JSONPath and unnesting syntax.
 * [ ] Cross-join.
+* [ ] Remove VM dep on Rho, use "Connection".
+* [ ] Make "Catalog" the "Connection" ??
 
 .Shell
 * [ ] Better error messages.

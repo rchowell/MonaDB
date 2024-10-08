@@ -34,7 +34,7 @@ use crate::vm::*;
 /// A typedef of the result returned by many methods.
 pub type Result<T, E = Error> = result::Result<T, E>;
 
-/// Rho represents the database sessection.
+/// Rho represents the database connection.
 pub struct Rho {
     debug: bool,
     catalog: RefCell<Catalog>,
@@ -113,8 +113,8 @@ impl Rho {
         self.catalog.borrow_mut().insert(table, record)
     }
 
-    // TODO TEMPORARY – REMOVE ME ??
-    pub fn select(&self, table: &str) -> Result<Cursor> {
+    // Opens a cursor for the table.
+    pub fn scan(&self, table: &str) -> Result<Cursor> {
         self.catalog.borrow_mut().scan(table)
     }
 

@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    cursor::Cursor, error::Error, ir::{self, Table}, lexer::RqlLexer, parser::RqlParser, value::{ObjInitializer, Record, Value}, Result
+    cursor::Cursor, error::Error, ir::{self, Table}, lexer::RqlLexer, parser::RqlParser, value::{Record, Value}, Result, Rho
 };
 use rusqlite::{named_params, params_from_iter, types::FromSql, Connection, ParamsFromIter, ToSql};
 use sqlite::ToSqlite;
@@ -101,22 +101,11 @@ impl Catalog {
 
     /// Scan all rows from the given table.
     pub fn scan(&mut self, table: &str) -> Result<Cursor> {
+        // get a reference to the sqlite prepared statement
         let table = self.load_table(table)?;
-        let scan = table.to_sqlite_select();
-        let mut stmt = self.conn.prepare(&scan)?;
-        let mut rows = stmt.query([])?;
-        // TODO: use some kind of iterator instead of returning a Vec. 
-        let mut vec: Vec<Record> = vec![];
-        while let Some(row) = rows.next()? {
-            let mut obj = ObjInitializer::init();
-            for (idx, m) in table.members.iter().enumerate() {
-                let value: Value = row.get(idx)?;
-                obj.assign(&m.name, value);
-            }
-            let v = obj.done();
-            vec.push(v);
-        }
-        Ok(Cursor::new(vec))
+        let select = table.to_sqlite_select();
+        let statement = self.conn.prepare(&select)?;
+        Ok(Cursor::new(statement))
     }
 
     /// Begin a (goofy) transaction (really just a batch of SQL statements).

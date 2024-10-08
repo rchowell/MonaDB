@@ -71,15 +71,11 @@ pub enum Vop {
         val: Value,
         dst: usize,
     },
-    ///
-    /// Next
-    ///  * jmp  :   jump location
-    ///
-    /// Description:
-    ///   Advances the cursor, assigning the row to `var`.
-    ///   If there is a row, then jump to `jmp`; otherwise goto next.
-    ///
-    Next { jmp: usize },
+    /// Advances the cursor, assigning the row to `var`.
+    /// If there is a row, then jump to `jmp`; otherwise goto next.
+    Next {
+        jmp: usize,
+    },
     /// Initialize an empty object.
     Obj {
         dst: usize,
@@ -235,18 +231,17 @@ impl Env {
 }
 
 /// VM holds the state of the virtual machine.
-pub struct VM<'a> {
-    db: &'a Rho,
-    mem: Vec<Value>,
+pub struct VM<'r> {
+    db: &'r Rho,
     pc: usize,
     program: Program,
+    mem: Vec<Value>,
+    cursors: Vec<Cursor>,
     // temporary until the registers are implemented
     env: Env,
-    // temporary until I have an actual cursor
-    cursor: Cursor,
 }
 
-impl<'a> VM<'a> {
+impl<'r> VM<'r> {
     pub fn init(db: &Rho, program: Program) -> VM {
         VM {
             db,
@@ -254,13 +249,13 @@ impl<'a> VM<'a> {
             pc: 0,
             program,
             env: Env::new(),
-            cursor: Cursor::empty(),
+            cursors: vec![],
         }
     }
 
     pub fn next(&mut self) -> Result<Option<Record>> {
         loop {
-            let op = self.program[self.pc].clone(); // <-- CLONE INSTRUCTION
+            let op = self.program[self.pc].clone(); // <-- CLONE INSTRUCTION (MAKE THESE u64)
             self.pc += 1;
             match &op {
                 Vop::Init => {
@@ -277,7 +272,7 @@ impl<'a> VM<'a> {
                 }
                 // TEMP – bind the row to the environment
                 Vop::Bind { binder, .. } => {
-                    let row = self.cursor.row();
+                    let row = self.cursors[0].row();
                     self.env.set(&binder, row);
                 }
                 Vop::Drop { table } => {
@@ -320,14 +315,14 @@ impl<'a> VM<'a> {
                     self.mem[*dst] = Value::null();
                 }
                 Vop::Open { table } => {
-                    self.cursor = self.db.select(table)?;
+                    self.cursors.push(self.db.scan(table)?);
                 }
                 Vop::Return { ptr } => {
                     let v = self.mem[*ptr].clone(); // TODO NO CLONE
                     return Ok(Some(v));
                 }
                 Vop::Rewind { jmp } => {
-                    if self.cursor.is_empty() {
+                    if self.cursors[0].is_empty() {
                         self.pc = *jmp;
                     }
                 }
@@ -335,7 +330,7 @@ impl<'a> VM<'a> {
                     self.mem[*dst] = Value::object();
                 },
                 Vop::Set { obj, name, expr } => {
-                    let val = self.load(*expr).clone(); // <-- TODO NO CLONE; BORROW+DROP
+                    let val = self.load(*expr).clone(); // TODO NO CLONE; BORROW+DROP
                     let obj = self.loadm(*obj); // <-- MUTABLE BORROW OCCURS HERE
                     match name {
                         Some(name) => obj.set(name.to_string(), val),
@@ -344,7 +339,7 @@ impl<'a> VM<'a> {
                     // MUTABLE BORROW IS DROPPED
                 },
                 Vop::Next { jmp } => {
-                    if self.cursor.next() {
+                    if self.cursors[0].next() {
                         self.pc = *jmp;
                     }
                 }
