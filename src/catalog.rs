@@ -271,7 +271,7 @@ mod sqlite {
         }
     }
 
-    impl ToSqlite for ir::TableMember {
+    impl ToSqlite for ir::TypeMember {
         fn to_sqlite_ddl(&self) -> String {
             let typ_ = self.typ_.to_sqlite_ddl();
             if self.nullable {
@@ -309,8 +309,8 @@ mod tests {
         let actual = Table {
             name: "foo".to_string(),
             members: vec![
-                ir::table_member("id".into(), Type::Number, false),
-                ir::table_member("name".into(), Type::String, true),
+                ir::type_member("id".into(), Type::Number, false),
+                ir::type_member("name".into(), Type::String, true),
             ],
             constraints: vec![],
         };

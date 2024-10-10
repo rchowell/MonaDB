@@ -65,29 +65,27 @@ Statement: ir::Statement = {
     Select  => ir::Statement::Select(<>),
 };
 
-Create: ir::Create = {
-    TableDefinition => ir::Create::Table(<>),
+Create: ir::Create = CreateTable;
+
+CreateTable: ir::Create = {
+    "create" "table" <TableDefinition> => ir::Create::Table(<>),
 };
 
 TableDefinition: ir::Table = {
-    "create" "table" <TableName> "(" <TableMembers> ")" => ir::table_definition(<>),
+    <TableName>                     => ir::table_definition(<>, vec![]),
+    <TableName> "(" <TableBody> ")" => ir::table_definition(<>),
 };
 
 TableName: String = "ident";
 
-TableMembers: Vec<ir::TableMember> = List<TableMember>;
+TableBody: Vec<ir::TypeMember> = "{" <TypeMembers> "}";
 
-TableMember: ir::TableMember = {
-    <Ident> <Type>            => ir::table_member(<>, false),
-    <Ident> <Type> "|" "null" => ir::table_member(<>, true),
-}
+TypeMembers: Vec<ir::TypeMember> = List<TypeMember>;
 
-// TableConstraints: Vec<ir::TableConstraint> = "---" <List<TableConstraint>>;
-
-// TableConstraint: ir::TableConstraint = {
-//     <"ident">
-//     <"ident"> "(" <Expr> ")" => ir::table_constraint_key(<>),
-// };
+TypeMember: ir::TypeMember = {
+    <Ident> ":" <Type>            => ir::type_member(<>, false),
+    <Ident> ":" <Type> "|" "null" => ir::type_member(<>, true),
+};
 
 Select: ir::Select = {
     "select" "*"                <From>  => ir::select_star(<>),
@@ -99,16 +97,16 @@ SelectItem: ir::Member = {
     <Path>              => ir::select_item_path(<>),
     <Expr> "." "*"      => ir::select_item_star(<>),
     <Expr> "as" <Ident> => ir::select_item(<>),
-}
+};
 
 From: ir::From = {
     "from" <Ident>              => ir::from_no_alias(<>),
     "from" <Ident> "as" <Ident> => ir::from(<>)
-}
+};
 
 Insert: ir::Insert = {
     "insert" "into" <InsertTarget> <InsertSource> => ir::insert(<>),
-}
+};
 
 InsertTarget: String = Ident;
 

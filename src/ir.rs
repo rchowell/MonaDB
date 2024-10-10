@@ -33,7 +33,7 @@ pub struct Insert {
 #[derive(Clone, Debug, Hash, PartialEq)]
 pub struct Table {
     pub name: String,
-    pub members: Vec<TableMember>,
+    pub members: Vec<TypeMember>,
     pub constraints: Vec<TableConstraint>,
 }
 
@@ -57,13 +57,13 @@ impl Display for Table {
 }
 
 #[derive(Clone, Debug, Hash, PartialEq)]
-pub struct TableMember {
+pub struct TypeMember {
     pub name: String,
     pub typ_: Type,
     pub nullable: bool,
 }
 
-impl Display for TableMember {
+impl Display for TypeMember {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.nullable {
             write!(f, "{} {}|null", self.name, self.typ_)
@@ -157,7 +157,7 @@ pub struct Jpe {
 //------------------------------
 
 #[inline]
-pub fn table_definition(name: String, members: Vec<TableMember>) -> Table {
+pub fn table_definition(name: String, members: Vec<TypeMember>) -> Table {
     Table { name, members, constraints: vec![] }
 }
 
@@ -239,8 +239,8 @@ pub fn member_spread(expr: Expr) -> Member {
 }
 
 #[inline]
-pub fn table_member(name: String, typ_: Type, nullable: bool) -> TableMember {
-    TableMember { name, typ_, nullable }
+pub fn type_member(name: String, typ_: Type, nullable: bool) -> TypeMember {
+    TypeMember { name, typ_, nullable }
 }
 
 //------------------------------

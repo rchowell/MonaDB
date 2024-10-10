@@ -1,59 +1,70 @@
-= Create Statement
+= Create Table Statement
+
+== DRAFT
+
+.TODOs
+- [ ] create type
+- [ ] optional fields
+- [ ] table options
+
+A table is a collection of some type with zero or more constraints.
 
 .Example
 [source,rql]
 ----
-create table points (
-    x number,
-    y number,
-    z number|null,
-    ...
-);
+-- equivalent (no-schema)
+create table points;
+create table points ();
+create table points ({...})
 
--- with constraints
-create table customers (
-    first   string,
-    last    string,
-    age     number,
-    dob     string,
-    address address,
-    phones  array,
-    email   string|null,
-    ---
-    key     (last),
-    unique  (email),
-    check   (age > 0),
-    default (dob = '01/01/1970'),
-);
+create type point {
+    x: number,
+    y: number,
+};
+
+create table points (point);
+
+create table points (point, { key: x });
+
+create table points ({
+    x: number,
+    y: number,
+    z: number|null  -- nullable
+    ...             -- open content
+}, {
+    hash: x,
+    sort: y,
+});
 ----
 
 == Syntax
 
 [source,mckeeman]
 ----
+create_table
+    "create" "table" table_definition
+
 table_definition
-    "create" "table" table_name "(" table_members ")"
-    "create" "table" table_name "(" table_members "---" table_constraints ")"
+    table_name
+    table_name "(" ")"
+    table_name "(" table_body ")"
 
 table_name
     identifier 
 
-table_members
-    table_member
-    table_member "," table_member
+table_body
+    type_definition
+    type_definition "," table_options
 
-table_member
-    identifier type
+type_definition
+    "{ type_members }"
 
-table_constraints
+type_members
+    type_member
+    type_member "," type_member
 
-
-table_constraint
-    "key"
-    "not null"
-    "unique"
-    "check" "(" expr ")"
-    "default" "(" expr ")"
+type_member
+    identifier ":" type
 
 type
     "boolean"
@@ -65,20 +76,25 @@ type
 
 == Rules
 
-. A table MAY have a _key_ member OR _hash/sort_ members.
-. A table MUST NOT have a _hash_ member without a _sort_ member.
-. A table MUST NOT have a _key_ member and _hash/sort_ members.
-. If a member has one of the key constraints, then _<constraint_not_null>_ is implicit.
-. A column is "NOT NULL" by default.
-. A column with type T MAY be declared nullable by appending a `|null` to the column type definition.
+. A table 
+// . A table MAY have a _key_ member OR _hash/sort_ members.
+// . A table MUST NOT have a _hash_ member without a _sort_ member.
+// . A table MUST NOT have a _key_ member and _hash/sort_ members.
+// . If a member has one of the key constraints, then _<constraint_not_null>_ is implicit.
+. A member is "NOT NULL" by default.
+. A member with type T MAY be declared nullable by appending a `|null` to the column type definition.
+. If a table with the given name already exists, raise an error — i.e. the IF NOT EXISTS clauses is not supported.
+. 
 
 == Ideas
 
+. Like MongoDB,  and DynamoDB
 . Does the concept of hash/sort even make sense .. seems a sort key is all that's needed.
 . Consider derived keys.
 . Consider using typescript for type definitions.
 . Column constraints are redundant, so constraints will only be modeled as table constraints.
 . The type of a column is a type definition like typescript, but I am starting simple and only allowing "|null" to model the "[NOT] NULL" column constraint.
+. Consider a "with properties" clause to the create table.
 
 [source]
 ----
@@ -91,8 +107,8 @@ type foo = {
 -- equivalent
 
 type foo = {
-    x number,
-    y number,
+    x: number,
+    y: number,
     ...
 };
 ----

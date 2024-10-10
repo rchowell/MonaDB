@@ -1,6 +1,6 @@
 use rusqlite::Statement;
 
-use crate::{ir::TableMember, value::{Obj, Record}};
+use crate::{ir::TypeMember, value::{Obj, Record}};
 
 /// Cursor holds a prepared SQLite statement that can be stepped.
 pub struct Cursor {
@@ -15,7 +15,7 @@ pub struct Cursor {
 
 impl Cursor {
 
-    pub fn new(cols: Vec<TableMember>, statement: Statement<'_>) -> Self {
+    pub fn new(cols: Vec<TypeMember>, statement: Statement<'_>) -> Self {
 
         // TODO use rows and make it lazy.
         let mut statement = Box::new(statement);

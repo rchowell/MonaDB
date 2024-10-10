@@ -2,6 +2,14 @@
 
 What if SQLite were a xref:DESIGN.adoc[JSON Database]?
 
+== Goal
+
+The goal is, that by Feb 1, I can host a website backed by rhodb.
+
+.Milestones
+. Table creation
+. Item CRUD 
+
 == Backlog
 
 _This section contains a list of features/ideas that are not yet implemented._
@@ -21,10 +29,18 @@ _This section contains a list of features/ideas that are not yet implemented._
 * [ ] See if the notion of "path" can be simplified.
 * [ ] Pre-commpute a table's sqlite queries because they are always the same.
 * [ ] Support for open tables.
-* [ ] Document JSONPath and unnesting syntax.
 * [ ] Cross-join.
 * [ ] Remove VM dep on Rho, use "Connection".
 * [ ] Make "Catalog" the "Connection" ??
+* [ ] Document namespaces.
+* [ ] Constraints (DDL) no enforcement yet.
+** [ ] PRIMARY KEY
+** [x] NOT NULL
+** [ ] UNIQUE
+** [ ] CHECK
+** [ ] DEFAULT
+* [ ] Document and use consistent ABNF
+* [ ] Document comparisons to MongoDB
 
 .Shell
 * [ ] Better error messages.
@@ -41,24 +57,20 @@ _This section contains various mini-goals to drive the project._
 === G3 Oct 2024
 
 .Goals
+* [x] Finalize syntax for V0 `create table`.
 * [x] Removal of sqlparser
-* [ ] The cursor should be an iterator over the sqlite connection.
-* [ ] Cleanup the VM and VOP factoring with some consistent naming.
-* [ ] Standardize naming of bindings/attributes/fields/members including rows/objs/tables/etc.
-* [ ] Document and use consistent ABNF
 * [x] Object initializers.
 * [x] Object constructor in select list.
-* [ ] Scalar functions
 * [x] Shred on insert.
 * [x] Stitch on select.
-* [ ] Basic documentation and understanding of efficient registers/value storage (aka stop cloning..)
 * [x] Support for .* syntax
-* [ ] Constraints
-** [ ] PRIMARY KEY
-** [ ] NOT NULL
-** [ ] UNIQUE
-** [ ] CHECK
-** [ ] DEFAULT
+* [x] Cleanup the VM and VOP factoring with some consistent naming.
+* [ ] Finalize syntax for V0 `insert into table`.
+* [ ] The cursor should be an iterator over the sqlite connection.
+* [ ] Standardize naming of bindings/attributes/fields/members including rows/objs/tables/etc.
+* [ ] Scalar functions
+* [ ] Basic documentation and understanding of efficient registers/value storage (aka stop cloning..)
+* [ ] Document JSONPath and unnesting syntax.
 
 === G2 Sep 2024
 

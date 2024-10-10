@@ -13,36 +13,27 @@ pub type Program = Vec<Vop>;
 /// Vop is a virtual machine instruction code.
 #[derive(Debug, Clone)]
 pub enum Vop {
-    ///
-    /// Init is always the first instruction.
-    ///
+    /// Initialize the VM.
     Init,
     /// Bind the row from the cursor to the binder like `Column` from SQLite.
-    Bind { cursor: usize, binder: String },
+    Bind { 
+        cursor: usize,
+        binder: String,
+    },
     /// Delete all rows of the table.
-    Clear { table: String },
+    Clear { 
+        table: String,
+    },
     ///
     Commit,
-    ///
-    /// Insert the table into the catalog table.
-    ///   * table   : table to create
-    ///
-    /// Description:
-    ///  Invokes the catalog to create the given table.
-    ///
     /// Consider replacing with an `Insert` instruction on the catalog table.
-    ///
-    CreateTable { table: Table },
-    ///
-    /// Drop
-    ///   * table   : table to drop
-    ///
-    /// Description:
-    ///   Invokes the catalog to drop the given table.
-    ///
+    CreateTable { 
+        table: Table,
+    },
     /// Consider replacing with a `Delete` instruction on the catalog table.
-    ///
-    Drop { table: String },
+    Drop { 
+        table: String,
+    },
     /// Insert row into a table.
     Insert { 
         tbl: String,
@@ -86,7 +77,9 @@ pub enum Vop {
         table: String,
     },
     /// Returns the value in register `ptr`.
-    Return { ptr: usize },
+    Return { 
+        ptr: usize,
+    },
     /// Set cursor to the start; jump to `jmp` if the table is empty.
     Rewind {
         jmp: usize,

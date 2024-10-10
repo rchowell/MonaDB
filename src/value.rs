@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Display};
 
-use crate::{ir::TableMember, Result};
+use crate::{ir::TypeMember, Result};
 use serde_json::{Map, Value as JsonValue};
 
 /// JSON value.
@@ -13,14 +13,14 @@ pub type Record = Value;
 /// Row2 is temporary because I've accidentally used Row in too many places.
 #[derive(Debug)]
 pub struct Row {
-    arr: Vec<(String, Value)>,
+    arr: Vec<Value>,
     map: Map<String, JsonValue>,
 }
 
 impl Row {
     /// Stich a row into an object value; see shred.
-    pub fn stitch() -> Value {
-        todo!()
+    pub fn stitch(_: Vec<&str>) -> Value {
+        todo!("stitch")
     }
 
     /// Flatten a row into a vector of key-value pairs, with the hidden "_" member.
@@ -29,7 +29,7 @@ impl Row {
         // TODO OPEN PART OF THE MAP
         // let map = Value(JsonValue::Object(self.map));
         // values.push(map);
-        self.arr.into_iter().map(|(_, v)| v).collect()
+        self.arr
     }
 }
 
@@ -169,21 +169,21 @@ impl Value {
     }
 
     /// Shred an object value into a row; see stitch.
+    /// 
     /// TODO MEMBER DEFINITIONS FOR DEFAULTS AND NULLABILITY...
     /// 
     /// This API is used to INSERT a JsonValue into a relational row.
     /// 
-    pub fn shred(self, members: &Vec<TableMember>) -> Row {
+    pub fn shred(self, members: &Vec<TypeMember>) -> Row {
         if let JsonValue::Object(mut map) = self.0 {
             // shred the known members to the arr part.
-            let mut arr: Vec<(String, Value)> = vec![];
+            let mut arr: Vec<Value> = vec![];
             for m in members {
-                // take the value (or null)
                 let v = match map.remove(&m.name) {
                     Some(v) => Value(v),
                     None => Value::null()
                 };
-                arr.push((m.name.clone(), v));
+                arr.push(v);
             }
             Row { arr, map }
         } else {
@@ -271,8 +271,8 @@ mod test {
             }
         ));
         let members = vec![
-            ir::table_member("name".to_string(), ir::Type::String, false),
-            ir::table_member("age".to_string(), ir::Type::Number, false),
+            ir::type_member("name".to_string(), ir::Type::String, false),
+            ir::type_member("age".to_string(), ir::Type::Number, false),
         ];
         let row = value.shred(&members);
         println!("{:?}", row);
