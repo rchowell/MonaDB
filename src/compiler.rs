@@ -89,10 +89,10 @@ impl<'cat> Compiler<'cat> {
 
     fn cc_insert(&mut self, insert: Insert) -> Result<()> {
         self.push(Vop::Transaction);
-        for obj in insert.source {
+        for expr in insert.source {
             let tbl = insert.target.clone();
-            let row = self.cc_expr_obj(obj)?;
-            self.push(Vop::insert(tbl, row));
+            let dst = self.cc_expr(expr)?;
+            self.push(Vop::insert(tbl, dst));
         }
         self.push(Vop::Commit);
         Ok(())

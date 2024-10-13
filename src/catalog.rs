@@ -6,7 +6,7 @@ use std::{
 use crate::{
     cursor::Cursor, error::Error, ir::{self, Table}, lexer::RqlLexer, parser::RqlParser, value::{Record, Value}, Result
 };
-use rusqlite::{named_params, params_from_iter, types::FromSql, Connection, ParamsFromIter, ToSql};
+use rusqlite::{named_params, types::FromSql, Connection, ToSql};
 
 const SQL_INIT: &str = "CREATE TABLE IF NOT EXISTS catalog ( name TEXT PRIMARY KEY, ddl TEXT);";
 const SQL_SYNC: &str = "SELECT name, ddl FROM catalog;";

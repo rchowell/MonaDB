@@ -98,19 +98,12 @@ From: ir::From = {
 };
 
 Insert: ir::Insert = {
-    "insert" "into" <InsertTarget> <InsertSource> => ir::insert(<>),
+    "insert" "into" <InsertTarget> "(" <InsertSource> ")" => ir::insert(<>),
 };
 
 InsertTarget: String = Ident;
 
-InsertSource: Vec<ir::Obj> = {
-    InsertValue     => vec![<>],
-    InsertValues    => <>,
-};
-
-InsertValue: ir::Obj = "{" <Members> "}";
-
-InsertValues: Vec<ir::Obj> = "[" <List<InsertValue>> "]";
+InsertSource: Vec<ir::Expr> = List<Expr>;
 
 // TODO
 Delete: String = "delete" "from" <Ident>;

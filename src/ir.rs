@@ -23,7 +23,7 @@ pub enum Create {
 #[derive(Debug)]
 pub struct Insert {
     pub target: String,
-    pub source: Vec<Obj>,
+    pub source: Vec<Expr>,
 }
 
 //------------------------------
@@ -181,7 +181,7 @@ pub fn table_definition(name: String, schema: Type) -> Table {
 }
 
 #[inline]
-pub fn insert(target: String, source: Vec<Obj>) -> Insert {
+pub fn insert(target: String, source: Vec<Expr>) -> Insert {
     Insert { target, source }
 }
 
