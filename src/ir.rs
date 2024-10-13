@@ -6,7 +6,7 @@ use crate::value::*;
 // Statements
 //------------------------------
 
-#[derive(Clone, Debug, Hash, PartialEq)]
+#[derive(Debug)]
 pub enum Statement {
     Create(Create),
     Delete(String),
@@ -15,12 +15,12 @@ pub enum Statement {
     Select(Select),
 }
 
-#[derive(Clone, Debug, Hash, PartialEq)]
+#[derive(Debug)]
 pub enum Create {
     Table(Table),
 }
 
-#[derive(Clone, Debug, Hash, PartialEq)]
+#[derive(Debug)]
 pub struct Insert {
     pub target: String,
     pub source: Vec<Obj>,
@@ -30,71 +30,49 @@ pub struct Insert {
 // Table Definition
 //------------------------------
 
-#[derive(Clone, Debug, Hash, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Table {
     pub name: String,
-    pub members: Vec<TypeMember>,
-    pub constraints: Vec<TableConstraint>,
+    pub schema: Type,
+    // pub options: TableOptions,
 }
-
-#[derive(Clone, Debug, Hash, PartialEq)]
-pub enum TableConstraint {
-    Key(String),
-    Unique(String),
-    Check(Expr),
-    Default(String, Value),
-} 
 
 impl Display for Table {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "create table {} (", self.name)?;
-        for m in &self.members {
-            writeln!(f, "  {},", m)?;
-        }
-        writeln!(f, ");")?;
-        Ok(())
+        writeln!(f, "create table {} ({});", self.name, self.schema)
     }
 }
 
-#[derive(Clone, Debug, Hash, PartialEq)]
-pub struct TypeMember {
-    pub name: String,
-    pub typ_: Type,
-    pub nullable: bool,
-}
-
-impl Display for TypeMember {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.nullable {
-            write!(f, "{} {}|null", self.name, self.typ_)
-        } else {
-            write!(f, "{} {}", self.name, self.typ_)
-        }
-    }
-}
+//------------------------------
+// Select Clause
+//------------------------------
 
 /// SELECT <sel> ...
-#[derive(Clone, Debug, Hash, PartialEq)]
+#[derive(Debug)]
 pub struct Select {
     pub inp: From,
     pub sel: Vec<Member>,
 }
 
-#[derive(Clone, Debug, Hash, PartialEq)]
-pub enum Member {
-    Assign(String, Expr),
-    Spread(Expr),
-}
+pub type SelectItem = Member;
 
-#[derive(Clone, Debug, Hash, PartialEq)]
+//------------------------------
+// From Clause
+//------------------------------
+
+#[derive(Debug)]
 pub struct From {
     pub tbl: String, // table name
     pub var: String, // AS <var>
 }
 
+//------------------------------
+// Expressions
+//------------------------------
+
 pub type ExprRef = Box<Expr>;
 
-#[derive(Clone, Debug, Hash, PartialEq)]
+#[derive(Debug)]
 pub enum Expr {
     Var(String),
     Lit(Value),
@@ -104,52 +82,93 @@ pub enum Expr {
     Jpe(Jpe),
 }
 
-/// JSON data types.
-/// 
-/// TODO research TypeScript type definition modeling.
-#[derive(Clone, Eq, PartialEq, Hash, Debug)]
-pub enum Type {
-    Bool,
-    Number,
-    String,
-    Object,
-    Array,
-    Any,
-}
-
-impl Display for Type {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Type::Bool => write!(f, "bool"),
-            Type::Number => write!(f, "number"),
-            Type::String => write!(f, "string"),
-            Type::Object => write!(f, "object"),
-            Type::Array => write!(f, "array"),
-            Type::Any => write!(f, "any"),
-        }
-    }
-}
-
-/// Consider a map .. but also orderedness ?? (indexmap)
-/// Also this is an object _expression_ not a value.
 pub type Obj = Vec<Member>;
 
-#[derive(Clone, Debug, Hash, PartialEq)]
+#[derive(Debug)]
+pub enum Member {
+    Assign(String, Expr),
+    Spread(Expr),
+}
+
+#[derive(Debug)]
 pub struct Jpi {
     pub inp: ExprRef,
     pub idx: usize,
 }
 
-#[derive(Clone, Debug, Hash, PartialEq)]
+#[derive(Debug)]
 pub struct Jpk {
     pub inp: ExprRef,
     pub key: String,
 }
 
-#[derive(Clone, Debug, Hash, PartialEq)]
+#[derive(Debug)]
 pub struct Jpe {
     pub inp: ExprRef,
     pub exp: ExprRef,
+}
+
+//------------------------------
+// Types
+//------------------------------
+
+pub type TypeRef = Box<Type>;
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum Type {
+    Any,
+    Bool,
+    Number,
+    String,
+    Object(TObject),
+    Array,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct TObject {
+    pub members: Vec<TMember>,
+    pub open: bool,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct TMember {
+    pub name: String,
+    pub typ_: TypeRef,
+}
+
+impl Display for Type {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Type::Any => write!(f, "any"),
+            Type::Bool => write!(f, "bool"),
+            Type::Number => write!(f, "number"),
+            Type::String => write!(f, "string"),
+            Type::Object(object) => object.fmt(f),
+            Type::Array => write!(f, "array"),
+        }
+    }
+}
+
+impl Display for TObject {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.members.is_empty() {
+            write!(f, "{{}}")
+        } else {
+            write!(f, "{{\n")?;
+            for m in &self.members {
+                write!(f, "  ")?;
+                m.fmt(f)?;
+                write!(f, ",\n")?;
+            }
+            write!(f, "}}")
+        }
+    }
+}
+
+impl Display for TMember {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.name, self.typ_)
+    }
 }
 
 //------------------------------
@@ -157,8 +176,8 @@ pub struct Jpe {
 //------------------------------
 
 #[inline]
-pub fn table_definition(name: String, members: Vec<TypeMember>) -> Table {
-    Table { name, members, constraints: vec![] }
+pub fn table_definition(name: String, schema: Type) -> Table {
+    Table { name, schema }
 }
 
 #[inline]
@@ -238,13 +257,40 @@ pub fn member_spread(expr: Expr) -> Member {
     Member::Spread(expr)
 }
 
-#[inline]
-pub fn type_member(name: String, typ_: Type, nullable: bool) -> TypeMember {
-    TypeMember { name, typ_, nullable }
+//------------------------------
+// Parser Actions: Types
+//------------------------------
+
+pub fn t_any() -> Type {
+    Type::Any
+}
+
+pub fn t_bool() -> Type {
+    Type::Bool
+}
+
+pub fn t_number() -> Type {
+    Type::Number
+}
+
+pub fn t_string() -> Type {
+    Type::String
+}
+
+pub fn t_object(members: Vec<TMember>, open: bool) -> Type {
+    Type::Object(TObject { members, open })
+}
+
+pub fn t_member(name: String, typ_: Type, _: bool) -> TMember {
+    TMember { name, typ_: Box::new(typ_) }
+}
+
+pub fn t_array() -> Type {
+    Type::Array
 }
 
 //------------------------------
-// EXPRESSIONS
+// Parser Actions: Expressions
 //------------------------------
 
 #[inline]

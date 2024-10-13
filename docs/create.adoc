@@ -53,10 +53,14 @@ table_name
     identifier 
 
 table_body
+    table_schema
+    table_schema "," table_options
+
+table_schema
     type_definition
-    type_definition "," table_options
 
 type_definition
+    "{ }"
     "{ type_members }"
 
 type_members
@@ -66,12 +70,11 @@ type_members
 type_member
     identifier ":" type
 
-type
-    "boolean"
-    "number"
-    "string"
-    "object"
-    "array"
+table_options
+    "{ table_option }"
+
+table_option
+    identifier ":" value
 ----
 
 == Rules

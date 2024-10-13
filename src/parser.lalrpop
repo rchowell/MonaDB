@@ -72,20 +72,13 @@ CreateTable: ir::Create = {
 };
 
 TableDefinition: ir::Table = {
-    <TableName>                     => ir::table_definition(<>, vec![]),
-    <TableName> "(" <TableBody> ")" => ir::table_definition(<>),
+    <TableName>                => ir::table_definition(<>, ir::t_any()),
+    <TableName> "(" <Type> ")" => ir::table_definition(<>),
 };
 
 TableName: String = "ident";
 
-TableBody: Vec<ir::TypeMember> = "{" <TypeMembers> "}";
-
-TypeMembers: Vec<ir::TypeMember> = List<TypeMember>;
-
-TypeMember: ir::TypeMember = {
-    <Ident> ":" <Type>            => ir::type_member(<>, false),
-    <Ident> ":" <Type> "|" "null" => ir::type_member(<>, true),
-};
+// TODO TableOptions
 
 Select: ir::Select = {
     "select" "*"                <From>  => ir::select_star(<>),
@@ -130,12 +123,38 @@ Drop: String = "drop" "table" <Ident>;
 //------------------------------
 
 Type: ir::Type = {
-    "t_bool"    => ir::Type::Bool,
-    "t_number"  => ir::Type::Number,
-    "t_string"  => ir::Type::String,
-    "t_object"  => ir::Type::Object,
-    "t_array"   => ir::Type::Array,
-    "t_any"     => ir::Type::Any,
+    TAny,
+    TScalar,
+    TObject,
+    TArray,
+};
+
+TAny: ir::Type = {
+    "t_any" => ir::t_any(),
+};
+
+TScalar: ir::Type = {
+    "t_bool"    => ir::t_bool(),
+    "t_number"  => ir::t_number(),
+    "t_string"  => ir::t_string(),
+};
+
+TObject: ir::Type = {
+    "t_object"                      => ir::t_object(vec![], true),
+    "{" <TMembers> "}"              => ir::t_object(<>, false),
+    // "{" <TMembers> "," "..." "}"    => ir::t_object(<>, true),
+};
+
+TMembers: Vec<ir::TMember> = List<TMember>;
+
+TMember: ir::TMember = {
+    <Ident> ":" <Type>            => ir::t_member(<>, false),
+    <Ident> ":" <Type> "|" "null" => ir::t_member(<>, true),
+};
+
+TArray: ir::Type = {
+    "t_array"   => ir::t_array(),
+    "[" "]"     => ir::t_array(),
 };
 
 //------------------------------

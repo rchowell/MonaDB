@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Display};
 
-use crate::{ir::TypeMember, Result};
+use crate::{ir::TMember, Result};
 use serde_json::{Map, Value as JsonValue};
 
 /// JSON value.
@@ -174,7 +174,7 @@ impl Value {
     /// 
     /// This API is used to INSERT a JsonValue into a relational row.
     /// 
-    pub fn shred(self, members: &Vec<TypeMember>) -> Row {
+    pub fn shred(self, members: &Vec<TMember>) -> Row {
         if let JsonValue::Object(mut map) = self.0 {
             // shred the known members to the arr part.
             let mut arr: Vec<Value> = vec![];
@@ -251,31 +251,5 @@ impl Obj {
 
     pub fn build(&self) -> Value {
         Value(JsonValue::Object(self.members.clone()))
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use serde_json::json;
-    use crate::ir::{self};
-
-    use super::*;
-
-    #[test]
-    fn test_shred() {
-        let value = Value::new(json!(
-            {
-                "name": "Alice",
-                "age": 42,
-                "city": "New York"
-            }
-        ));
-        let members = vec![
-            ir::type_member("name".to_string(), ir::Type::String, false),
-            ir::type_member("age".to_string(), ir::Type::Number, false),
-        ];
-        let row = value.shred(&members);
-        println!("{:?}", row);
-        assert_eq!(row.arr.len(), 2);
     }
 }

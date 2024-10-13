@@ -7,7 +7,9 @@ use crate::{
     cursor::Cursor, error::Error, ir::{self, Table}, lexer::RqlLexer, parser::RqlParser, value::{Record, Value}, Result
 };
 use rusqlite::{named_params, params_from_iter, types::FromSql, Connection, ParamsFromIter, ToSql};
-use sqlite::ToSqlite;
+
+const SQL_INIT: &str = "CREATE TABLE IF NOT EXISTS catalog ( name TEXT PRIMARY KEY, ddl TEXT);";
+const SQL_SYNC: &str = "SELECT name, ddl FROM catalog;";
 
 /// Catalog manages the database tables.
 pub struct Catalog {
@@ -34,7 +36,7 @@ impl Catalog {
 
     /// Initialize the catalog.
     fn init(conn: Connection) -> Result<Catalog> {
-        conn.execute(sqlite::INIT, [])?;
+        conn.execute(SQL_INIT, [])?;
         Ok(Catalog {
             conn,
             tables: HashMap::new(),
@@ -94,8 +96,8 @@ impl Catalog {
     pub fn insert(&mut self, table: &str, record: Record) -> Result<usize> {
         let table = self.load_table(table)?;
         let insert = table.to_sqlite_insert();
-        let params = to_params(record, table);
-        let n = self.conn.execute(&insert, params)?;
+        let v = record.to_string();
+        let n = self.conn.execute(&insert, [v])?;
         Ok(n)
     }
 
@@ -104,9 +106,7 @@ impl Catalog {
         let table = self.load_table(table)?;
         let select = table.to_sqlite_select();
         let statement = self.conn.prepare(&select)?;
-        // FEATURE projection pushdown goes here (project all for now)
-        let columns = table.members.clone();
-        Ok(Cursor::new(columns, statement))
+        Ok(Cursor::new(statement))
     }
 
     /// Begin a (goofy) transaction (really just a batch of SQL statements).
@@ -127,7 +127,7 @@ impl Catalog {
 
     /// Sync the catalog with the sqlite3 `catalog` table.
     fn sync(&mut self) -> Result<()> {
-        let mut stmt = self.conn.prepare(sqlite::SYNC)?;
+        let mut stmt = self.conn.prepare(SQL_SYNC)?;
         let mut rows = stmt.query([])?;
         let mut tables = HashMap::new();
         while let Some(row) = rows.next()? {
@@ -143,12 +143,6 @@ impl Catalog {
         self.tables = tables;
         Ok(())
     }
-}
-
-fn to_params(record: Record, table: &Table) -> ParamsFromIter<Vec<Value>> {
-    let row = record.shred(&table.members);
-    let iter = row.values();
-    params_from_iter(iter)
 }
 
 /// Convert a `rusqlite::types::ValueRef` to a `Value`.
@@ -200,119 +194,50 @@ fn parse_table(ddl: &str) -> Result<Table> {
     }
 }
 
-// TODO pre-compute these because they do not change.
+// TODO keys
 impl ir::Table {
+
+    /// The sqlite `CREATE TABLE` statement.
+    fn to_sqlite_ddl(&self) -> String {
+        format!("CREATE TABLE {} (_ BLOB)", self.name)
+    }
+
     /// Convert the table to a scan query.
     pub fn to_sqlite_select(&self) -> String {
-        let members: String = self.members
-            .iter()
-            .map(|m| m.name.as_str())
-            .collect::<Vec<&str>>()
-            .join(", ");
-        format!("SELECT {} FROM {}", members, self.name)
+        format!("SELECT _ FROM {}", self.name)
     }
 
     /// Convert the table to an insert query with the appropriate parameters (i.e. ?).
     pub fn to_sqlite_insert(&self) -> String {
-        let members: String = self.members
-            .iter()
-            .map(|m| m.name.as_str())
-            .collect::<Vec<&str>>()
-            .join(", ");
-        let params = repeat_vars(self.members.len());
-        format!("INSERT INTO {} ({}) VALUES ({})", self.name, members, params)
-    }
-}
-
-// Helper function to return a comma-separated sequence of `?`.
-// - `repeat_vars(0) => panic!(...)`
-// - `repeat_vars(1) => "?"`
-// - `repeat_vars(2) => "?,?"`
-// - `repeat_vars(3) => "?,?,?"`
-// - ...
-fn repeat_vars(count: usize) -> String {
-    assert_ne!(count, 0);
-    let mut s = "?,".repeat(count);
-    // Remove trailing comma
-    s.pop();
-    s
-}
-
-/// sqlite3 tranlsations
-mod sqlite {
-    use crate::ir;
-
-    pub const INIT: &str = "CREATE TABLE IF NOT EXISTS catalog ( name TEXT PRIMARY KEY, ddl TEXT);";
-    pub const SYNC: &str = "SELECT name, ddl FROM catalog;";
-
-    /// The `ToSqlite` trait is used to convert a rho object to a SQLite object.
-    pub trait ToSqlite {
-        /// TODO implementations consider https://github.com/hoodie/concatenation_benchmarks-rs
-        fn to_sqlite_ddl(&self) -> String;
-    }
-
-    /// Write the table definition as an sqlite3 string.
-    impl ToSqlite for ir::Table {
-
-        fn to_sqlite_ddl(&self) -> String {
-            let mut sql = String::new();
-            sql.push_str(format!("CREATE TABLE {} (\n", self.name).as_str());
-            for (i, m) in self.members.iter().enumerate() {
-                let col = m.to_sqlite_ddl();
-                if i > 0 {
-                    sql.push_str(",");
-                    sql.push_str("\n");
-                }
-                sql.push_str("  ");
-                sql.push_str(&col);
-            }
-            sql.push_str("\n)");
-            sql
-        }
-    }
-
-    impl ToSqlite for ir::TypeMember {
-        fn to_sqlite_ddl(&self) -> String {
-            let typ_ = self.typ_.to_sqlite_ddl();
-            if self.nullable {
-                format!("{} {} NULL", self.name, typ_)
-            } else {
-                format!("{} {} NOT NULL", self.name, typ_)
-            }
-        }
-    }
-
-    impl ToSqlite for ir::Type {
-        fn to_sqlite_ddl(&self) -> String {
-            match self {
-                ir::Type::Bool => "INT",
-                ir::Type::Number => "REAL",
-                ir::Type::String => "TEXT",
-                ir::Type::Object => "ANY",
-                ir::Type::Array => "ANY",
-                ir::Type::Any => "ANY",
-            }.to_string()
-        }
+        format!("INSERT INTO {} (_) VALUES (?)", self.name)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::ir::{self, Type};
     use super::*;
+    use ir::{Type, TMember, TObject};
 
-    const DDL: &str = "create table example ( x number, y number|null, );";
+    const DDL: &str = "create table example ({ x: number, y: number|null });";
 
     #[test]
     fn test_create_table() {
         let mut catalog = Catalog::memory().unwrap();
         let actual = Table {
             name: "foo".to_string(),
-            members: vec![
-                ir::type_member("id".into(), Type::Number, false),
-                ir::type_member("name".into(), Type::String, true),
-            ],
-            constraints: vec![],
+            schema: Type::Object(TObject {
+                members: vec![
+                    TMember {
+                        name: "x".to_owned(),
+                        typ_: Box::new(Type::Number),
+                    },
+                    TMember {
+                        name: "y".to_owned(),
+                        typ_: Box::new(Type::Number),
+                    },
+                ],
+                open: false,
+            }),
         };
 
         // load the table
@@ -321,6 +246,13 @@ mod tests {
 
         // assert round-trip equality
         assert_eq!(actual, *expected);
+    }
+
+    #[test]
+    fn test_ddl_roundtrip() {
+        let tbl1 = parse_table(DDL).unwrap();
+        let tbl2 = parse_table(&tbl1.to_string()).unwrap();
+        assert_eq!(tbl1, tbl2)
     }
 
     #[test]

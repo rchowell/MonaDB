@@ -1,0 +1,37 @@
+= Type Definitions
+
+RQL uses the TypeScript syntax to declare data types.
+
+[example,rql]
+----
+type
+    t_any
+    t_scalar
+    t_object
+    t_array
+
+t_any
+    "any"
+
+t_scalar
+    "boolean"
+    "number"
+    "string"
+
+t_object
+    "object"
+    "{" "}"
+    "{ t_members }"
+    "{ t_members "," "..." }"
+
+t_members
+    t_member
+    t_member "," t_member
+
+t_member
+    identifier ":" type
+
+t_array
+    "array"
+    "[" "]"
+----
