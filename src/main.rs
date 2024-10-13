@@ -175,11 +175,23 @@ fn main() {
         } else {
             // STATEMENT
             match rho.exec(&buffer) {
-                Ok(_) => {
+                Ok(mut rows) => {
+                    loop {
+                        match rows.next() {
+                            Ok(Some(row)) => println!("{:?}", row),
+                            Ok(None) => break,
+                            Err(e) => {
+                                // runtime error
+                                println!("{:?}", e);
+                                println!("error.");
+                            }
+                        }
+                    }
                     println!();
                     println!("ok.");
                 },
                 Err(e) => {
+                    // compilation error
                     println!("{:?}", e);
                     println!("error.");
                 }

@@ -2,6 +2,7 @@
 pub mod error;
 pub mod value;
 pub mod lexer;
+pub mod rows;
 
 // lalrpop module
 lalrpop_mod!(
@@ -27,6 +28,7 @@ use error::Error;
 use catalog::Catalog;
 use ir::Table;
 use lalrpop_util::lalrpop_mod;
+use rows::Rows;
 use value::Record;
 
 use crate::vm::*;
@@ -69,8 +71,9 @@ impl Rho {
         compiler.compile(rql)
     }
 
-    pub fn exec(&mut self, rql: &str) -> Result<()> {
+    pub fn exec(&mut self, rql: &str) -> Result<Rows<'_>> {
         let program = self.prepare(rql)?;
+
         // >> DEBUG
         if self.debug {
             println!();
@@ -82,15 +85,9 @@ impl Rho {
             println!();
         }
         // >> DEBUG
-        let mut vm = VM::init(self, program);
-        loop {
-            match vm.next() {
-                Ok(Some(row)) => println!("{:?}", row),
-                Ok(None) => break,
-                Err(e) => return Err(e),
-            }
-        }
-        Ok(())
+
+        let vm = VM::init(self, program);
+        Ok(Rows::new(vm))
     }
 
     /// Clear all entries in a table.

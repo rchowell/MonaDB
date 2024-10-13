@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Display};
 
-use crate::{ir::TMember, Result};
+use crate::Result;
 use serde_json::{Map, Value as JsonValue};
 
 /// JSON value.
@@ -9,29 +9,6 @@ pub struct Value(JsonValue);
 
 /// Record (for now) is just a JSON value
 pub type Record = Value;
-
-/// Row2 is temporary because I've accidentally used Row in too many places.
-#[derive(Debug)]
-pub struct Row {
-    arr: Vec<Value>,
-    map: Map<String, JsonValue>,
-}
-
-impl Row {
-    /// Stich a row into an object value; see shred.
-    pub fn stitch(_: Vec<&str>) -> Value {
-        todo!("stitch")
-    }
-
-    /// Flatten a row into a vector of key-value pairs, with the hidden "_" member.
-    pub fn values(self) -> Vec<Value> {
-        // let mut values: Vec<Value> = self.arr.into_iter().map(|(_, v)| v).collect();
-        // TODO OPEN PART OF THE MAP
-        // let map = Value(JsonValue::Object(self.map));
-        // values.push(map);
-        self.arr
-    }
-}
 
 impl Value {
     pub fn new(value: JsonValue) -> Self {
@@ -165,29 +142,6 @@ impl Value {
             if let JsonValue::Object(other) = value.0 {
                 members.extend(other);
             }
-        }
-    }
-
-    /// Shred an object value into a row; see stitch.
-    /// 
-    /// TODO MEMBER DEFINITIONS FOR DEFAULTS AND NULLABILITY...
-    /// 
-    /// This API is used to INSERT a JsonValue into a relational row.
-    /// 
-    pub fn shred(self, members: &Vec<TMember>) -> Row {
-        if let JsonValue::Object(mut map) = self.0 {
-            // shred the known members to the arr part.
-            let mut arr: Vec<Value> = vec![];
-            for m in members {
-                let v = match map.remove(&m.name) {
-                    Some(v) => Value(v),
-                    None => Value::null()
-                };
-                arr.push(v);
-            }
-            Row { arr, map }
-        } else {
-            panic!("shred: not an object");
         }
     }
 }
