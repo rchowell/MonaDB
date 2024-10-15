@@ -11,20 +11,6 @@ RQL is SQL (ish).
 
 === Statements
 
-.CREATE TABLE
-[source,sql]
-----
-CREATE TABLE <table::name> (
-    <column::name> <column::type>,
-    ...
-);
-
-CREATE TABLE example (
-    a VALUE,
-    b VALUE,
-);
-----
-
 .DROP TABLE
 [source,sql]
 ----

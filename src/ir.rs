@@ -62,8 +62,14 @@ pub type SelectItem = Member;
 
 #[derive(Debug)]
 pub struct From {
-    pub tbl: String, // table name
+    pub src: FromSource,
     pub var: String, // AS <var>
+}
+
+#[derive(Debug)]
+pub enum FromSource {
+    Table(String),
+    Path(Path),
 }
 
 //------------------------------
@@ -250,14 +256,15 @@ pub fn select_item(expr: Expr, name: String) -> Member {
 }
 
 #[inline]
-pub fn from_no_alias(tbl: String) -> From {
+pub fn from_table(tbl: String) -> From {
+    let src = FromSource::Table(tbl.clone());
     let var = tbl.clone();
-    From { tbl, var }
+    From { src, var }
 }
 
 #[inline]
-pub fn from(tbl: String, var: String) -> From {
-    From { tbl, var }
+pub fn from_source(src: FromSource, var: String) -> From {
+    From { src, var }
 }
 
 #[inline]
@@ -375,6 +382,10 @@ pub fn expr_obj(obj: Obj) -> Expr {
     Expr::Obj(obj)
 }
 
+pub fn expr_path(inp: Expr, segments: Vec<Segment>) -> Expr {
+    Expr::Lit(Value::null())
+}
+
 #[inline]
 pub fn expr_jpi(inp: Expr, idx: usize) -> Expr {
     Expr::Jpi(Jpi {
@@ -402,68 +413,72 @@ pub fn expr_jpe(inp: Expr, exp: Expr) -> Expr {
 
 #[cfg(test)]
 mod test {
-    use crate::{lexer::RqlLexer, parser::PathParser};
+    use crate::{lexer::RqlLexer, parser::RqlParser};
 
     use super::*;
 
-    #[test]
-    fn test_accept_paths() {
-        // replace $ with "T"
-        let paths = vec![
-            // Basic paths
-            "T.store.book.title",
-            "T.store['book'].title",
-            "T.store['book']['title']",
-            "T.store.book.*",
-            "T.store.book[0]",
-            "T.store.book[0].title",
-            "T.store.book[0]..title",
-            "T.store.book[0]..*",
-            "T.store.book[0]..*.*",
-            // Wildcard paths
-            "T.store.*.title",
-            "T.store.*[0]",
-            "T.store.*[0].title",
-            "T.store.*[0]..title",
-            "T.store.*[0]..*",
-            "T.store.*[0]..*.*",
-            // Array indices
-            "T.store.book[0]",
-            "T.store.book[1]",
-            "T.store.book[-1]",
-            "T.store.book[0,1]",
-            // Array slices
-            // "T.store.book[0:2]",
-            // "T.store.book[:2]",
-            // "T.store.book[1:]",
-            // "T.store.book[::2]",
-            // Recursive descent
-            "T..book",
-            "T..book.title",
-            "T..book[0]",
-            "T..book[0].title",
-            "T..book[0]..title",
-            "T..book[0]..*",
-            "T..book[0]..*.*",
-            // Filters
-            // "T.store.book[?(@.price < 10)]",
-            // "T.store.book[?(@.price <= 10)]",
-            // "T.store.book[?(@.price > 10)]",
-            // "T.store.book[?(@.price >= 10)]",
-            // "T.store.book[?(@.price == 10)]",
-            // "T.store.book[?(@.price != 10)]",
-            // "T.store.book[?(@.author == 'John')]",
-            // "T.store.book[?(@.author != 'John')]",
-        ];
-        for p in paths {
-            let _ = parse_path(p);
-        }
-        // ok, no panics
+    fn parse(input: &str) -> Statement {
+        let rl = RqlLexer::new(input);
+        let pp = RqlParser::new();
+        pp.parse(rl).unwrap()
     }
 
-    fn parse_path(input: &str) -> Path {
-        let rl = RqlLexer::new(input);
-        let pp = PathParser::new();
-        pp.parse(rl).unwrap()
+    #[test]
+    fn test_accept_from() {
+        let paths = vec![
+            // Table
+            "T",
+            "Table",
+            // Basic paths
+            "T$.store.book.title",
+            "T$.store['book'].title",
+            "T$.store['book']['title']",
+            "T$.store.book.*",
+            "T$.store.book[0]",
+            "T$.store.book[0].title",
+            "T$.store.book[0]..title",
+            "T$.store.book[0]..*",
+            "T$.store.book[0]..*.*",
+            // Wildcard paths
+            "T$.store.*.title",
+            "T$.store.*[0]",
+            "T$.store.*[0].title",
+            "T$.store.*[0]..title",
+            "T$.store.*[0]..*",
+            "T$.store.*[0]..*.*",
+            // Array indices
+            "T$.store.book[0]",
+            "T$.store.book[1]",
+            "T$.store.book[-1]",
+            "T$.store.book[0,1]",
+            // Array slices
+            // "T$.store.book[0:2]",
+            // "T$.store.book[:2]",
+            // "T$.store.book[1:]",
+            // "T$.store.book[::2]",
+            // Recursive descent
+            "T$..book",
+            "T$..book.title",
+            "T$..book[0]",
+            "T$..book[0].title",
+            "T$..book[0]..title",
+            "T$..book[0]..*",
+            "T$..book[0]..*.*",
+            // Filters
+            // "T$.store.book[?(@.price < 10)]",
+            // "T$.store.book[?(@.price <= 10)]",
+            // "T$.store.book[?(@.price > 10)]",
+            // "T$.store.book[?(@.price >= 10)]",
+            // "T$.store.book[?(@.price == 10)]",
+            // "T$.store.book[?(@.price != 10)]",
+            // "T$.store.book[?(@.author == 'John')]",
+            // "T$.store.book[?(@.author != 'John')]",
+        ];
+        // Test each path with an alias
+        for path in paths{
+            let input = format!("select * from {} as a;", path);
+            let _ = parse(&input);
+        }
+        // ok, no panics
     }
 }

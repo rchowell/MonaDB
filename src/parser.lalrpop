@@ -16,6 +16,7 @@ extern {
         // symbols
         ","         => Token::Comma,
         ":"         => Token::Colon,
+        "$"         => Token::Dollar,
         ".."        => Token::DotDot,
         "..."       => Token::Ellipsis,
         "."         => Token::Period,
@@ -88,29 +89,34 @@ Select: ir::Select = {
 };
 
 SelectItem: ir::Member = {
-    <Var>               => ir::select_item_var(<>),
-    <Expr> "." "*"      => ir::select_item_star(<>),
-    <Expr> "as" <Ident> => ir::select_item(<>),
+    <Var>                   => ir::select_item_var(<>),
+    <Expr> "." "*"          => ir::select_item_star(<>),
+    <Expr> "as" <"ident">   => ir::select_item(<>),
 };
 
 From: ir::From = {
-    "from" <Ident>              => ir::from_no_alias(<>),
-    "from" <Ident> "as" <Ident> => ir::from(<>)
+    "from" <"ident">                    => ir::from_table(<>),
+    "from" <FromSource> "as" <"ident">  => ir::from_source(<>),
+};
+
+FromSource: ir::FromSource = {
+    "ident" => ir::FromSource::Table(<>),
+    Path    => ir::FromSource::Path(<>),
 };
 
 Insert: ir::Insert = {
     "insert" "into" <InsertTarget> "(" <InsertSource> ")" => ir::insert(<>),
 };
 
-InsertTarget: String = Ident;
+InsertTarget: String = "ident";
 
 InsertSource: Vec<ir::Expr> = List<Expr>;
 
 // TODO
-Delete: String = "delete" "from" <Ident>;
+Delete: String = "delete" "from" <"ident">;
 
 // TODO
-Drop: String = "drop" "table" <Ident>;
+Drop: String = "drop" "table" <"ident">;
 
 //------------------------------
 // TYPES
@@ -135,16 +141,16 @@ TScalar: ir::Type = {
 
 // TODO open object type
 TObject: ir::Type = {
-    "t_object"                      => ir::t_object(vec![], true),
-    "{" <TMembers> "}"              => ir::t_object(<>, false),
+    "t_object"          => ir::t_object(vec![], true),
+    "{" <TMembers> "}"  => ir::t_object(<>, false),
 };
 
 TMembers: Vec<ir::TMember> = List<TMember>;
 
 // TODO remove nullability ??
 TMember: ir::TMember = {
-    <Ident> ":" <Type>            => ir::t_member(<>, false),
-    <Ident> ":" <Type> "|" "null" => ir::t_member(<>, true),
+    <"ident"> ":" <Type>            => ir::t_member(<>, false),
+    <"ident"> ":" <Type> "|" "null" => ir::t_member(<>, true),
 };
 
 TArray: ir::Type = {
@@ -156,16 +162,14 @@ TArray: ir::Type = {
 // JSONPath
 //------------------------------
 
-pub Path: ir::Path = Ident Segments => ir::path(<>);
-
-Segments: Vec<ir::Segment> = Segment*;
+Path: ir::Path = <"ident"> "$" <Segment+> => ir::path(<>);
 
 Segment: ir::Segment = {
     "[" <Selectors> "]"         => ir::segment_child(<>),
-    "." <Ident>                 => ir::segment_child_name(<>),
+    "." <"ident">               => ir::segment_child_name(<>),
     "." "*"                     => ir::segment_child_wildcard(),
     ".." "[" <Selectors> "]"    => ir::segment_descd(<>),
-    ".." <Ident>                => ir::segment_descd_name(<>),
+    ".." <"ident">              => ir::segment_descd_name(<>),
     ".." "*"                    => ir::segment_descd_wildcard(),
 };
 
@@ -182,27 +186,18 @@ Selector: ir::Selector = {
 //------------------------------
 
 Expr: ir::Expr = {
-    Ident                   => ir::expr_var(<>),
+    "ident"                 => ir::expr_var(<>),
     Value                   => ir::expr_lit(<>),
     <Expr> "[" <Expr> "]"   => ir::expr_jpe(<>),
-    <Expr> "." <Ident>      => ir::expr_jpk(<>),
+    <Expr> "." <"ident">    => ir::expr_jpk(<>),
     "{" <Members> "}"       => ir::expr_obj(<>),
     "(" <Expr> ")"          => <>,
 };
 
 Var: ir::Expr = {
-    Ident               => ir::expr_var(<>),
-    <Expr> "." <Ident>  => ir::expr_jpk(<>),
+    "ident"                 => ir::expr_var(<>),
+    <Expr> "." <"ident">    => ir::expr_jpk(<>),
 };
-
-Members: Vec<ir::Member> = List<Member>;
-
-Member: ir::Member = {
-    Var                     => ir::member_var(<>),
-    <"ident">  ":" <Expr>   => ir::member_assign(<>),
-    <"string"> ":" <Expr>   => ir::member_assign(<>),
-    "..." <Expr>            => ir::member_spread(<>),
-}
 
 Value: Value = {
     "null"      => Value::null(),
@@ -212,7 +207,16 @@ Value: Value = {
     "string"    => Value::string(<>),
 };
 
-Ident: String = "ident";
+//=== Objects
+
+Members: Vec<ir::Member> = List<Member>;
+
+Member: ir::Member = {
+    Var                     => ir::member_var(<>),
+    <"ident">  ":" <Expr>   => ir::member_assign(<>),
+    <"string"> ":" <Expr>   => ir::member_assign(<>),
+    "..." <Expr>            => ir::member_spread(<>),
+}
 
 //------------------------------
 // MACROS

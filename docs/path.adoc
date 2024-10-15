@@ -3,7 +3,7 @@
 Paths in _rho_ follow JSONPath with two modifications,
 
 . If the nodelist contains a single value, that value is returned.
-. A path expression MAY start with a table identifier or a variable identifier.
+. A path expression starts with a table identifier or a variable identifier followed by the root node identifier `$`.
 
 These path expressions are particularly useful in the _from clause_ to iterate over nested collections.
 
@@ -20,11 +20,11 @@ These path expressions are particularly useful in the _from clause_ to iterate o
 -- let T be some table
 
 -- equivalent, iterate the `foo` members of T items.
-from T.foo
-from T['foo']
-from T["foo"]
+from T$.foo
+from T$['foo']
+from T$["foo"]
 
-from T[x,y] -- select members 'x' and 'y'
+from T$[x,y] -- select members 'x' and 'y'
 
 -- todo keep going
 ----
@@ -38,9 +38,8 @@ path
     path_identifier path_parts
 
 path_identifier
-    '$'
+    identifier '$'
     '@'
-    identifier
 
 path_parts
     segments

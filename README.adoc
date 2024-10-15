@@ -23,13 +23,9 @@ _This section contains a list of features/ideas that are not yet implemented._
 * [ ] Language documentation should have links to other grammar rules.
 * [ ] Explore pro's / con's of typed arrays.
 * [ ] Computed property names in objects.
-* [ ] Naming?? prop, key, name, member, field, etc.
-* [ ] Evaluate simplicity of using a stack rather than registers...
 * [ ] Add `emit_op` style methods in compiler to replace vop helpers (easy-ish find+replace).
-* [ ] See if the notion of "path" can be simplified.
 * [ ] Pre-commpute a table's sqlite queries because they are always the same.
 * [ ] Support for open tables.
-* [ ] Cross-join.
 * [ ] Remove VM dep on Rho, use "Connection".
 * [ ] Make "Catalog" the "Connection" ??
 * [ ] Document namespaces.
@@ -41,9 +37,8 @@ _This section contains a list of features/ideas that are not yet implemented._
 ** [ ] DEFAULT
 * [ ] Document and use consistent ABNF
 * [ ] Document comparisons to MongoDB
-* [ ] Read JSONLines input
-* [ ] JSON5 reader
 * [ ] Establish a consistent language documentation format a'la Mozilla JavaScript style.
+* [ ] Scalar functions
 
 .Shell
 * [ ] Better error messages.
@@ -70,10 +65,12 @@ _This section contains various mini-goals to drive the project._
 * [x] Cleanup the VM and VOP factoring with some consistent naming.
 * [x] Finalize syntax for V0 `insert into table`.
 * [x] Standardize naming of bindings/attributes/fields/members including rows/objs/tables/etc.
+* [x] Document JSONPath and unnesting syntax.
 * [ ] The cursor should be an iterator over the sqlite connection.
-* [ ] Scalar functions
-* [ ] Document JSONPath and unnesting syntax.
 * [ ] Use stack-based VM for simpler ownership patterns.
+* [ ] Read JSONLines input
+* [ ] JSON5 reader
+* [ ] Cross-join.
 
 === G2 Sep 2024
 

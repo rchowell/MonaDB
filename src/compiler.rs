@@ -116,7 +116,10 @@ impl<'cat> Compiler<'cat> {
     }
 
     fn cc_from(&mut self, from: From) -> Result<usize> {
-        let tbl = from.tbl;
+        let tbl = match from.src {
+            FromSource::Table(tbl) => tbl,
+            FromSource::Path(path) => todo!("from path: {:?}", path),
+        };
         let var = from.var;
         self.open(tbl, var)
     }
