@@ -51,7 +51,7 @@ impl Display for Table {
 #[derive(Debug)]
 pub struct Select {
     pub inp: From,
-    pub sel: Vec<Member>,
+    pub sel: Vec<SelectItem>,
 }
 
 pub type SelectItem = Member;
@@ -64,48 +64,6 @@ pub type SelectItem = Member;
 pub struct From {
     pub tbl: String, // table name
     pub var: String, // AS <var>
-}
-
-//------------------------------
-// Expressions
-//------------------------------
-
-pub type ExprRef = Box<Expr>;
-
-#[derive(Debug)]
-pub enum Expr {
-    Var(String),
-    Lit(Value),
-    Obj(Obj),
-    Jpi(Jpi),
-    Jpk(Jpk),
-    Jpe(Jpe),
-}
-
-pub type Obj = Vec<Member>;
-
-#[derive(Debug)]
-pub enum Member {
-    Assign(String, Expr),
-    Spread(Expr),
-}
-
-#[derive(Debug)]
-pub struct Jpi {
-    pub inp: ExprRef,
-    pub idx: usize,
-}
-
-#[derive(Debug)]
-pub struct Jpk {
-    pub inp: ExprRef,
-    pub key: String,
-}
-
-#[derive(Debug)]
-pub struct Jpe {
-    pub inp: ExprRef,
-    pub exp: ExprRef,
 }
 
 //------------------------------
@@ -172,6 +130,71 @@ impl Display for TMember {
 }
 
 //------------------------------
+// JSONPath
+//------------------------------
+
+#[derive(Debug)]
+pub struct Path {
+    pub identifier: String,
+    pub segments: Vec<Segment>,
+}
+
+#[derive(Debug)]
+pub enum Segment {
+    Child(Vec<Selector>),
+    Descd(Vec<Selector>),
+}
+
+#[derive(Debug)]
+pub enum Selector {
+    Name(String),
+    Wildcard,
+    Index(usize),
+}
+
+//------------------------------
+// Expressions
+//------------------------------
+
+pub type ExprRef = Box<Expr>;
+
+#[derive(Debug)]
+pub enum Expr {
+    Var(String),
+    Lit(Value),
+    Obj(Obj),
+    Jpi(Jpi),
+    Jpk(Jpk),
+    Jpe(Jpe),
+}
+
+pub type Obj = Vec<Member>;
+
+#[derive(Debug)]
+pub enum Member {
+    Assign(String, Expr),
+    Spread(Expr),
+}
+
+#[derive(Debug)]
+pub struct Jpi {
+    pub inp: ExprRef,
+    pub idx: usize,
+}
+
+#[derive(Debug)]
+pub struct Jpk {
+    pub inp: ExprRef,
+    pub key: String,
+}
+
+#[derive(Debug)]
+pub struct Jpe {
+    pub inp: ExprRef,
+    pub exp: ExprRef,
+}
+
+//------------------------------
 // Parser Actions
 //------------------------------
 
@@ -205,11 +228,11 @@ pub fn select_list(members: Vec<Member>, from: From) -> Select {
 
 // select_item with no alias; derive an alias.
 #[inline]
-pub fn select_item_path(expr: Expr) -> Member {
+pub fn select_item_var(expr: Expr) -> Member {
     let name = match &expr {
         Expr::Var(var) => var.clone(),
         Expr::Jpk(jpk) => jpk.key.clone(),
-        _ => panic!("select_item_path: {:?}", expr),
+        _ => panic!("select_item_var: {:?}", expr),
     };
     select_item(expr, name)
 }
@@ -238,11 +261,11 @@ pub fn from(tbl: String, var: String) -> From {
 }
 
 #[inline]
-pub fn member_path(expr: Expr) -> Member {
+pub fn member_var(expr: Expr) -> Member {
     let name = match &expr {
         Expr::Var(var) => var.clone(),
         Expr::Jpk(jpk) => jpk.key.clone(),
-        _ => panic!("member_path: {:?}", expr),
+        _ => panic!("member_var: {:?}", expr),
     };
     Member::Assign(name, expr)
 }
@@ -290,6 +313,50 @@ pub fn t_array() -> Type {
 }
 
 //------------------------------
+// Parser Actions: JSONPath
+//------------------------------
+
+pub fn path(identifier: String, segments: Vec<Segment>) -> Path {
+    Path { identifier, segments }
+}
+
+pub fn segment_child(selectors: Vec<Selector>) -> Segment {
+    Segment::Child(selectors)
+}
+
+pub fn segment_child_name(name: String) -> Segment {
+    Segment::Child(vec![Selector::Name(name)])
+}
+
+pub fn segment_child_wildcard() -> Segment {
+    Segment::Child(vec![Selector::Wildcard])
+}
+
+pub fn segment_descd(selectors: Vec<Selector>) -> Segment {
+    Segment::Descd(selectors)
+}
+
+pub fn segment_descd_name(name: String) -> Segment {
+    Segment::Descd(vec![Selector::Name(name)])
+}
+
+pub fn segment_descd_wildcard() -> Segment {
+    Segment::Descd(vec![Selector::Wildcard])
+}
+
+pub fn selector_name(name: String) -> Selector {
+    Selector::Name(name)
+}
+
+pub fn selector_wildcard() -> Selector {
+    Selector::Wildcard
+}
+
+pub fn selector_index(idx: usize) -> Selector {
+    Selector::Index(idx)
+}
+
+//------------------------------
 // Parser Actions: Expressions
 //------------------------------
 
@@ -330,4 +397,73 @@ pub fn expr_jpe(inp: Expr, exp: Expr) -> Expr {
         inp: Box::new(inp),
         exp: Box::new(exp),
     })
+}
+
+
+#[cfg(test)]
+mod test {
+    use crate::{lexer::RqlLexer, parser::PathParser};
+
+    use super::*;
+
+    #[test]
+    fn test_accept_paths() {
+        // replace $ with "T"
+        let paths = vec![
+            // Basic paths
+            "T.store.book.title",
+            "T.store['book'].title",
+            "T.store['book']['title']",
+            "T.store.book.*",
+            "T.store.book[0]",
+            "T.store.book[0].title",
+            "T.store.book[0]..title",
+            "T.store.book[0]..*",
+            "T.store.book[0]..*.*",
+            // Wildcard paths
+            "T.store.*.title",
+            "T.store.*[0]",
+            "T.store.*[0].title",
+            "T.store.*[0]..title",
+            "T.store.*[0]..*",
+            "T.store.*[0]..*.*",
+            // Array indices
+            "T.store.book[0]",
+            "T.store.book[1]",
+            "T.store.book[-1]",
+            "T.store.book[0,1]",
+            // Array slices
+            // "T.store.book[0:2]",
+            // "T.store.book[:2]",
+            // "T.store.book[1:]",
+            // "T.store.book[::2]",
+            // Recursive descent
+            "T..book",
+            "T..book.title",
+            "T..book[0]",
+            "T..book[0].title",
+            "T..book[0]..title",
+            "T..book[0]..*",
+            "T..book[0]..*.*",
+            // Filters
+            // "T.store.book[?(@.price < 10)]",
+            // "T.store.book[?(@.price <= 10)]",
+            // "T.store.book[?(@.price > 10)]",
+            // "T.store.book[?(@.price >= 10)]",
+            // "T.store.book[?(@.price == 10)]",
+            // "T.store.book[?(@.price != 10)]",
+            // "T.store.book[?(@.author == 'John')]",
+            // "T.store.book[?(@.author != 'John')]",
+        ];
+        for p in paths {
+            let _ = parse_path(p);
+        }
+        // ok, no panics
+    }
+
+    fn parse_path(input: &str) -> Path {
+        let rl = RqlLexer::new(input);
+        let pp = PathParser::new();
+        pp.parse(rl).unwrap()
+    }
 }

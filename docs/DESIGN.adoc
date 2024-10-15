@@ -179,64 +179,6 @@ ws
 . It is RECOMMENDED that timestamps are ISO 8601 strings and durations conform to RFC 3339.
 . It is RECOMMENDED that binary data is encoded as base64url.
 
-=== Appendix III – JSONPath
-
-.Summary
-[cols="1m,1",options="header"]
-|===
-| Syntax | Description
-
-| $
-| Root node identifier
-
-| @
-| Current node identifier (valid only in filters)
-
-| [<selectors>]
-| Selects zero or more children of a node
-
-| .name
-| Shorthand for ['name']
-
-| .*
-| Shortcut for [*]
-
-| ..[<selectors>]
-| Selects zero or more descendents of a node
-
-| ..name
-| Shorthand for ..['name']
-
-| ..*
-| Shortcut for ..[*]
-
-| 'name'
-| Name selector
-
-| *
-| Wildcard selector (all children of node)
-
-| <number>
-| Index selector (0-indexed)
-
-| [start:end:step]
-| Slice selector (step is optional)
-
-| ?<expression>
-| Filter selector
-
-| func(...)
-| Function extension
-
-|===
-
-.Questions
-. Do I _have_ to support all of JSONPath?
-. In which context does JSONPath make sense?
-. Consider the $ optional.
-. JSON Path uses single quote strings whereas RQL uses double quote strings because JSON uses double quote strings.
-. What about expressions in selectors?
-. Is it possible to only have one set of pathing semantics?
 
 == File Format (RHO2)
 

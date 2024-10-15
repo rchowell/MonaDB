@@ -17,9 +17,9 @@ _This section contains a list of features/ideas that are not yet implemented._
 .Uncategorized
 * [ ] Testing framework, dbgen, performance and language comparison to jq and sqlite jsonb.
 * [ ] Render language documents to HTML.
+* [ ] Row pointers.
 * [ ] UPDATE and conditional DELETE (needs row pointers)
 * [ ] Error on duplicate keys.
-* [ ] Row pointers (why?).
 * [ ] Language documentation should have links to other grammar rules.
 * [ ] Explore pro's / con's of typed arrays.
 * [ ] Computed property names in objects.
@@ -41,6 +41,9 @@ _This section contains a list of features/ideas that are not yet implemented._
 ** [ ] DEFAULT
 * [ ] Document and use consistent ABNF
 * [ ] Document comparisons to MongoDB
+* [ ] Read JSONLines input
+* [ ] JSON5 reader
+* [ ] Establish a consistent language documentation format a'la Mozilla JavaScript style.
 
 .Shell
 * [ ] Better error messages.
@@ -65,12 +68,12 @@ _This section contains various mini-goals to drive the project._
 * [x] Stitch on select.
 * [x] Support for .* syntax
 * [x] Cleanup the VM and VOP factoring with some consistent naming.
-* [ ] Finalize syntax for V0 `insert into table`.
+* [x] Finalize syntax for V0 `insert into table`.
+* [x] Standardize naming of bindings/attributes/fields/members including rows/objs/tables/etc.
 * [ ] The cursor should be an iterator over the sqlite connection.
-* [ ] Standardize naming of bindings/attributes/fields/members including rows/objs/tables/etc.
 * [ ] Scalar functions
-* [ ] Basic documentation and understanding of efficient registers/value storage (aka stop cloning..)
 * [ ] Document JSONPath and unnesting syntax.
+* [ ] Use stack-based VM for simpler ownership patterns.
 
 === G2 Sep 2024
 

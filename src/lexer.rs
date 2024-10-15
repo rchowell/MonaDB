@@ -39,6 +39,8 @@ pub enum Token {
     Comma,
     #[token(":")]
     Colon,
+    #[token("..")]
+    DotDot,
     #[token("...")]
     Ellipsis,
     #[token(".")]
@@ -108,7 +110,8 @@ pub enum Token {
     False,
     #[regex(r"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?", |lex| lex.slice().parse::<f64>().unwrap())]
     Number(f64),
-    #[regex(r#""([^"\\]|\\["\\bnfrt]|u[a-fA-F0-9]{4})*""#, |lex| lex.slice().trim_matches('"').to_owned())]
+    #[regex(r#""([^"\\]|\\.)*""#, |lex| lex.slice().to_owned())]
+    #[regex(r#"'([^'\\]|\\.)*'"#, |lex| lex.slice().to_owned())]
     String(String),
     //-------------------------
     // Names and Identifiers

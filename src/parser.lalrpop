@@ -16,6 +16,7 @@ extern {
         // symbols
         ","         => Token::Comma,
         ":"         => Token::Colon,
+        ".."        => Token::DotDot,
         "..."       => Token::Ellipsis,
         "."         => Token::Period,
         "|"         => Token::Pipe,
@@ -87,7 +88,7 @@ Select: ir::Select = {
 };
 
 SelectItem: ir::Member = {
-    <Path>              => ir::select_item_path(<>),
+    <Var>               => ir::select_item_var(<>),
     <Expr> "." "*"      => ir::select_item_star(<>),
     <Expr> "as" <Ident> => ir::select_item(<>),
 };
@@ -132,14 +133,15 @@ TScalar: ir::Type = {
     "t_string"  => ir::t_string(),
 };
 
+// TODO open object type
 TObject: ir::Type = {
     "t_object"                      => ir::t_object(vec![], true),
     "{" <TMembers> "}"              => ir::t_object(<>, false),
-    // "{" <TMembers> "," "..." "}"    => ir::t_object(<>, true),
 };
 
 TMembers: Vec<ir::TMember> = List<TMember>;
 
+// TODO remove nullability ??
 TMember: ir::TMember = {
     <Ident> ":" <Type>            => ir::t_member(<>, false),
     <Ident> ":" <Type> "|" "null" => ir::t_member(<>, true),
@@ -148,6 +150,31 @@ TMember: ir::TMember = {
 TArray: ir::Type = {
     "t_array"   => ir::t_array(),
     "[" "]"     => ir::t_array(),
+};
+
+//------------------------------
+// JSONPath
+//------------------------------
+
+pub Path: ir::Path = Ident Segments => ir::path(<>);
+
+Segments: Vec<ir::Segment> = Segment*;
+
+Segment: ir::Segment = {
+    "[" <Selectors> "]"         => ir::segment_child(<>),
+    "." <Ident>                 => ir::segment_child_name(<>),
+    "." "*"                     => ir::segment_child_wildcard(),
+    ".." "[" <Selectors> "]"    => ir::segment_descd(<>),
+    ".." <Ident>                => ir::segment_descd_name(<>),
+    ".." "*"                    => ir::segment_descd_wildcard(),
+};
+
+Selectors: Vec<ir::Selector> = List<Selector>;
+
+Selector: ir::Selector = {
+    "string"    => ir::selector_name(<>),
+    "*"         => ir::selector_wildcard(),
+    "number"    => ir::selector_index(<> as usize), // truncate f64 to usize
 };
 
 //------------------------------
@@ -163,7 +190,7 @@ Expr: ir::Expr = {
     "(" <Expr> ")"          => <>,
 };
 
-Path: ir::Expr = {
+Var: ir::Expr = {
     Ident               => ir::expr_var(<>),
     <Expr> "." <Ident>  => ir::expr_jpk(<>),
 };
@@ -171,7 +198,7 @@ Path: ir::Expr = {
 Members: Vec<ir::Member> = List<Member>;
 
 Member: ir::Member = {
-    Path                    => ir::member_path(<>),
+    Var                     => ir::member_var(<>),
     <"ident">  ":" <Expr>   => ir::member_assign(<>),
     <"string"> ":" <Expr>   => ir::member_assign(<>),
     "..." <Expr>            => ir::member_spread(<>),

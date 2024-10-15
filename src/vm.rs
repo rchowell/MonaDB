@@ -24,7 +24,7 @@ pub enum Vop {
     Clear { 
         table: String,
     },
-    ///
+    /// Commit an open transaction.
     Commit,
     /// Consider replacing with an `Insert` instruction on the catalog table.
     CreateTable { 
@@ -232,6 +232,8 @@ pub struct VM<'r> {
     cursors: Vec<Cursor>,
     // temporary until the registers are implemented
     env: Env,
+    // moving from registers to stack for simplicity..
+    stack: Vec<Value>,
 }
 
 impl<'r> VM<'r> {
@@ -243,6 +245,8 @@ impl<'r> VM<'r> {
             program,
             env: Env::new(),
             cursors: vec![],
+            //
+            stack: vec![],
         }
     }
 
@@ -263,9 +267,9 @@ impl<'r> VM<'r> {
                 Vop::Commit => {
                     self.db.commit()?;
                 }
-                // TEMP – bind the row to the environment
                 Vop::Bind { binder, .. } => {
                     let row = self.cursors[0].row();
+                    // self.push(row);
                     self.env.set(&binder, row);
                 }
                 Vop::Drop { table } => {
@@ -358,5 +362,13 @@ impl<'r> VM<'r> {
 
     fn load(&self, idx: usize) -> &Value {
         self.mem.get(idx).unwrap()
+    }
+
+    fn push(&mut self, value: Value) {
+        self.stack.push(value);
+    }
+
+    fn pop(&mut self) -> Option<Value> {
+        self.stack.pop()
     }
 }

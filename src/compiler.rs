@@ -24,6 +24,14 @@ pub struct Compiler<'cat> {
     catalog: &'cat Catalog,
     program: Program,
     ptr: usize, // <- next register
+    vars: Vec<Var>,
+    scope: usize,
+}
+
+/// Variable bindings where [depth] represents stack position.
+pub struct Var {
+    pub name: String,
+    pub depth: usize,
 }
 
 impl<'cat> Compiler<'cat> {
@@ -32,6 +40,8 @@ impl<'cat> Compiler<'cat> {
             catalog,
             program: vec![],
             ptr: 0,
+            vars: vec![],
+            scope: 0,
         }
     }
 

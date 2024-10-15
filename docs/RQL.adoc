@@ -82,3 +82,13 @@ type
   | OBJECT
   | ANY
 ----
+
+
+== Definitions
+
+* Value — a JSON value
+* Object — a JSON object value
+* Member — key-value pair of an object value
+* Item — a value of a collections
+* Items — one-or-more values of a collection
+* Table — a named collection of items
