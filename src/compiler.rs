@@ -1,10 +1,10 @@
-use std::vec;
 use crate::catalog::Catalog;
+use crate::ir::*;
 use crate::lexer::RqlLexer;
 use crate::parser::RqlParser;
 use crate::value::Value;
-use crate::{Program, Result, Vop};
-use crate::ir::*;
+use crate::{Code, Result, Vop};
+use std::vec;
 
 #[macro_export]
 macro_rules! unsupported {
@@ -15,14 +15,9 @@ macro_rules! unsupported {
 }
 
 /// Compiler translates RQL queries to Vops.
-///
-/// References
-/// - https://github.com/lua/lua/blob/v5.4/lparser.c
-/// - https://github.com/sqlite/sqlite/blob/master/src/build.c
-/// - https://github.com/sqlite/sqlite/blob/master/src/select.c
 pub struct Compiler<'cat> {
     catalog: &'cat Catalog,
-    program: Program,
+    code: Code,
     ptr: usize, // <- next register
     vars: Vec<Var>,
     scope: usize,
@@ -31,22 +26,21 @@ pub struct Compiler<'cat> {
 /// Variable bindings where [depth] represents stack position.
 pub struct Var {
     pub name: String,
-    pub depth: usize,
 }
 
 impl<'cat> Compiler<'cat> {
     pub fn new(catalog: &Catalog) -> Compiler {
         Compiler {
             catalog,
-            program: vec![],
+            code: vec![],
             ptr: 0,
             vars: vec![],
             scope: 0,
         }
     }
 
-    pub fn compile(mut self, rql: &str) -> Result<Program> {
-        self.push(Vop::init());
+    pub fn compile(mut self, rql: &str) -> Result<Code> {
+        self.emit(Vop::init());
         match parse(rql)? {
             Statement::Create(create) => self.cc_create(create)?,
             Statement::Delete(delete) => self.cc_delete(delete),
@@ -54,8 +48,8 @@ impl<'cat> Compiler<'cat> {
             Statement::Insert(insert) => self.cc_insert(insert)?,
             Statement::Select(select) => self.cc_select(select)?,
         };
-        self.push(Vop::exit());
-        Ok(self.program)
+        self.emit(Vop::exit());
+        Ok(self.code)
     }
 
     /// "Allocates" n registers and returns a pointer to the first register.
@@ -65,70 +59,64 @@ impl<'cat> Compiler<'cat> {
         curr
     }
 
-    /// Free n registers.
-    // fn free(&mut self, n: usize) {
-    //     self.ptr -= n;
-    // }
-
-    /// Return current pc index.
+    /// Append an instruction to the program.
     #[inline]
-    fn pc(&self) -> usize {
-        self.program.len() - 1
-    }
-
-    /// Push an instruction to the program.
-    #[inline]
-    fn push(&mut self, op: Vop) {
-        self.program.push(op);
+    fn emit(&mut self, op: Vop) {
+        self.code.push(op);
     }
 
     fn cc_create(&mut self, create: Create) -> Result<()> {
         match create {
-            Create::Table(table) => self.push(Vop::create_table(table))
+            Create::Table(table) => self.emit(Vop::create_table(table)),
         }
         Ok(())
     }
 
     fn cc_drop(&mut self, table: String) {
-        self.push(Vop::drop(table));
+        self.emit(Vop::drop(table));
     }
 
     fn cc_delete(&mut self, table: String) {
-        self.push(Vop::clear(table));
+        self.emit(Vop::clear(table));
     }
 
     fn cc_insert(&mut self, insert: Insert) -> Result<()> {
-        self.push(Vop::Transaction);
+        self.emit(Vop::Transaction);
         for expr in insert.source {
             let tbl = insert.target.clone();
             let dst = self.cc_expr(expr)?;
-            self.push(Vop::insert(tbl, dst));
+            self.emit(Vop::insert(tbl, dst));
         }
-        self.push(Vop::Commit);
+        self.emit(Vop::Commit);
         Ok(())
     }
 
     fn cc_select(&mut self, select: Select) -> Result<()> {
         let jmp = self.cc_from(select.inp)?;
-        let dst = self.cc_expr_obj(select.sel)?;
-        self.return_(dst);
+        let _ = self.cc_expr_obj(select.sel)?;
+        self.op_return();
         self.next(jmp) // <-- loop and patch jmp
     }
 
+    /// Compile a `from` clause.
+    ///
+    /// 1. Define the `from` alias aka the new variable.
+    /// 2. Open the table as a new cursor and rewind.
+    /// 3. Emit a `push` for this cursor.
+    ///
     fn cc_from(&mut self, from: From) -> Result<usize> {
-        let tbl = match from.src {
-            FromSource::Table(tbl) => tbl,
+        // TODO handle paths
+        let table = match from.src {
+            FromSource::Table(table) => table,
             FromSource::Path(path) => todo!("from path: {:?}", path),
         };
-        let var = from.var;
-        self.open(tbl, var)
-    }
 
-    /// Push a `Vop::Open` for the given table, scan into the binding, and return the pc.
-    fn open(&mut self, table: String, var: String) -> Result<usize> {
-        self.push(Vop::open(table));
-        self.push(Vop::rewind(0)); // <-- PATCH ME
-        self.push(Vop::bind(var));
+        // define the from alias
+        self.define(from.var);
+        self.emit(Vop::open(table));
+        self.emit(Vop::rewind(0)); // <-- PATCH ME
+        self.emit(Vop::push(0)); // TODO multiple cursors
+
         Ok(self.pc())
     }
 
@@ -138,19 +126,14 @@ impl<'cat> Compiler<'cat> {
     /// 2. Patch the rewind instruction BEFORE the loop.
     ///
     fn next(&mut self, jmp: usize) -> Result<()> {
-        self.push(Vop::next(jmp));
+        self.emit(Vop::next(jmp));
         self.patch(jmp - 1, self.pc() + 1)?;
         Ok(())
     }
 
-    /// Push a `Vop::Return` instruction.
-    fn return_(&mut self, ptr: usize) {
-        self.push(Vop::Return { ptr });
-    }
-
     /// Patch the jump at pc[offset] = dest with the current pc.
     fn patch(&mut self, offset: usize, dest: usize) -> Result<()> {
-        match self.program.get_mut(offset).unwrap() {
+        match self.code.get_mut(offset).unwrap() {
             Vop::Rewind { jmp } => *jmp = dest,
             _ => unsupported!("cannot patch jump at pc[{}]", offset),
         }
@@ -172,41 +155,44 @@ impl<'cat> Compiler<'cat> {
         }
     }
 
-    fn cc_expr_var(&mut self, var: String) -> Result<usize> {
-        let dst = self.alloc(1);
-        self.push(Vop::var(var, dst));
-        Ok(dst)
+    fn cc_expr_var(&mut self, name: String) -> Result<usize> {
+        for (idx, var) in self.vars.iter().enumerate() {
+            if var.name == name {
+                self.emit(Vop::var(idx));
+                return Ok(0); // TODO remove usize return
+            }
+        }
+        unsupported!("undefined variable: {}", name)
     }
 
     fn cc_expr_lit(&mut self, val: Value) -> Result<usize> {
         let dst = self.alloc(1);
-        self.push(Vop::load(val, dst));
+        self.emit(Vop::load(val, dst));
         Ok(dst)
     }
 
     fn cc_expr_obj(&mut self, members: Obj) -> Result<usize> {
-        let dst = self.alloc(1);
-        self.push(Vop::obj(dst));
+        self.op_obj();
         for m in members {
             match m {
                 Member::Assign(name, expr) => {
-                    let expr = self.cc_expr(expr)?;
-                    self.push(Vop::set(dst, Some(name), expr));
-                },
+                    self.cc_expr(expr)?;
+                    self.op_obj_assign(name);
+                }
                 Member::Spread(expr) => {
-                    let expr = self.cc_expr(expr)?;
-                    self.push(Vop::set(dst, None, expr));
-                },
+                    self.cc_expr(expr)?;
+                    self.op_obj_spread();
+                }
             }
         }
-        Ok(dst)
+        Ok(0)
     }
 
     fn cc_expr_jpi(&mut self, jpi: Jpi) -> Result<usize> {
         let inp = self.cc_expr(*jpi.inp)?;
         let idx = jpi.idx;
         let dst = self.alloc(1);
-        self.push(Vop::jpi(inp, idx, dst));
+        self.emit(Vop::jpi(inp, idx, dst));
         Ok(dst)
     }
 
@@ -214,7 +200,7 @@ impl<'cat> Compiler<'cat> {
         let inp = self.cc_expr(*jpe.inp)?;
         let exp = self.cc_expr(*jpe.exp)?;
         let dst = self.alloc(1);
-        self.push(Vop::jpe(inp, exp, dst));
+        self.emit(Vop::jpe(inp, exp, dst));
         Ok(dst)
     }
 
@@ -222,8 +208,42 @@ impl<'cat> Compiler<'cat> {
         let inp = self.cc_expr(*jpk.inp)?;
         let key = jpk.key;
         let dst = self.alloc(1);
-        self.push(Vop::jpk(inp, key, dst));
+        self.emit(Vop::jpk(inp, key, dst));
         Ok(dst)
+    }
+
+    //------------------------------
+    // INSTRUCTIONS
+    //------------------------------
+
+    fn op_obj(&mut self) {
+        self.code.push(Vop::Obj);
+    }
+
+    fn op_obj_assign(&mut self, name: String) {
+        self.code.push(Vop::ObjAssign { name });
+    }
+
+    fn op_obj_spread(&mut self) {
+        self.code.push(Vop::ObjSpread);
+    }
+
+    fn op_return(&mut self) {
+        self.code.push(Vop::Return);
+    }
+
+    //------------------------------
+    // HELPERS
+    //------------------------------
+
+    /// Return current pc index.
+    fn pc(&self) -> usize {
+        self.code.len() - 1
+    }
+
+    /// Define a variable in the current scope.
+    fn define(&mut self, name: String) {
+        self.vars.push(Var { name });
     }
 }
 

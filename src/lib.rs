@@ -65,7 +65,7 @@ impl Rho {
         println!("{:?}", self.catalog.borrow());
     }
 
-    pub fn prepare(&self, rql: &str) -> Result<Program> {
+    pub fn prepare(&self, rql: &str) -> Result<Code> {
         let catalog = self.catalog.borrow();
         let compiler = Compiler::new(&catalog);
         compiler.compile(rql)

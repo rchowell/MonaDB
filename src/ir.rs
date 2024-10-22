@@ -268,6 +268,16 @@ pub fn from_source(src: FromSource, var: String) -> From {
 }
 
 #[inline]
+pub fn from_source_table(tbl: String) -> FromSource {
+    FromSource::Table(tbl.clone())
+}
+
+#[inline]
+pub fn from_source_path(identifier: String, segments: Vec<Segment>) -> FromSource {
+    FromSource::Path(Path { identifier, segments })
+}
+
+#[inline]
 pub fn member_var(expr: Expr) -> Member {
     let name = match &expr {
         Expr::Var(var) => var.clone(),
@@ -380,18 +390,6 @@ pub fn expr_lit(val: Value) -> Expr {
 #[inline]
 pub fn expr_obj(obj: Obj) -> Expr {
     Expr::Obj(obj)
-}
-
-pub fn expr_path(inp: Expr, segments: Vec<Segment>) -> Expr {
-    Expr::Lit(Value::null())
-}
-
-#[inline]
-pub fn expr_jpi(inp: Expr, idx: usize) -> Expr {
-    Expr::Jpi(Jpi {
-        inp: Box::new(inp),
-        idx,
-    })
 }
 
 #[inline]

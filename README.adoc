@@ -1,6 +1,12 @@
-= rho
+== MonaDB
 
 What if SQLite were a xref:DESIGN.adoc[JSON Database]?
+
+.Notes
+- Names: monadb, rho, rhodb
+- Language inspiration: JavaScript, TypeScript, Lua, SQL, and Python.
+- No implicit variable names (??)
+- No implicit column references.
 
 == Goal
 
@@ -39,6 +45,10 @@ _This section contains a list of features/ideas that are not yet implemented._
 * [ ] Document comparisons to MongoDB
 * [ ] Establish a consistent language documentation format a'la Mozilla JavaScript style.
 * [ ] Scalar functions
+* [ ] Read JSONLines input
+* [ ] JSON5 reader
+* [ ] Cross-join.
+* [ ] Remove compiler `emit` and Vop factory methods to just use `emit_<op>` style methods.
 
 .Shell
 * [ ] Better error messages.
@@ -68,9 +78,6 @@ _This section contains various mini-goals to drive the project._
 * [x] Document JSONPath and unnesting syntax.
 * [ ] The cursor should be an iterator over the sqlite connection.
 * [ ] Use stack-based VM for simpler ownership patterns.
-* [ ] Read JSONLines input
-* [ ] JSON5 reader
-* [ ] Cross-join.
 
 === G2 Sep 2024
 

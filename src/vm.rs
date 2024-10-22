@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::vec;
 
 use crate::cursor::Cursor;
@@ -7,95 +6,59 @@ use crate::value::Value;
 use crate::Result;
 use crate::{value::Record, Rho};
 
-/// Program is a sequence of virtual machine instructions.
-pub type Program = Vec<Vop>;
+/// Code is a sequence of virtual machine instructions.
+pub type Code = Vec<Vop>;
 
 /// Vop is a virtual machine instruction code.
 #[derive(Debug, Clone)]
 pub enum Vop {
     /// Initialize the VM.
     Init,
-    /// Bind the row from the cursor to the binder like `Column` from SQLite.
-    Bind { 
-        cursor: usize,
-        binder: String,
-    },
     /// Delete all rows of the table.
-    Clear { 
-        table: String,
-    },
+    Clear { table: String },
     /// Commit an open transaction.
     Commit,
     /// Consider replacing with an `Insert` instruction on the catalog table.
-    CreateTable { 
-        table: Table,
-    },
+    CreateTable { table: Table },
     /// Consider replacing with a `Delete` instruction on the catalog table.
-    Drop { 
-        table: String,
-    },
+    Drop { table: String },
     /// Insert row into a table.
-    Insert { 
-        tbl: String,
-        row: usize,
-    },
+    Insert { tbl: String, row: usize },
     /// JSON Path Index
-    Jpi { 
-        inp: usize,
-        idx: usize,
-        dst: usize,
-    },
+    Jpi { inp: usize, idx: usize, dst: usize },
     /// JSON Path Key
-    Jpk {
-        inp: usize,
-        key: String,
-        dst: usize,
-    },
+    Jpk { inp: usize, key: String, dst: usize },
     /// JSON Path Expression
-    Jpe {
-        inp: usize,
-        exp: usize,
-        dst: usize,
-    },
+    Jpe { inp: usize, exp: usize, dst: usize },
     /// Load a value into a register.
-    Load {
-        val: Value,
-        dst: usize,
-    },
+    Load { val: Value, dst: usize },
     /// Advances the cursor, assigning the row to `var`.
     /// If there is a row, then jump to `jmp`; otherwise goto next.
-    Next {
-        jmp: usize,
-    },
-    /// Initialize an empty object.
-    Obj {
-        dst: usize,
-    },
+    Next { jmp: usize },
+    /// Push an empty object.
+    Obj,
+    /// Assign a value to a key in an object.
+    ObjAssign { name: String },
+    /// Spread a value into an object.
+    ObjSpread,
     /// Opens a table for reading with the cursor positioned at the first row.
     Open {
         /// TODO replace table with cursor.
         table: String,
     },
-    /// Returns the value in register `ptr`.
-    Return { 
-        ptr: usize,
-    },
+    /// Pop a value from the stack.
+    Pop,
+    /// Push a value from the cursor to the stack.
+    Push { cursor: usize },
+    /// Returns the value at the top of the stack.
+    Return,
     /// Set cursor to the start; jump to `jmp` if the table is empty.
-    Rewind {
-        jmp: usize,
-    },
-    /// obj[name] = expr // if name is None, then spread.
-    Set {
-        obj: usize,
-        name: Option<String>,
-        expr: usize,
-    },
+    Rewind { jmp: usize },
     /// Begin a transaction.
     Transaction,
-    /// Load the variable `name` from the environment into the destination register.
-    Var { 
-        var: String,
-        dst: usize,
+    /// `stack.push(stack[idx])`
+    Var {
+        idx: usize,
     },
     /// Exit the VM.
     Exit,
@@ -107,11 +70,6 @@ impl Vop {
     #[inline]
     pub fn exit() -> Vop {
         Vop::Exit
-    }
-
-    #[inline]
-    pub fn bind(binder: String) -> Vop {
-        Vop::Bind { cursor: 0, binder }
     }
 
     #[inline]
@@ -165,13 +123,13 @@ impl Vop {
     }
 
     #[inline]
-    pub fn obj(dst: usize) -> Vop {
-        Vop::Obj { dst }
+    pub fn open(table: String) -> Vop {
+        Vop::Open { table }
     }
 
     #[inline]
-    pub fn open(table: String) -> Vop {
-        Vop::Open { table }
+    pub fn push(cursor: usize) -> Vop {
+        Vop::Push { cursor }
     }
 
     #[inline]
@@ -180,46 +138,8 @@ impl Vop {
     }
 
     #[inline]
-    pub fn set(obj: usize, name: Option<String>, expr: usize) -> Vop {
-        Vop::Set { 
-            obj,
-            name,
-            expr,
-         }
-    }
-
-
-    #[inline]
-    pub fn var(var: String, dst: usize) -> Vop {
-        Vop::Var { var, dst }
-    }
-}
-
-/// The bindings environment.
-pub struct Env {
-    bindings: HashMap<String, Value>,
-}
-
-impl Env {
-    /// Create an empty [Env].
-    pub fn new() -> Self {
-        Self {
-            bindings: HashMap::new(),
-        }
-    }
-
-    /// Sets the current binding to this
-    pub fn set(&mut self, key: &str, row: Record) {
-        self.bindings.insert(key.to_string(), row);
-    }
-
-    /// Gets the current binding for this key (or null).
-    pub fn get(&mut self, key: &str) -> Value {
-        if let Some(v) = self.bindings.get(key) {
-            v.clone()
-        } else {
-            Value::null()
-        }
+    pub fn var(idx: usize) -> Vop {
+        Vop::Var { idx }
     }
 }
 
@@ -227,23 +147,20 @@ impl Env {
 pub struct VM<'r> {
     db: &'r Rho,
     pc: usize,
-    program: Program,
+    program: Code,
     mem: Vec<Value>,
     cursors: Vec<Cursor>,
-    // temporary until the registers are implemented
-    env: Env,
     // moving from registers to stack for simplicity..
     stack: Vec<Value>,
 }
 
 impl<'r> VM<'r> {
-    pub fn init(db: &Rho, program: Program) -> VM {
+    pub fn init(db: &Rho, program: Code) -> VM {
         VM {
             db,
             mem: vec![Value::null(); 100],
             pc: 0,
             program,
-            env: Env::new(),
             cursors: vec![],
             //
             stack: vec![],
@@ -267,11 +184,6 @@ impl<'r> VM<'r> {
                 Vop::Commit => {
                     self.db.commit()?;
                 }
-                Vop::Bind { binder, .. } => {
-                    let row = self.cursors[0].row();
-                    // self.push(row);
-                    self.env.set(&binder, row);
-                }
                 Vop::Drop { table } => {
                     self.db.drop_table(table)?;
                 }
@@ -291,7 +203,7 @@ impl<'r> VM<'r> {
                         None => Value::null(),
                     };
                 }
-                Vop::Jpe { inp, exp, dst  } => {
+                Vop::Jpe { inp, exp, dst } => {
                     let e = &self.mem[*exp];
                     // json path index
                     if let Some(idx) = e.as_u64() {
@@ -311,11 +223,34 @@ impl<'r> VM<'r> {
                     }
                     self.mem[*dst] = Value::null();
                 }
+                Vop::Obj => {
+                    self.stack.push(Value::object());
+                }
+                Vop::ObjAssign { name } => {
+                    let val = self.pop();
+                    let obj = self.peek_mut();
+                    // println!("OBJ_ASSIGN: {}: {} ", name, val);
+                    obj.set(name.to_string(), val);
+                }
+                Vop::ObjSpread => {
+                    let val = self.pop();
+                    let obj = self.peek_mut();
+                    // println!("OBJ_SPREAD: {} ", val);
+                    obj.spread(val);
+                }
                 Vop::Open { table } => {
                     self.cursors.push(self.db.scan(table)?);
                 }
-                Vop::Return { ptr } => {
-                    let v = self.mem[*ptr].clone(); // TODO NO CLONE
+                Vop::Pop => {
+                    let _ = self.pop();
+                }
+                Vop::Push { cursor } => {
+                    let row = self.cursors[*cursor].row();
+                    // println!("PUSH {:?}", row);
+                    self.push(row);
+                }
+                Vop::Return => {
+                    let v = self.pop();
                     return Ok(Some(v));
                 }
                 Vop::Rewind { jmp } => {
@@ -323,18 +258,6 @@ impl<'r> VM<'r> {
                         self.pc = *jmp;
                     }
                 }
-                Vop::Obj { dst } => {
-                    self.mem[*dst] = Value::object();
-                },
-                Vop::Set { obj, name, expr } => {
-                    let val = self.load(*expr).clone(); // TODO NO CLONE; BORROW+DROP
-                    let obj = self.loadm(*obj); // <-- MUTABLE BORROW OCCURS HERE
-                    match name {
-                        Some(name) => obj.set(name.to_string(), val),
-                        None => obj.spread(val),
-                    }
-                    // MUTABLE BORROW IS DROPPED
-                },
                 Vop::Next { jmp } => {
                     if self.cursors[0].next() {
                         self.pc = *jmp;
@@ -343,10 +266,12 @@ impl<'r> VM<'r> {
                 Vop::Transaction => {
                     self.db.transaction();
                 }
-                Vop::Var { var,  dst } => {
-                    self.mem[*dst] = self.env.get(var);
+                Vop::Var { idx } => {
+                    let v = self.stack[*idx].clone();
+                    // println!("VAR: {} ", v);
+                    self.push(v);
                 }
-                Vop::Load { val,  dst } => {
+                Vop::Load { val, dst } => {
                     self.mem[*dst] = val.clone();
                 }
                 Vop::Exit => {
@@ -354,10 +279,6 @@ impl<'r> VM<'r> {
                 }
             }
         }
-    }
-
-    fn loadm(&mut self, idx: usize) -> &mut Value {
-        self.mem.get_mut(idx).unwrap()
     }
 
     fn load(&self, idx: usize) -> &Value {
@@ -368,7 +289,15 @@ impl<'r> VM<'r> {
         self.stack.push(value);
     }
 
-    fn pop(&mut self) -> Option<Value> {
-        self.stack.pop()
+    fn pop(&mut self) -> Value {
+        self.stack.pop().unwrap()
+    }
+
+    fn peek(&mut self) -> &Value {
+        self.stack.last().unwrap()
+    }
+
+    fn peek_mut(&mut self) -> &mut Value {
+        self.stack.last_mut().unwrap()
     }
 }

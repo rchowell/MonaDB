@@ -100,8 +100,8 @@ From: ir::From = {
 };
 
 FromSource: ir::FromSource = {
-    "ident" => ir::FromSource::Table(<>),
-    Path    => ir::FromSource::Path(<>),
+    <"ident">                   => ir::from_source_table(<>),
+    <"ident"> "$" <Segment+>    => ir::from_source_path(<>),
 };
 
 Insert: ir::Insert = {
