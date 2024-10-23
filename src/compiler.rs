@@ -52,14 +52,8 @@ impl<'cat> Compiler<'cat> {
         Ok(self.code)
     }
 
-    /// "Allocates" n registers and returns a pointer to the first register.
-    fn alloc(&mut self, n: usize) -> usize {
-        let curr = self.ptr;
-        self.ptr = curr + n;
-        curr
-    }
-
     /// Append an instruction to the program.
+    /// TODO REMOVE ME
     #[inline]
     fn emit(&mut self, op: Vop) {
         self.code.push(op);
@@ -82,10 +76,10 @@ impl<'cat> Compiler<'cat> {
 
     fn cc_insert(&mut self, insert: Insert) -> Result<()> {
         self.emit(Vop::Transaction);
-        for expr in insert.source {
-            let tbl = insert.target.clone();
-            let dst = self.cc_expr(expr)?;
-            self.emit(Vop::insert(tbl, dst));
+        for _ in insert.source {
+            // let tbl = insert.target.clone();
+            // let dst = self.cc_expr(expr)?;
+            unsupported!("`insert` statement")
         }
         self.emit(Vop::Commit);
         Ok(())
@@ -115,7 +109,7 @@ impl<'cat> Compiler<'cat> {
         self.define(from.var);
         self.emit(Vop::open(table));
         self.emit(Vop::rewind(0)); // <-- PATCH ME
-        self.emit(Vop::push(0)); // TODO multiple cursors
+        self.op_loadc(0); // TODO multiple cursors
 
         Ok(self.pc())
     }
@@ -144,36 +138,35 @@ impl<'cat> Compiler<'cat> {
     // EXPRESSIONS
     //------------------------------
 
-    fn cc_expr(&mut self, expr: Expr) -> Result<usize> {
+    fn cc_expr(&mut self, expr: Expr) -> Result<()> {
         match expr {
             Expr::Var(var) => self.cc_expr_var(var),
             Expr::Lit(val) => self.cc_expr_lit(val),
             Expr::Obj(obj) => self.cc_expr_obj(obj),
+            Expr::Jpe(jpe) => self.cc_expr_jpe(jpe),
             Expr::Jpi(jpi) => self.cc_expr_jpi(jpi),
             Expr::Jpk(jpk) => self.cc_expr_jpk(jpk),
-            Expr::Jpe(jpe) => self.cc_expr_jpe(jpe),
         }
     }
 
-    fn cc_expr_var(&mut self, name: String) -> Result<usize> {
+    fn cc_expr_var(&mut self, name: String) -> Result<()> {
         for (idx, var) in self.vars.iter().enumerate() {
             if var.name == name {
-                self.emit(Vop::var(idx));
-                return Ok(0); // TODO remove usize return
+                self.op_loadv(idx);
+                return Ok(());
             }
         }
         unsupported!("undefined variable: {}", name)
     }
 
-    fn cc_expr_lit(&mut self, val: Value) -> Result<usize> {
-        let dst = self.alloc(1);
-        self.emit(Vop::load(val, dst));
-        Ok(dst)
+    fn cc_expr_lit(&mut self, value: Value) -> Result<()> {
+        self.op_push(value);
+        Ok(())
     }
 
-    fn cc_expr_obj(&mut self, members: Obj) -> Result<usize> {
+    fn cc_expr_obj(&mut self, obj: Obj) -> Result<()> {
         self.op_obj();
-        for m in members {
+        for m in obj {
             match m {
                 Member::Assign(name, expr) => {
                     self.cc_expr(expr)?;
@@ -185,36 +178,51 @@ impl<'cat> Compiler<'cat> {
                 }
             }
         }
-        Ok(0)
+        Ok(())
     }
 
-    fn cc_expr_jpi(&mut self, jpi: Jpi) -> Result<usize> {
-        let inp = self.cc_expr(*jpi.inp)?;
-        let idx = jpi.idx;
-        let dst = self.alloc(1);
-        self.emit(Vop::jpi(inp, idx, dst));
-        Ok(dst)
+    fn cc_expr_jpe(&mut self, jpe: Jpe) -> Result<()> {
+        self.cc_expr(*jpe.inp)?;
+        self.cc_expr(*jpe.exp)?;
+        self.op_jpe();
+        Ok(())
     }
 
-    fn cc_expr_jpe(&mut self, jpe: Jpe) -> Result<usize> {
-        let inp = self.cc_expr(*jpe.inp)?;
-        let exp = self.cc_expr(*jpe.exp)?;
-        let dst = self.alloc(1);
-        self.emit(Vop::jpe(inp, exp, dst));
-        Ok(dst)
+    fn cc_expr_jpi(&mut self, jpi: Jpi) -> Result<()> {
+        self.cc_expr(*jpi.inp)?;
+        self.op_jpi(jpi.idx);
+        Ok(())
     }
 
-    fn cc_expr_jpk(&mut self, jpk: Jpk) -> Result<usize> {
-        let inp = self.cc_expr(*jpk.inp)?;
-        let key = jpk.key;
-        let dst = self.alloc(1);
-        self.emit(Vop::jpk(inp, key, dst));
-        Ok(dst)
+    fn cc_expr_jpk(&mut self, jpk: Jpk) -> Result<()> {
+        self.cc_expr(*jpk.inp)?;
+        self.op_jpk(jpk.key);
+        Ok(())
     }
 
     //------------------------------
     // INSTRUCTIONS
     //------------------------------
+
+    fn op_jpe(&mut self) {
+        self.code.push(Vop::Jpe);
+    }
+
+    fn op_jpi(&mut self, idx: usize) {
+        self.code.push(Vop::Jpi(idx));
+    }
+
+    fn op_jpk(&mut self, key: String) {
+        self.code.push(Vop::Jpk(key));
+    }
+
+    fn op_loadc(&mut self, cursor: usize) {
+        self.code.push(Vop::LoadC(cursor))
+    }
+
+    fn op_loadv(&mut self, idx: usize) {
+        self.code.push(Vop::LoadV(idx))
+    }
 
     fn op_obj(&mut self) {
         self.code.push(Vop::Obj);
@@ -226,6 +234,10 @@ impl<'cat> Compiler<'cat> {
 
     fn op_obj_spread(&mut self) {
         self.code.push(Vop::ObjSpread);
+    }
+
+    fn op_push(&mut self, value: Value) {
+        self.code.push(Vop::Push(value))
     }
 
     fn op_return(&mut self) {
@@ -247,6 +259,7 @@ impl<'cat> Compiler<'cat> {
     }
 }
 
+/// TODO why is this here?
 /// Parse the RQL query into the IR.
 fn parse(rql: &str) -> Result<Statement> {
     let rl = RqlLexer::new(rql);

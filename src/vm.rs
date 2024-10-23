@@ -3,7 +3,7 @@ use std::vec;
 use crate::cursor::Cursor;
 use crate::ir::Table;
 use crate::value::Value;
-use crate::Result;
+use crate::{unsupported, Result};
 use crate::{value::Record, Rho};
 
 /// Code is a sequence of virtual machine instructions.
@@ -25,13 +25,15 @@ pub enum Vop {
     /// Insert row into a table.
     Insert { tbl: String, row: usize },
     /// JSON Path Index
-    Jpi { inp: usize, idx: usize, dst: usize },
+    Jpi(usize),
     /// JSON Path Key
-    Jpk { inp: usize, key: String, dst: usize },
+    Jpk(String),
     /// JSON Path Expression
-    Jpe { inp: usize, exp: usize, dst: usize },
-    /// Load a value into a register.
-    Load { val: Value, dst: usize },
+    Jpe,
+    /// Load a value (push) from cursors[i].
+    LoadC(usize),
+    /// Load a value (push) from stack[i].
+    LoadV(usize),
     /// Advances the cursor, assigning the row to `var`.
     /// If there is a row, then jump to `jmp`; otherwise goto next.
     Next { jmp: usize },
@@ -48,18 +50,14 @@ pub enum Vop {
     },
     /// Pop a value from the stack.
     Pop,
-    /// Push a value from the cursor to the stack.
-    Push { cursor: usize },
+    /// Push a value into a register.
+    Push(Value),
     /// Returns the value at the top of the stack.
     Return,
     /// Set cursor to the start; jump to `jmp` if the table is empty.
     Rewind { jmp: usize },
     /// Begin a transaction.
     Transaction,
-    /// `stack.push(stack[idx])`
-    Var {
-        idx: usize,
-    },
     /// Exit the VM.
     Exit,
 }
@@ -98,26 +96,6 @@ impl Vop {
     }
 
     #[inline]
-    pub fn jpk(inp: usize, key: String, dst: usize) -> Vop {
-        Vop::Jpk { inp, key, dst }
-    }
-
-    #[inline]
-    pub fn jpi(inp: usize, idx: usize, dst: usize) -> Vop {
-        Vop::Jpi { inp, idx, dst }
-    }
-
-    #[inline]
-    pub fn jpe(inp: usize, exp: usize, dst: usize) -> Vop {
-        Vop::Jpe { inp, exp, dst }
-    }
-
-    #[inline]
-    pub fn load(val: Value, dst: usize) -> Vop {
-        Vop::Load { val, dst }
-    }
-
-    #[inline]
     pub fn next(jmp: usize) -> Vop {
         Vop::Next { jmp }
     }
@@ -128,18 +106,8 @@ impl Vop {
     }
 
     #[inline]
-    pub fn push(cursor: usize) -> Vop {
-        Vop::Push { cursor }
-    }
-
-    #[inline]
     pub fn rewind(jmp: usize) -> Vop {
         Vop::Rewind { jmp }
-    }
-
-    #[inline]
-    pub fn var(idx: usize) -> Vop {
-        Vop::Var { idx }
     }
 }
 
@@ -148,7 +116,6 @@ pub struct VM<'r> {
     db: &'r Rho,
     pc: usize,
     program: Code,
-    mem: Vec<Value>,
     cursors: Vec<Cursor>,
     // moving from registers to stack for simplicity..
     stack: Vec<Value>,
@@ -158,7 +125,6 @@ impl<'r> VM<'r> {
     pub fn init(db: &Rho, program: Code) -> VM {
         VM {
             db,
-            mem: vec![Value::null(); 100],
             pc: 0,
             program,
             cursors: vec![],
@@ -188,53 +154,46 @@ impl<'r> VM<'r> {
                     self.db.drop_table(table)?;
                 }
                 Vop::Insert { tbl, row } => {
-                    let v = self.load(*row).clone(); // TODO NO CLONE
-                    self.db.insert(tbl, v)?;
+                    unsupported!("insert not supported")
                 }
-                Vop::Jpi { inp, idx, dst } => {
-                    self.mem[*dst] = match self.mem[*inp].jpi(*idx) {
-                        Some(v) => v,
-                        None => Value::null(),
-                    };
+                Vop::Jpe => {
+                    let e = self.pop();
+                    let v= self.pop();
+                    let v = v.jpe(e).unwrap_or_default();
+                    self.push(v);
                 }
-                Vop::Jpk { inp, key, dst } => {
-                    self.mem[*dst] = match self.mem[*inp].jpk(key) {
-                        Some(v) => v,
-                        None => Value::null(),
-                    };
+                Vop::Jpi(idx) => {
+                    let v = self.pop();
+                    let v = v.jpi(*idx).unwrap_or_default();
+                    self.push(v);
                 }
-                Vop::Jpe { inp, exp, dst } => {
-                    let e = &self.mem[*exp];
-                    // json path index
-                    if let Some(idx) = e.as_u64() {
-                        self.mem[*dst] = match self.mem[*inp].jpi(idx as usize) {
-                            Some(v) => v,
-                            None => Value::null(),
-                        };
-                        continue;
-                    }
-                    // json path key
-                    if let Some(key) = e.as_str() {
-                        self.mem[*dst] = match self.mem[*inp].jpk(key) {
-                            Some(v) => v,
-                            None => Value::null(),
-                        };
-                        continue;
-                    }
-                    self.mem[*dst] = Value::null();
+                Vop::Jpk(key) => {
+                    let v = self.pop();
+                    let v = v.jpk(key).unwrap_or_default();
+                    self.push(v);
+                }
+                Vop::LoadC(idx) => {
+                    let row = self.cursors[*idx].row();
+                    // println!("PUSH {:?}", row);
+                    self.push(row);
+                }
+                Vop::LoadV(idx) => {
+                    let v = self.stack[*idx].clone();
+                    // println!("VAR: {} ", v);
+                    self.push(v);
                 }
                 Vop::Obj => {
                     self.stack.push(Value::object());
                 }
                 Vop::ObjAssign { name } => {
                     let val = self.pop();
-                    let obj = self.peek_mut();
+                    let obj = self.peek();
                     // println!("OBJ_ASSIGN: {}: {} ", name, val);
                     obj.set(name.to_string(), val);
                 }
                 Vop::ObjSpread => {
                     let val = self.pop();
-                    let obj = self.peek_mut();
+                    let obj = self.peek();
                     // println!("OBJ_SPREAD: {} ", val);
                     obj.spread(val);
                 }
@@ -244,10 +203,8 @@ impl<'r> VM<'r> {
                 Vop::Pop => {
                     let _ = self.pop();
                 }
-                Vop::Push { cursor } => {
-                    let row = self.cursors[*cursor].row();
-                    // println!("PUSH {:?}", row);
-                    self.push(row);
+                Vop::Push(v) => {
+                    self.push(v.clone());
                 }
                 Vop::Return => {
                     let v = self.pop();
@@ -266,23 +223,11 @@ impl<'r> VM<'r> {
                 Vop::Transaction => {
                     self.db.transaction();
                 }
-                Vop::Var { idx } => {
-                    let v = self.stack[*idx].clone();
-                    // println!("VAR: {} ", v);
-                    self.push(v);
-                }
-                Vop::Load { val, dst } => {
-                    self.mem[*dst] = val.clone();
-                }
                 Vop::Exit => {
                     return Ok(None);
                 }
             }
         }
-    }
-
-    fn load(&self, idx: usize) -> &Value {
-        self.mem.get(idx).unwrap()
     }
 
     fn push(&mut self, value: Value) {
@@ -293,11 +238,7 @@ impl<'r> VM<'r> {
         self.stack.pop().unwrap()
     }
 
-    fn peek(&mut self) -> &Value {
-        self.stack.last().unwrap()
-    }
-
-    fn peek_mut(&mut self) -> &mut Value {
+    fn peek(&mut self) -> &mut Value {
         self.stack.last_mut().unwrap()
     }
 }

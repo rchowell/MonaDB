@@ -7,6 +7,13 @@ use serde_json::{Map, Value as JsonValue};
 #[derive(Clone, Hash, PartialEq)]
 pub struct Value(JsonValue);
 
+/// Default is null so `.unwrap_or_null()` can be used.
+impl Default for Value {
+    fn default() -> Self {
+        Self::null()
+    }
+}
+
 /// Record (for now) is just a JSON value
 pub type Record = Value;
 
@@ -112,10 +119,21 @@ impl Value {
         self.0.is_object()
     }
 
+    /// JSON Path Expression
+    pub fn jpe(&self, v: Value) -> Option<Value> {
+        if let Some(idx) = v.as_u64() {
+            return self.jpi(idx as usize);
+        }
+        if let Some(key) = v.as_str() {
+            return self.jpk(key);
+        }
+        None
+    }
+
     /// JSON Path Index
-    pub fn jpi(&self, index: usize) -> Option<Value> {
+    pub fn jpi(&self, idx: usize) -> Option<Value> {
         if let JsonValue::Array(values) = &self.0 {
-            values.get(index).map(|v| Value::new(v.clone()))
+            values.get(idx).map(|v| Value::new(v.clone()))
         } else {
             None
         }

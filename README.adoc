@@ -76,8 +76,8 @@ _This section contains various mini-goals to drive the project._
 * [x] Finalize syntax for V0 `insert into table`.
 * [x] Standardize naming of bindings/attributes/fields/members including rows/objs/tables/etc.
 * [x] Document JSONPath and unnesting syntax.
+* [x] Use stack-based VM for simpler ownership patterns.
 * [ ] The cursor should be an iterator over the sqlite connection.
-* [ ] Use stack-based VM for simpler ownership patterns.
 
 === G2 Sep 2024
 
