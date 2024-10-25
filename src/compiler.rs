@@ -1,4 +1,5 @@
 use crate::catalog::Catalog;
+use crate::error::err_unknown_routine;
 use crate::ir::*;
 use crate::lexer::RqlLexer;
 use crate::parser::RqlParser;
@@ -18,9 +19,7 @@ macro_rules! unsupported {
 pub struct Compiler<'cat> {
     catalog: &'cat Catalog,
     code: Code,
-    ptr: usize, // <- next register
     vars: Vec<Var>,
-    scope: usize,
 }
 
 /// Variable bindings where [depth] represents stack position.
@@ -33,14 +32,12 @@ impl<'cat> Compiler<'cat> {
         Compiler {
             catalog,
             code: vec![],
-            ptr: 0,
             vars: vec![],
-            scope: 0,
         }
     }
 
     pub fn compile(mut self, rql: &str) -> Result<Code> {
-        self.emit(Vop::init());
+        self.op_init();
         match parse(rql)? {
             Statement::Create(create) => self.cc_create(create)?,
             Statement::Delete(delete) => self.cc_delete(delete),
@@ -48,7 +45,7 @@ impl<'cat> Compiler<'cat> {
             Statement::Insert(insert) => self.cc_insert(insert)?,
             Statement::Select(select) => self.cc_select(select)?,
         };
-        self.emit(Vop::exit());
+        self.op_exit();
         Ok(self.code)
     }
 
@@ -140,23 +137,54 @@ impl<'cat> Compiler<'cat> {
 
     fn cc_expr(&mut self, expr: Expr) -> Result<()> {
         match expr {
-            Expr::Var(var) => self.cc_expr_var(var),
-            Expr::Lit(val) => self.cc_expr_lit(val),
-            Expr::Obj(obj) => self.cc_expr_obj(obj),
             Expr::Jpe(jpe) => self.cc_expr_jpe(jpe),
             Expr::Jpi(jpi) => self.cc_expr_jpi(jpi),
             Expr::Jpk(jpk) => self.cc_expr_jpk(jpk),
+            Expr::Lit(val) => self.cc_expr_lit(val),
+            Expr::Obj(obj) => self.cc_expr_obj(obj),
+            Expr::Op(op) => self.cc_expr_op(op),
+            Expr::Var(var) => self.cc_expr_var(var),
         }
     }
 
-    fn cc_expr_var(&mut self, name: String) -> Result<()> {
-        for (idx, var) in self.vars.iter().enumerate() {
-            if var.name == name {
-                self.op_loadv(idx);
-                return Ok(());
-            }
+    fn cc_expr_op(&mut self, op: Op) -> Result<()> {
+        self.cc_expr(*op.lhs)?;
+        self.cc_expr(*op.rhs)?;
+        match op.sym.as_str() {
+            // prec. 0
+            "*" => todo!("mul"),
+            "/" => todo!("div"),
+            // prec. 1
+            "+" => todo!("add"),
+            "-" => todo!("sub"),
+            // prec. 2
+            "<" => todo!("lt"),
+            "<=" => todo!("le"),
+            "=" => todo!("eq"),
+            ">=" => todo!("ge"),
+            ">" => todo!("gt"),
+            _ => return Err(err_unknown_routine(op.sym.as_str()))
         }
-        unsupported!("undefined variable: {}", name)
+        // Ok(())
+    }
+
+    fn cc_expr_jpe(&mut self, jpe: Jpe) -> Result<()> {
+        self.cc_expr(*jpe.inp)?;
+        self.cc_expr(*jpe.exp)?;
+        self.op_jpe();
+        Ok(())
+    }
+
+    fn cc_expr_jpi(&mut self, jpi: Jpi) -> Result<()> {
+        self.cc_expr(*jpi.inp)?;
+        self.op_jpi(jpi.idx);
+        Ok(())
+    }
+
+    fn cc_expr_jpk(&mut self, jpk: Jpk) -> Result<()> {
+        self.cc_expr(*jpk.inp)?;
+        self.op_jpk(jpk.key);
+        Ok(())
     }
 
     fn cc_expr_lit(&mut self, value: Value) -> Result<()> {
@@ -181,28 +209,27 @@ impl<'cat> Compiler<'cat> {
         Ok(())
     }
 
-    fn cc_expr_jpe(&mut self, jpe: Jpe) -> Result<()> {
-        self.cc_expr(*jpe.inp)?;
-        self.cc_expr(*jpe.exp)?;
-        self.op_jpe();
-        Ok(())
-    }
-
-    fn cc_expr_jpi(&mut self, jpi: Jpi) -> Result<()> {
-        self.cc_expr(*jpi.inp)?;
-        self.op_jpi(jpi.idx);
-        Ok(())
-    }
-
-    fn cc_expr_jpk(&mut self, jpk: Jpk) -> Result<()> {
-        self.cc_expr(*jpk.inp)?;
-        self.op_jpk(jpk.key);
-        Ok(())
+    fn cc_expr_var(&mut self, name: String) -> Result<()> {
+        for (idx, var) in self.vars.iter().enumerate() {
+            if var.name == name {
+                self.op_loadv(idx);
+                return Ok(());
+            }
+        }
+        unsupported!("undefined variable: {}", name)
     }
 
     //------------------------------
     // INSTRUCTIONS
     //------------------------------
+
+    fn op_exit(&mut self) {
+        self.code.push(Vop::Exit)
+    }
+
+    fn op_init(&mut self) {
+        self.code.push(Vop::Init)
+    }
 
     fn op_jpe(&mut self) {
         self.code.push(Vop::Jpe);

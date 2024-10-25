@@ -17,3 +17,10 @@ expr
     expr_jpk
     expr_obj
 ----
+
+
+.Operators
+[source,mckeeman]
+----
+
+----

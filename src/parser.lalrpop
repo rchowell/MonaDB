@@ -9,20 +9,30 @@ use crate::value::Value;
 grammar;
 
 extern {
+
     type Location = usize;
     type Error = Error;
 
     enum Token {
         // symbols
+        "*"         => Token::Ast,
         ","         => Token::Comma,
         ":"         => Token::Colon,
         "$"         => Token::Dollar,
         ".."        => Token::DotDot,
         "..."       => Token::Ellipsis,
+        "="         => Token::Eq,
+        ">"         => Token::Gt,
+        ">="        => Token::Ge,
+        "<"         => Token::Lt,
+        "<="        => Token::Le,
+        "-"         => Token::Minus,
+        "!="        => Token::Neq,
         "."         => Token::Period,
         "|"         => Token::Pipe,
+        "+"         => Token::Plus,
         ";"         => Token::SemiColon,
-        "*"         => Token::Star,
+        "/"         => Token::Sol,
         "("         => Token::ParenL,
         ")"         => Token::ParenR,
         "{"         => Token::BraceL,
@@ -89,8 +99,6 @@ Select: ir::Select = {
 };
 
 SelectItem: ir::Member = {
-    <Var>                   => ir::select_item_var(<>),
-    <Expr> "." "*"          => ir::select_item_star(<>),
     <Expr> "as" <"ident">   => ir::select_item(<>),
 };
 
@@ -186,18 +194,33 @@ Selector: ir::Selector = {
 //------------------------------
 
 Expr: ir::Expr = {
-    "ident"                 => ir::expr_var(<>),
-    Value                   => ir::expr_lit(<>),
-    <Expr> "[" <Expr> "]"   => ir::expr_jpe(<>),
-    <Expr> "." <"ident">    => ir::expr_jpk(<>),
-    "{" <Members> "}"       => ir::expr_obj(<>),
-    "(" <Expr> ")"          => <>,
-};
 
-Var: ir::Expr = {
-    "ident"                 => ir::expr_var(<>),
-    <Expr> "." <"ident">    => ir::expr_jpk(<>),
-};
+    #[precedence(level="0")]
+    "ident"                     => ir::expr_var(<>),
+    Value                       => ir::expr_lit(<>),
+    "{" <Members> "}"           => ir::expr_obj(<>),
+    "(" <Expr> ")"              => <>,
+
+    #[precedence(level="1")]    #[assoc(side="left")]
+    <Expr> "[" <Expr> "]"       => ir::expr_jpe(<>),
+    <Expr> "." <"ident">        => ir::expr_jpk(<>),
+
+    #[precedence(level="2")]    #[assoc(side="left")]
+    <Expr> "*" <Expr>           => ir::expr_op("*", <>),
+    <Expr> "/" <Expr>           => ir::expr_op("/", <>),
+
+    #[precedence(level="3")]    #[assoc(side="left")]
+    <Expr> "+" <Expr>           => ir::expr_op("+", <>),
+    <Expr> "-" <Expr>           => ir::expr_op("-", <>),
+
+    #[precedence(level="4")]    #[assoc(side="left")]
+    <Expr> "<" <Expr>           => ir::expr_op("<", <>),
+    <Expr> "<=" <Expr>          => ir::expr_op("<=", <>),
+    <Expr> "=" <Expr>           => ir::expr_op("=", <>),
+    <Expr> ">" <Expr>           => ir::expr_op(">", <>),
+    <Expr> ">=" <Expr>          => ir::expr_op(">=", <>),
+    <Expr> "!=" <Expr>          => ir::expr_op("!=", <>),
+}
 
 Value: Value = {
     "null"      => Value::null(),
@@ -211,8 +234,11 @@ Value: Value = {
 
 Members: Vec<ir::Member> = List<Member>;
 
+// TODO replace var with ident and path alternatives.
 Member: ir::Member = {
-    Var                     => ir::member_var(<>),
+    // Var                     => ir::member_var(<>),
+    //     "ident"                 => ir::expr_var(<>),
+    //     <Expr> "." <"ident">    => ir::expr_jpk(<>),
     <"ident">  ":" <Expr>   => ir::member_assign(<>),
     <"string"> ":" <Expr>   => ir::member_assign(<>),
     "..." <Expr>            => ir::member_spread(<>),

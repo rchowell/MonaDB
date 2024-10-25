@@ -3,18 +3,21 @@
 .Example
 [source,rql]
 ----
-select p.x, p.y from points as p;
+select p.x from points as p;
 
 -- equivalences
 
+select { p.x, p.y } from points as p;
+select p.x as x, p.y as y from points as p;
+select { x: p.x, y: p.y } from points as p;
+
 select * from t;
-select t.* from t;
 select { ...t } from t;
 
 select * from t, s;
-select t.*, s.* from t, s;
 select { ...t, ...s } from t, s;
 ----
+
 == Syntax
 
 [source,mckeeman]
@@ -35,8 +38,6 @@ select_list
     select_item "," select_list
 
 select_item
-    expr_var
-    expr_jpk
     expr "as" ident
 
 select_path

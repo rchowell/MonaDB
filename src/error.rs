@@ -1,3 +1,5 @@
+use std::fmt::format;
+
 use lalrpop_util::ParseError;
 use crate::lexer::Token;
 
@@ -6,11 +8,12 @@ use crate::lexer::Token;
 pub enum Error {
     IoError(String),
     InternalError(String),
-    TableNotFound(String),
     SyntaxError(String),
     Unsupported(String),
     #[default]
     Unknown,
+    UnknownTable(String),
+    UnknownRoutine(String),
 }
 
 // TODO impl Error
@@ -63,7 +66,10 @@ impl From<ParseError<usize, Token, Error>> for Error {
     }
 }
 
-
-fn err_syntax(message: &str) -> Error {
+pub fn err_syntax(message: &str) -> Error {
     Error::SyntaxError(message.to_string())
+}
+
+pub fn err_unknown_routine(sym: &str) -> Error {
+    Error::UnknownRoutine(format!("unknown routine: {}", sym))
 }

@@ -34,7 +34,10 @@ impl<'input> Iterator for RqlLexer<'input> {
 pub enum Token {
     //-------------------------
     // Symbols
+    // TODO ascii ordering
     //-------------------------
+    #[token("*")]
+    Ast,
     #[token(",")]
     Comma,
     #[token(":")]
@@ -45,14 +48,30 @@ pub enum Token {
     DotDot,
     #[token("...")]
     Ellipsis,
+    #[token("=")]
+    Eq,
+    #[token(">")]
+    Gt,
+    #[token(">=")]
+    Ge,
+    #[token("<")]
+    Lt,
+    #[token("<=")]
+    Le,
+    #[token("-")]
+    Minus,
+    #[token("!=")]
+    Neq,
+    #[token("+")]
+    Plus,
     #[token(".")]
     Period,
     #[token("|")]
     Pipe,
     #[token(";")]
     SemiColon,
-    #[token("*")]
-    Star,
+    #[token("/")]
+    Sol,
     #[token("(")]
     ParenL,
     #[token(")")]

@@ -166,15 +166,24 @@ pub type ExprRef = Box<Expr>;
 
 #[derive(Debug)]
 pub enum Expr {
-    Var(String),
-    Lit(Value),
-    Obj(Obj),
+    Op(Op),
     Jpi(Jpi),
     Jpk(Jpk),
     Jpe(Jpe),
+    Lit(Value),
+    Obj(Obj),
+    Var(String),
 }
 
 pub type Obj = Vec<Member>;
+
+// TODO unary operators
+#[derive(Debug)]
+pub struct Op {
+    pub sym: String,
+    pub lhs: ExprRef,
+    pub rhs: ExprRef,
+}
 
 #[derive(Debug)]
 pub enum Member {
@@ -388,11 +397,6 @@ pub fn expr_lit(val: Value) -> Expr {
 }
 
 #[inline]
-pub fn expr_obj(obj: Obj) -> Expr {
-    Expr::Obj(obj)
-}
-
-#[inline]
 pub fn expr_jpk(inp: Expr, key: String) -> Expr {
     Expr::Jpk(Jpk {
         inp: Box::new(inp),
@@ -408,6 +412,19 @@ pub fn expr_jpe(inp: Expr, exp: Expr) -> Expr {
     })
 }
 
+#[inline]
+pub fn expr_obj(obj: Obj) -> Expr {
+    Expr::Obj(obj)
+}
+
+#[inline]
+pub fn expr_op(sym: &str, lhs: Expr, rhs: Expr) -> Expr {
+    Expr::Op(Op {
+        sym: sym.to_string(),
+        lhs: Box::new(lhs),
+        rhs: Box::new(rhs),
+    })
+}
 
 #[cfg(test)]
 mod test {

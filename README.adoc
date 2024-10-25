@@ -32,8 +32,6 @@ _This section contains a list of features/ideas that are not yet implemented._
 * [ ] Add `emit_op` style methods in compiler to replace vop helpers (easy-ish find+replace).
 * [ ] Pre-commpute a table's sqlite queries because they are always the same.
 * [ ] Support for open tables.
-* [ ] Remove VM dep on Rho, use "Connection".
-* [ ] Make "Catalog" the "Connection" ??
 * [ ] Document namespaces.
 * [ ] Constraints (DDL) no enforcement yet.
 ** [ ] PRIMARY KEY
@@ -44,10 +42,6 @@ _This section contains a list of features/ideas that are not yet implemented._
 * [ ] Document and use consistent ABNF
 * [ ] Document comparisons to MongoDB
 * [ ] Establish a consistent language documentation format a'la Mozilla JavaScript style.
-* [ ] Scalar functions
-* [ ] Read JSONLines input
-* [ ] JSON5 reader
-* [ ] Cross-join.
 * [ ] Remove compiler `emit` and Vop factory methods to just use `emit_<op>` style methods.
 
 .Shell
@@ -61,6 +55,16 @@ _This section contains a list of features/ideas that are not yet implemented._
 == Worklog
 
 _This section contains various mini-goals to drive the project._
+
+=== G4 Nov 2024
+
+* [ ] Remove VM dep on Rho, use "Connection".
+* [ ] Make "Catalog" the "Connection" ??
+* [ ] Read JSONLines input
+* [ ] WHERE
+* [ ] LIMIT/OFFSET
+* [ ] Cross-join.
+* [ ] Scalar functions
 
 === G3 Oct 2024
 
