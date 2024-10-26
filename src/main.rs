@@ -24,6 +24,8 @@ struct Commands {
 enum Command {
     /// Describe the catalog.
     Info,
+    /// Toggle debug mode.
+    Debug,
     /// TODO TEMPORARY – Create a table.
     Create {
         table: String,
@@ -124,6 +126,7 @@ fn main() {
     // REPL 
     let mut line_reader = LineReader::new();
     let mut buffer = String::new();
+    let mut debug = false;
 
     // MAIN LOOP
     loop {
@@ -147,6 +150,10 @@ fn main() {
             };
             // EXECUTE COMMAND
             match command {
+                Command::Debug => {
+                    debug = !debug;
+                    println!("debug: {}", debug);
+                }
                 Command::Info => {
                     rho.info();
                 }
@@ -174,7 +181,7 @@ fn main() {
             }
         } else {
             // STATEMENT
-            match rho.exec(&buffer) {
+            match rho.exec(&buffer, debug) {
                 Ok(mut rows) => {
                     loop {
                         match rows.next() {
@@ -187,7 +194,7 @@ fn main() {
                             }
                         }
                     }
-                    println!();
+                    // remove these additional lines?
                     println!("ok.");
                 },
                 Err(e) => {

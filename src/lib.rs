@@ -38,7 +38,6 @@ pub type Result<T, E = Error> = result::Result<T, E>;
 
 /// Rho represents the database connection.
 pub struct Rho {
-    debug: bool,
     catalog: RefCell<Catalog>,
 }
 
@@ -48,7 +47,6 @@ impl Rho {
     where P: AsRef<Path> {
         let catalog = Catalog::open(path)?;
         Ok(Rho { 
-            debug: true,
             catalog: RefCell::new(catalog),
         })
     }
@@ -56,7 +54,6 @@ impl Rho {
     pub fn memory() -> Result<Rho> {
         let catalog = Catalog::memory()?;
         Ok(Rho {
-            debug: true,
             catalog: RefCell::new(catalog),
         })
     }
@@ -71,11 +68,11 @@ impl Rho {
         compiler.compile(rql)
     }
 
-    pub fn exec(&mut self, rql: &str) -> Result<Rows<'_>> {
+    pub fn exec(&mut self, rql: &str, debug: bool) -> Result<Rows<'_>> {
         let program = self.prepare(rql)?;
 
         // >> DEBUG
-        if self.debug {
+        if debug {
             println!();
             println!("-[Program]------");
             for (addr, op) in program.iter().enumerate() {

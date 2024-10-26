@@ -19,6 +19,13 @@ I would like rho to be a library with several applications:
 - CLI tool like jq/awk/other.
 - Shell like sqlite repl.
 
+== What's in a Name?
+
+- monadb
+- Named after my cat
+- Alludes to mongo (and monetdb)
+- Reads nice like duckdb
+
 == Rho
 
 Rho should be renamed to "Connection"; it holds the inner connection ("catalog") which provides access to the underlying storage.

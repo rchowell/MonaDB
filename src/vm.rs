@@ -37,22 +37,40 @@ pub enum Vop {
     /// Advances the cursor, assigning the row to `var`.
     /// If there is a row, then jump to `jmp`; otherwise goto next.
     Next { jmp: usize },
-    /// Push an empty object.
-    Obj,
-    /// Assign a value to a key in an object.
-    ObjAssign { name: String },
-    /// Spread a value into an object.
-    ObjSpread,
     /// Opens a table for reading with the cursor positioned at the first row.
     Open {
         /// TODO replace table with cursor.
         table: String,
     },
-    /// Pop a value from the stack.
+    //
+    //--- Object --- 
+    //
+    /// Push an empty object.
+    Obj,
+    /// Assign a value to a key in an object.
+    ObjAssign(String),
+    /// Spread a value into an object.
+    ObjSpread,
+    ///--- Arithmetic ---
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Rem,
+    ///--- Comparison ---
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    Eq,
+    Ne,
+    ///--- Logical ---
     Pop,
     /// Push a value into a register.
     Push(Value),
+    /// Pop a value from the stack.
     /// Returns the value at the top of the stack.
+    ///--- Control Transfer ---
     Return,
     /// Set cursor to the start; jump to `jmp` if the table is empty.
     Rewind { jmp: usize },
@@ -185,7 +203,7 @@ impl<'r> VM<'r> {
                 Vop::Obj => {
                     self.stack.push(Value::object());
                 }
-                Vop::ObjAssign { name } => {
+                Vop::ObjAssign(name) => {
                     let val = self.pop();
                     let obj = self.peek();
                     // println!("OBJ_ASSIGN: {}: {} ", name, val);
@@ -226,12 +244,74 @@ impl<'r> VM<'r> {
                 Vop::Exit => {
                     return Ok(None);
                 }
+                //
+                // 
+                //
+                Vop::Add => {
+                    let r = self.pop();
+                    let l = self.pop();
+                    self.push(l + r);
+                }
+                Vop::Sub => {
+                    let r = self.pop();
+                    let l = self.pop();
+                    self.push(l - r);
+                }
+                Vop::Mul => {
+                    let r = self.pop();
+                    let l = self.pop();
+                    self.push(l * r);
+                }
+                Vop::Div => {
+                    let r = self.pop();
+                    let l = self.pop();
+                    self.push(l / r);
+                }
+                Vop::Rem => {
+                    let r = self.pop();
+                    let l = self.pop();
+                    self.push(l % r);
+                }
+                Vop::Lt => {
+                    let r = self.pop();
+                    let l = self.pop();
+                    self.push_bool(l < r);
+                }
+                Vop::Le => {
+                    let r = self.pop();
+                    let l = self.pop();
+                    self.push_bool(l <= r);
+                }
+                Vop::Gt => {
+                    let r = self.pop();
+                    let l = self.pop();
+                    self.push_bool(l > r);
+                }
+                Vop::Ge => {
+                    let r = self.pop();
+                    let l = self.pop();
+                    self.push_bool(l >= r);
+                }
+                Vop::Eq => {
+                    let r = self.pop();
+                    let l = self.pop();
+                    self.push_bool(l == r);
+                }
+                Vop::Ne => {
+                    let r = self.pop();
+                    let l = self.pop();
+                    self.push_bool(l != r);
+                }
             }
         }
     }
 
     fn push(&mut self, value: Value) {
         self.stack.push(value);
+    }
+
+    fn push_bool(&mut self, value: bool) {
+        self.stack.push(Value::bool(value));
     }
 
     fn pop(&mut self) -> Value {

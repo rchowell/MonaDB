@@ -27,7 +27,8 @@ extern {
         "<"         => Token::Lt,
         "<="        => Token::Le,
         "-"         => Token::Minus,
-        "!="        => Token::Neq,
+        "!="        => Token::Ne,
+        "%"         => Token::Percent,
         "."         => Token::Period,
         "|"         => Token::Pipe,
         "+"         => Token::Plus,
@@ -208,6 +209,7 @@ Expr: ir::Expr = {
     #[precedence(level="2")]    #[assoc(side="left")]
     <Expr> "*" <Expr>           => ir::expr_op("*", <>),
     <Expr> "/" <Expr>           => ir::expr_op("/", <>),
+    <Expr> "%" <Expr>           => ir::expr_op("%", <>),
 
     #[precedence(level="3")]    #[assoc(side="left")]
     <Expr> "+" <Expr>           => ir::expr_op("+", <>),
@@ -220,6 +222,7 @@ Expr: ir::Expr = {
     <Expr> ">" <Expr>           => ir::expr_op(">", <>),
     <Expr> ">=" <Expr>          => ir::expr_op(">=", <>),
     <Expr> "!=" <Expr>          => ir::expr_op("!=", <>),
+
 }
 
 Value: Value = {

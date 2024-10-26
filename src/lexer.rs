@@ -61,7 +61,9 @@ pub enum Token {
     #[token("-")]
     Minus,
     #[token("!=")]
-    Neq,
+    Ne,
+    #[token("%")]
+    Percent,
     #[token("+")]
     Plus,
     #[token(".")]

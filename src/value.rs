@@ -1,10 +1,11 @@
-use std::fmt::{Debug, Display};
+use std::{cmp, fmt::{Debug, Display}};
 
 use crate::Result;
 use serde_json::{Map, Value as JsonValue};
+use std::ops::{Add, Div, Mul, Rem, Sub};
 
 /// JSON value.
-#[derive(Clone, Hash, PartialEq)]
+#[derive(Clone, Hash, Eq)]
 pub struct Value(JsonValue);
 
 /// Default is null so `.unwrap_or_null()` can be used.
@@ -34,7 +35,9 @@ impl Value {
 
     #[inline]
     pub fn number(value: f64) -> Value {
-        Value(JsonValue::Number(serde_json::Number::from_f64(value).unwrap()))
+        Value(JsonValue::Number(
+            serde_json::Number::from_f64(value).unwrap(),
+        ))
     }
 
     #[inline]
@@ -64,9 +67,9 @@ impl Value {
     }
 
     /// If the value is an object, return the members – otherwise, None.
-    /// 
+    ///
     /// Consider an `into_members(self)` version of this.
-    /// 
+    ///
     pub fn members(&self) -> Option<Vec<(String, Value)>> {
         if let JsonValue::Object(members) = &self.0 {
             let members = members
@@ -217,11 +220,120 @@ impl Obj {
     pub fn spread(&mut self, value: Value) {
         if let Some(mut members) = value.members() {
             // unpack inner JsonValue to get (String, JsonValue) tuples
-            self.members.extend(members.drain(..).map(|v| (v.0, v.1.0)));
+            self.members
+                .extend(members.drain(..).map(|v| (v.0, v.1 .0)));
         }
     }
 
     pub fn build(&self) -> Value {
         Value(JsonValue::Object(self.members.clone()))
+    }
+}
+
+impl Add for Value {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self {
+        if let (JsonValue::Number(a), JsonValue::Number(b)) = (self.0, other.0) {
+            Value::number(a.as_f64().unwrap() + b.as_f64().unwrap())
+        } else {
+            panic!("Addition is only supported for numbers")
+        }
+    }
+}
+
+impl Sub for Value {
+    type Output = Self;
+
+    fn sub(self, other: Self) -> Self {
+        if let (JsonValue::Number(a), JsonValue::Number(b)) = (self.0, other.0) {
+            Value::number(a.as_f64().unwrap() - b.as_f64().unwrap())
+        } else {
+            panic!("Subtraction is only supported for numbers")
+        }
+    }
+}
+
+impl Mul for Value {
+    type Output = Self;
+
+    fn mul(self, other: Self) -> Self {
+        if let (JsonValue::Number(a), JsonValue::Number(b)) = (self.0, other.0) {
+            Value::number(a.as_f64().unwrap() * b.as_f64().unwrap())
+        } else {
+            panic!("Multiplication is only supported for numbers")
+        }
+    }
+}
+
+impl Div for Value {
+    type Output = Self;
+
+    fn div(self, other: Self) -> Self {
+        if let (JsonValue::Number(a), JsonValue::Number(b)) = (self.0, other.0) {
+            Value::number(a.as_f64().unwrap() / b.as_f64().unwrap())
+        } else {
+            panic!("Division is only supported for numbers")
+        }
+    }
+}
+
+impl Rem for Value {
+    type Output = Self;
+
+    fn rem(self, other: Self) -> Self {
+        if let (JsonValue::Number(a), JsonValue::Number(b)) = (self.0, other.0) {
+            Value::number(a.as_f64().unwrap() % b.as_f64().unwrap())
+        } else {
+            panic!("Remainder is only supported for numbers")
+        }
+    }
+}
+
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl PartialOrd for Value {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        if let (JsonValue::Number(a), JsonValue::Number(b)) = (&self.0, &other.0) {
+            a.as_f64().partial_cmp(&b.as_f64())
+        } else {
+            None
+        }
+    }
+
+    fn lt(&self, other: &Self) -> bool {
+        if let (JsonValue::Number(a), JsonValue::Number(b)) = (&self.0, &other.0) {
+            a.as_f64().unwrap() < b.as_f64().unwrap()
+        } else {
+            false
+        }
+    }
+
+    fn le(&self, other: &Self) -> bool {
+        if let (JsonValue::Number(a), JsonValue::Number(b)) = (&self.0, &other.0) {
+            a.as_f64().unwrap() <= b.as_f64().unwrap()
+        } else {
+            false
+        }
+    }
+
+    fn gt(&self, other: &Self) -> bool {
+        if let (JsonValue::Number(a), JsonValue::Number(b)) = (&self.0, &other.0) {
+            a.as_f64().unwrap() > b.as_f64().unwrap()
+        } else {
+            false
+        }
+    }
+
+    fn ge(&self, other: &Self) -> bool {
+        if let (JsonValue::Number(a), JsonValue::Number(b)) = (&self.0, &other.0) {
+            a.as_f64().unwrap() >= b.as_f64().unwrap()
+        } else {
+            false
+        }
     }
 }

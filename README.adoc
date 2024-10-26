@@ -43,14 +43,9 @@ _This section contains a list of features/ideas that are not yet implemented._
 * [ ] Document comparisons to MongoDB
 * [ ] Establish a consistent language documentation format a'la Mozilla JavaScript style.
 * [ ] Remove compiler `emit` and Vop factory methods to just use `emit_<op>` style methods.
-
-.Shell
 * [ ] Better error messages.
 * [ ] Formatted output.
 * [ ] Load input from a file into a table.
-
-.Optimizations (??)
-* [ ] Common factors i.e. check to see if value exists in a register.
 
 == Worklog
 
@@ -58,6 +53,7 @@ _This section contains various mini-goals to drive the project._
 
 === G4 Nov 2024
 
+* [ ] Make select operate as listcomp / compexp.
 * [ ] Remove VM dep on Rho, use "Connection".
 * [ ] Make "Catalog" the "Connection" ??
 * [ ] Read JSONLines input
@@ -65,6 +61,7 @@ _This section contains various mini-goals to drive the project._
 * [ ] LIMIT/OFFSET
 * [ ] Cross-join.
 * [ ] Scalar functions
+* [ ] Toggle debug output.
 
 === G3 Oct 2024
 

@@ -49,36 +49,32 @@ impl<'cat> Compiler<'cat> {
         Ok(self.code)
     }
 
-    /// Append an instruction to the program.
-    /// TODO REMOVE ME
-    #[inline]
-    fn emit(&mut self, op: Vop) {
-        self.code.push(op);
-    }
-
     fn cc_create(&mut self, create: Create) -> Result<()> {
         match create {
-            Create::Table(table) => self.emit(Vop::create_table(table)),
+            Create::Table(table) => self.op(Vop::create_table(table)),
         }
         Ok(())
     }
 
+    // TODO add op_drop
     fn cc_drop(&mut self, table: String) {
-        self.emit(Vop::drop(table));
+        self.op(Vop::drop(table));
     }
 
+    // TODO add op_clear
     fn cc_delete(&mut self, table: String) {
-        self.emit(Vop::clear(table));
+        self.op(Vop::clear(table));
     }
 
+    // TODO add op_insert
     fn cc_insert(&mut self, insert: Insert) -> Result<()> {
-        self.emit(Vop::Transaction);
+        self.op(Vop::Transaction);
         for _ in insert.source {
             // let tbl = insert.target.clone();
             // let dst = self.cc_expr(expr)?;
             unsupported!("`insert` statement")
         }
-        self.emit(Vop::Commit);
+        self.op(Vop::Commit);
         Ok(())
     }
 
@@ -104,8 +100,8 @@ impl<'cat> Compiler<'cat> {
 
         // define the from alias
         self.define(from.var);
-        self.emit(Vop::open(table));
-        self.emit(Vop::rewind(0)); // <-- PATCH ME
+        self.op(Vop::open(table));
+        self.op(Vop::rewind(0)); // <-- PATCH ME
         self.op_loadc(0); // TODO multiple cursors
 
         Ok(self.pc())
@@ -117,7 +113,7 @@ impl<'cat> Compiler<'cat> {
     /// 2. Patch the rewind instruction BEFORE the loop.
     ///
     fn next(&mut self, jmp: usize) -> Result<()> {
-        self.emit(Vop::next(jmp));
+        self.op(Vop::next(jmp));
         self.patch(jmp - 1, self.pc() + 1)?;
         Ok(())
     }
@@ -151,21 +147,19 @@ impl<'cat> Compiler<'cat> {
         self.cc_expr(*op.lhs)?;
         self.cc_expr(*op.rhs)?;
         match op.sym.as_str() {
-            // prec. 0
-            "*" => todo!("mul"),
-            "/" => todo!("div"),
-            // prec. 1
-            "+" => todo!("add"),
-            "-" => todo!("sub"),
-            // prec. 2
-            "<" => todo!("lt"),
-            "<=" => todo!("le"),
-            "=" => todo!("eq"),
-            ">=" => todo!("ge"),
-            ">" => todo!("gt"),
+            "*" => self.code.push(Vop::Mul),
+            "/" => self.code.push(Vop::Div),
+            "+" => self.code.push(Vop::Add),
+            "-" => self.code.push(Vop::Sub),
+            "<" => self.code.push(Vop::Lt),
+            "<=" => self.code.push(Vop::Le),
+            "=" => self.code.push(Vop::Eq),
+            ">=" => self.code.push(Vop::Ge),
+            ">" => self.code.push(Vop::Gt),
+            "!=" => self.code.push(Vop::Ne),
             _ => return Err(err_unknown_routine(op.sym.as_str()))
-        }
-        // Ok(())
+        };
+        Ok(())
     }
 
     fn cc_expr_jpe(&mut self, jpe: Jpe) -> Result<()> {
@@ -223,6 +217,11 @@ impl<'cat> Compiler<'cat> {
     // INSTRUCTIONS
     //------------------------------
 
+    // TODO remove me
+    fn op(&mut self, op: Vop) {
+        self.code.push(op)
+    }
+
     fn op_exit(&mut self) {
         self.code.push(Vop::Exit)
     }
@@ -256,7 +255,7 @@ impl<'cat> Compiler<'cat> {
     }
 
     fn op_obj_assign(&mut self, name: String) {
-        self.code.push(Vop::ObjAssign { name });
+        self.code.push(Vop::ObjAssign(name));
     }
 
     fn op_obj_spread(&mut self) {
