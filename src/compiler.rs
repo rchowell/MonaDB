@@ -37,7 +37,7 @@ impl<'cat> Compiler<'cat> {
     }
 
     pub fn compile(mut self, rql: &str) -> Result<Code> {
-        self.op_init();
+        self.emit_init();
         match parse(rql)? {
             Statement::Create(create) => self.cc_create(create)?,
             Statement::Delete(delete) => self.cc_delete(delete),
@@ -45,43 +45,44 @@ impl<'cat> Compiler<'cat> {
             Statement::Insert(insert) => self.cc_insert(insert)?,
             Statement::Select(select) => self.cc_select(select)?,
         };
-        self.op_exit();
+        self.emit_exit();
         Ok(self.code)
     }
 
     fn cc_create(&mut self, create: Create) -> Result<()> {
         match create {
-            Create::Table(table) => self.op(Vop::create_table(table)),
+            Create::Table(table) => self.emit(Vop::create_table(table)),
         }
         Ok(())
     }
 
-    // TODO add op_drop
+    // TODO add emit_drop
     fn cc_drop(&mut self, table: String) {
-        self.op(Vop::drop(table));
+        self.emit(Vop::drop(table));
     }
 
-    // TODO add op_clear
+    // TODO add emit_clear
     fn cc_delete(&mut self, table: String) {
-        self.op(Vop::clear(table));
+        self.emit(Vop::clear(table));
     }
 
-    // TODO add op_insert
     fn cc_insert(&mut self, insert: Insert) -> Result<()> {
-        self.op(Vop::Transaction);
-        for _ in insert.source {
-            // let tbl = insert.target.clone();
-            // let dst = self.cc_expr(expr)?;
-            unsupported!("`insert` statement")
+        let n = insert.source.len();
+        for v in insert.source {
+            self.cc_expr(v)?;
         }
-        self.op(Vop::Commit);
+        match n {
+            0 => unsupported!("insert with no values"),
+            1 => self.emit_insert(insert.target),
+            n => self.emit_insert_batch(insert.target, n),
+        }
         Ok(())
     }
 
     fn cc_select(&mut self, select: Select) -> Result<()> {
         let jmp = self.cc_from(select.inp)?;
         let _ = self.cc_expr_obj(select.sel)?;
-        self.op_return();
+        self.emit_return();
         self.next(jmp) // <-- loop and patch jmp
     }
 
@@ -100,9 +101,9 @@ impl<'cat> Compiler<'cat> {
 
         // define the from alias
         self.define(from.var);
-        self.op(Vop::open(table));
-        self.op(Vop::rewind(0)); // <-- PATCH ME
-        self.op_loadc(0); // TODO multiple cursors
+        self.emit(Vop::open(table));
+        self.emit(Vop::rewind(0)); // <-- PATCH ME
+        self.emit_loadc(0); // TODO multiple cursors
 
         Ok(self.pc())
     }
@@ -113,7 +114,7 @@ impl<'cat> Compiler<'cat> {
     /// 2. Patch the rewind instruction BEFORE the loop.
     ///
     fn next(&mut self, jmp: usize) -> Result<()> {
-        self.op(Vop::next(jmp));
+        self.emit(Vop::next(jmp));
         self.patch(jmp - 1, self.pc() + 1)?;
         Ok(())
     }
@@ -165,38 +166,38 @@ impl<'cat> Compiler<'cat> {
     fn cc_expr_jpe(&mut self, jpe: Jpe) -> Result<()> {
         self.cc_expr(*jpe.inp)?;
         self.cc_expr(*jpe.exp)?;
-        self.op_jpe();
+        self.emit_jpe();
         Ok(())
     }
 
     fn cc_expr_jpi(&mut self, jpi: Jpi) -> Result<()> {
         self.cc_expr(*jpi.inp)?;
-        self.op_jpi(jpi.idx);
+        self.emit_jpi(jpi.idx);
         Ok(())
     }
 
     fn cc_expr_jpk(&mut self, jpk: Jpk) -> Result<()> {
         self.cc_expr(*jpk.inp)?;
-        self.op_jpk(jpk.key);
+        self.emit_jpk(jpk.key);
         Ok(())
     }
 
     fn cc_expr_lit(&mut self, value: Value) -> Result<()> {
-        self.op_push(value);
+        self.emit_push(value);
         Ok(())
     }
 
     fn cc_expr_obj(&mut self, obj: Obj) -> Result<()> {
-        self.op_obj();
+        self.emit_obj();
         for m in obj {
             match m {
                 Member::Assign(name, expr) => {
                     self.cc_expr(expr)?;
-                    self.op_obj_assign(name);
+                    self.emit_obj_assign(name);
                 }
                 Member::Spread(expr) => {
                     self.cc_expr(expr)?;
-                    self.op_obj_spread();
+                    self.emit_obj_spread();
                 }
             }
         }
@@ -206,68 +207,11 @@ impl<'cat> Compiler<'cat> {
     fn cc_expr_var(&mut self, name: String) -> Result<()> {
         for (idx, var) in self.vars.iter().enumerate() {
             if var.name == name {
-                self.op_loadv(idx);
+                self.emit_loadv(idx);
                 return Ok(());
             }
         }
         unsupported!("undefined variable: {}", name)
-    }
-
-    //------------------------------
-    // INSTRUCTIONS
-    //------------------------------
-
-    // TODO remove me
-    fn op(&mut self, op: Vop) {
-        self.code.push(op)
-    }
-
-    fn op_exit(&mut self) {
-        self.code.push(Vop::Exit)
-    }
-
-    fn op_init(&mut self) {
-        self.code.push(Vop::Init)
-    }
-
-    fn op_jpe(&mut self) {
-        self.code.push(Vop::Jpe);
-    }
-
-    fn op_jpi(&mut self, idx: usize) {
-        self.code.push(Vop::Jpi(idx));
-    }
-
-    fn op_jpk(&mut self, key: String) {
-        self.code.push(Vop::Jpk(key));
-    }
-
-    fn op_loadc(&mut self, cursor: usize) {
-        self.code.push(Vop::LoadC(cursor))
-    }
-
-    fn op_loadv(&mut self, idx: usize) {
-        self.code.push(Vop::LoadV(idx))
-    }
-
-    fn op_obj(&mut self) {
-        self.code.push(Vop::Obj);
-    }
-
-    fn op_obj_assign(&mut self, name: String) {
-        self.code.push(Vop::ObjAssign(name));
-    }
-
-    fn op_obj_spread(&mut self) {
-        self.code.push(Vop::ObjSpread);
-    }
-
-    fn op_push(&mut self, value: Value) {
-        self.code.push(Vop::Push(value))
-    }
-
-    fn op_return(&mut self) {
-        self.code.push(Vop::Return);
     }
 
     //------------------------------
@@ -282,6 +226,71 @@ impl<'cat> Compiler<'cat> {
     /// Define a variable in the current scope.
     fn define(&mut self, name: String) {
         self.vars.push(Var { name });
+    }
+
+    //------------------------------
+    // INSTRUCTIONS
+    //------------------------------
+
+    // TODO remove me
+    fn emit(&mut self, op: Vop) {
+        self.code.push(op)
+    }
+
+    fn emit_exit(&mut self) {
+        self.code.push(Vop::Exit)
+    }
+
+    fn emit_init(&mut self) {
+        self.code.push(Vop::Init)
+    }
+
+    fn emit_insert(&mut self, table: String) {
+        self.code.push(Vop::Insert(table))
+    }
+
+    fn emit_insert_batch(&mut self, table: String, n: usize) {
+        self.code.push(Vop::InsertBatch(table, n))
+    }
+
+    fn emit_jpe(&mut self) {
+        self.code.push(Vop::Jpe);
+    }
+
+    fn emit_jpi(&mut self, idx: usize) {
+        self.code.push(Vop::Jpi(idx));
+    }
+
+    fn emit_jpk(&mut self, key: String) {
+        self.code.push(Vop::Jpk(key));
+    }
+
+    fn emit_loadc(&mut self, cursor: usize) {
+        self.code.push(Vop::LoadC(cursor))
+    }
+
+    fn emit_loadv(&mut self, idx: usize) {
+        self.code.push(Vop::LoadV(idx))
+    }
+
+    fn emit_obj(&mut self) {
+        self.code.push(Vop::Obj);
+    }
+
+    fn emit_obj_assign(&mut self, name: String) {
+        self.code.push(Vop::ObjAssign(name));
+    }
+
+    fn emit_obj_spread(&mut self) {
+        self.code.push(Vop::ObjSpread);
+    }
+
+    fn emit_push(&mut self, value: Value) {
+        self.code.push(Vop::Push(value))
+    }
+
+    fn emit_return(&mut self) {
+        self.code.push(Vop::Return);
     }
 }
 

@@ -1,12 +1,11 @@
 use rusqlite::Statement;
 
-use crate::value::Record;
+use crate::value::Value;
 
 /// Cursor holds a prepared SQLite statement that can be stepped.
 pub struct Cursor {
-    // cols: Vec<TableMember>,
     /// for now, hold onto a vector.
-    rows: Vec<Record>,
+    rows: Vec<Value>,
     /// pos holds the cursor's current index.
     pos: usize,
     /// end holds the cursor's last index.
@@ -16,14 +15,13 @@ pub struct Cursor {
 impl Cursor {
 
     pub fn new(statement: Statement<'_>) -> Self {
-
         // TODO use rows and make it lazy.
         let mut statement = Box::new(statement);
         let mut query = statement.query([]).unwrap();
-        let mut rows: Vec<Record> = vec![];
+        let mut rows: Vec<Value> = vec![];
         while let Some(row) = query.next().unwrap() {
             let s: String = row.get(0).unwrap();
-            let v = Record::from_str(&s).unwrap();
+            let v = Value::from_str(&s).unwrap();
             rows.push(v);
         }
 
@@ -41,7 +39,7 @@ impl Cursor {
         self.pos < self.end
     }
 
-    pub fn row(&self) -> Record {
+    pub fn row(&self) -> Value {
         self.rows[self.pos].clone()
     }
 }

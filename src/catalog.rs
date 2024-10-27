@@ -11,12 +11,12 @@ use crate::{
     ir::{self, Table},
     lexer::RqlLexer,
     parser::RqlParser,
-    value::{Record, Value},
+    value::Value,
     Result,
 };
 use rusqlite::{named_params, types::FromSql, Connection, ToSql};
 
-const SQL_INIT: &str = "CREATE TABLE IF NOT EXISTS catalog ( name TEXT PRIMARY KEY, ddl TEXT);";
+const SQL_INIT: &str = "CREATE TABLE IF NOT EXISTS catalog ( name TEXT PRIMARY KEY, ddl TEXT );";
 const SQL_SYNC: &str = "SELECT name, ddl FROM catalog;";
 
 /// Catalog manages the database tables, routines, and eventually types.
@@ -63,7 +63,7 @@ impl Catalog {
     }
 
     /// Lookup a routine by name and arity.
-    pub fn get_routine(&self, name: &str, arity: usize) -> Result<()> {
+    pub fn get_routine(&self, _name: &str, _arity: usize) -> Result<()> {
         // self.routines
         // .get(name)
         // .map(|&v| v)
@@ -90,11 +90,11 @@ impl Catalog {
     /// Delete all rows from the table.
     pub fn clear(&mut self, table: &str) -> Result<()> {
         let delete = format!("DELETE FROM {} WHERE true", table);
-        //
+
         let tx = self.conn.transaction()?;
         tx.execute(&delete, [])?;
         tx.commit()?;
-        //
+
         Ok(())
     }
 
@@ -102,25 +102,27 @@ impl Catalog {
     pub fn drop(&mut self, table: &str) -> Result<()> {
         let drop = format!("DROP TABLE IF EXISTS {};", table);
         let delete = "DELETE FROM catalog WHERE name = :name;";
-        //
+
         let tx = self.conn.transaction()?;
         tx.execute(&drop, [])?;
         tx.execute(delete, named_params! { ":name": table })?;
         tx.commit()?;
-        //
+
         self.sync()
     }
 
-    /// Insert a record into the given table.
-    ///
-    /// TODO `insert_batch` which prepares then calls execute many times in a transaction.
-    ///
-    pub fn insert(&mut self, table: &str, record: Record) -> Result<usize> {
+    /// Insert a value into the table.
+    pub fn insert(&mut self, table: &str, value: Value) -> Result<()> {
         let table = self.get_table(table)?;
         let insert = table.to_sqlite_insert();
-        let v = record.to_string();
-        let n = self.conn.execute(&insert, [v])?;
-        Ok(n)
+        let v = value.to_string();
+        let _ = self.conn.execute(&insert, [v])?;
+        Ok(())
+    }
+
+    /// TODO `insert_batch` which prepares then calls execute many times in a transaction.
+    pub fn insert_batch(&mut self, _table: &str, _values: &[Value]) -> Result<()> {
+        todo!("insert_batch")
     }
 
     /// Open a cursor to the given table.
@@ -168,13 +170,10 @@ impl Catalog {
 
     // TODO fn pointers
     fn routines() -> HashMap<String, i32> {
-        [
-            ("upper", 1),
-            ("lower", 1),
-        ]
-        .into_iter()
-        .map(|(k, v)| (k.to_string(), v))
-        .collect()
+        [("upper", 1), ("lower", 1)]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect()
     }
 }
 

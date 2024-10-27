@@ -15,9 +15,6 @@ impl Default for Value {
     }
 }
 
-/// Record (for now) is just a JSON value
-pub type Record = Value;
-
 impl Value {
     pub fn new(value: JsonValue) -> Self {
         Self(value)

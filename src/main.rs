@@ -1,7 +1,7 @@
 use std::env;
 use std::path::PathBuf;
 
-use rho::{value::Value, Rho};
+use monadb::{value::Value, MonaDB};
 use rustyline::{error::ReadlineError, history::DefaultHistory, validate::{ValidationContext, ValidationResult, Validator}, Completer, Config, EditMode, Editor, Helper, Highlighter, Hinter};
 
 use clap::{Parser, Subcommand};
@@ -57,13 +57,14 @@ impl LineReader {
             .edit_mode(EditMode::Vi)
             .build();
         let mut editor = Editor::<LineValidator, DefaultHistory>::with_config(config).unwrap();
-        editor.load_history(".rho_history").unwrap();
+        // todo check if history file exists
+        editor.load_history(".monadb_history").unwrap();
         editor.set_helper(Some(LineValidator));
         LineReader { editor }
     }
 
     pub fn close(&mut self) {
-        self.editor.save_history(".rho_history").unwrap();
+        self.editor.save_history(".monadb_history").unwrap();
     }
 
     pub fn read_line(&mut self, buffer: &mut String, prompt: &str) -> Option<()> {
@@ -109,13 +110,13 @@ fn main() {
 
     // OPEN DATABASE 
     let args: Vec<String> = env::args().collect();
-    let mut rho = match args.len() {
+    let mut mona = match args.len() {
         1 => {
-            Rho::memory().expect("Could not open rho")
+            MonaDB::memory().expect("Could not open monadb memory")
         },
         2 => {
             let path: PathBuf = PathBuf::from(&args[1]);
-            Rho::open(&path).expect("Could not open rho")
+            MonaDB::open(&path).expect("Could not open monadb file")
         },
         _ => {
             eprintln!("Usage: {} <file>", args[0]);
@@ -155,7 +156,7 @@ fn main() {
                     println!("debug: {}", debug);
                 }
                 Command::Info => {
-                    rho.info();
+                    mona.info();
                 }
                 Command::Exit => {
                     break;
@@ -167,13 +168,13 @@ fn main() {
                 },
                 Command::Insert { table, value } => {
                     let row = Value::from_str(&value).expect("Could not parse row");
-                    rho.insert(&table, row).expect("Could not insert row");
+                    mona.insert(&table, row).expect("Could not insert row");
                 },
                 Command::Drop { table } => {
-                    rho.drop_table(&table).expect("Could not drop table");
+                    mona.drop_table(&table).expect("Could not drop table");
                 },
                 Command::Select { table } => {
-                    let mut cursor = rho.scan(&table).expect("Could not select rows");
+                    let mut cursor = mona.scan(&table).expect("Could not select rows");
                     while cursor.next() {
                         println!("{:?}", cursor.row());
                     }
@@ -181,7 +182,7 @@ fn main() {
             }
         } else {
             // STATEMENT
-            match rho.exec(&buffer, debug) {
+            match mona.exec(&buffer, debug) {
                 Ok(mut rows) => {
                     loop {
                         match rows.next() {

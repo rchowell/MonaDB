@@ -3,8 +3,8 @@ use std::vec;
 use crate::cursor::Cursor;
 use crate::ir::Table;
 use crate::value::Value;
-use crate::{unsupported, Result};
-use crate::{value::Record, Rho};
+use crate::Result;
+use crate::MonaDB;
 
 /// Code is a sequence of virtual machine instructions.
 pub type Code = Vec<Vop>;
@@ -22,8 +22,10 @@ pub enum Vop {
     CreateTable { table: Table },
     /// Consider replacing with a `Delete` instruction on the catalog table.
     Drop { table: String },
-    /// Insert row into a table.
-    Insert { tbl: String, row: usize },
+    /// Insert 1 value into the table.
+    Insert(String),
+    /// Insert n values into the table.
+    InsertBatch(String, usize),
     /// JSON Path Index
     Jpi(usize),
     /// JSON Path Key
@@ -104,11 +106,6 @@ impl Vop {
     }
 
     #[inline]
-    pub fn insert(tbl: String, row: usize) -> Vop {
-        Vop::Insert { tbl, row }
-    }
-
-    #[inline]
     pub fn init() -> Vop {
         Vop::Init
     }
@@ -130,8 +127,9 @@ impl Vop {
 }
 
 /// VM holds the state of the virtual machine.
+/// TODO VM should be using the catalog/connection, not the library.
 pub struct VM<'r> {
-    db: &'r Rho,
+    db: &'r MonaDB,
     pc: usize,
     program: Code,
     cursors: Vec<Cursor>,
@@ -140,7 +138,7 @@ pub struct VM<'r> {
 }
 
 impl<'r> VM<'r> {
-    pub fn init(db: &Rho, program: Code) -> VM {
+    pub fn init(db: &MonaDB, program: Code) -> VM {
         VM {
             db,
             pc: 0,
@@ -151,7 +149,7 @@ impl<'r> VM<'r> {
         }
     }
 
-    pub fn next(&mut self) -> Result<Option<Record>> {
+    pub fn next(&mut self) -> Result<Option<Value>> {
         loop {
             let op = self.program[self.pc].clone(); // <-- CLONE INSTRUCTION (MAKE THESE u64)
             self.pc += 1;
@@ -171,8 +169,13 @@ impl<'r> VM<'r> {
                 Vop::Drop { table } => {
                     self.db.drop_table(table)?;
                 }
-                Vop::Insert { tbl, row } => {
-                    unsupported!("insert not supported")
+                Vop::Insert(table) => {
+                    let value = self.pop();
+                    self.db.insert(table, value)?;
+                }
+                Vop::InsertBatch(table, n) => {
+                    let values = self.take(*n);
+                    self.db.insert_batch(table, &values)?;
                 }
                 Vop::Jpe => {
                     let e = self.pop();
@@ -316,6 +319,11 @@ impl<'r> VM<'r> {
 
     fn pop(&mut self) -> Value {
         self.stack.pop().unwrap()
+    }
+
+    fn take(&mut self, n: usize) -> Vec<Value> {
+        let i = self.stack.len() - n;
+        self.stack.split_off(i)
     }
 
     fn peek(&mut self) -> &mut Value {

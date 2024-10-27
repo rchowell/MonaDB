@@ -22,6 +22,7 @@ _This section contains a list of features/ideas that are not yet implemented._
 
 .Uncategorized
 * [ ] Testing framework, dbgen, performance and language comparison to jq and sqlite jsonb.
+* [ ] Comparison report: jq, sqlite, mongodb, couchbaselite, pouchdb, polodb.
 * [ ] Render language documents to HTML.
 * [ ] Row pointers.
 * [ ] UPDATE and conditional DELETE (needs row pointers)

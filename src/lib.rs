@@ -29,7 +29,7 @@ use catalog::Catalog;
 use ir::Table;
 use lalrpop_util::lalrpop_mod;
 use rows::Rows;
-use value::Record;
+use value::Value;
 
 use crate::vm::*;
 
@@ -37,23 +37,23 @@ use crate::vm::*;
 pub type Result<T, E = Error> = result::Result<T, E>;
 
 /// Rho represents the database connection.
-pub struct Rho {
+pub struct MonaDB {
     catalog: RefCell<Catalog>,
 }
 
-impl Rho {
+impl MonaDB {
 
-    pub fn open<P>(path: P) -> Result<Rho>
+    pub fn open<P>(path: P) -> Result<MonaDB>
     where P: AsRef<Path> {
         let catalog = Catalog::open(path)?;
-        Ok(Rho { 
+        Ok(MonaDB { 
             catalog: RefCell::new(catalog),
         })
     }
 
-    pub fn memory() -> Result<Rho> {
+    pub fn memory() -> Result<MonaDB> {
         let catalog = Catalog::memory()?;
-        Ok(Rho {
+        Ok(MonaDB {
             catalog: RefCell::new(catalog),
         })
     }
@@ -102,9 +102,14 @@ impl Rho {
         self.catalog.borrow_mut().drop(table)
     }
 
-    // Insert rows into the table.
-    pub fn insert(&self, table: &str, record: Record) -> Result<usize> {
-        self.catalog.borrow_mut().insert(table, record)
+    // Insert value into the table.
+    pub fn insert(&self, table: &str, value: Value) -> Result<()> {
+        self.catalog.borrow_mut().insert(table, value)
+    }
+
+    // Insert values into the table.
+    pub fn insert_batch(&self, table: &str, values: &[Value]) -> Result<()> {
+        self.catalog.borrow_mut().insert_batch(table, values)
     }
 
     // Opens a cursor for the table.
