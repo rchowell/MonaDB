@@ -95,20 +95,21 @@ TableName: String = "ident";
 
 Select: ir::Select = {
     "select" "*"                <From>  => ir::select_star(<>),
-    "select" "{" <Members> "}"  <From>  => ir::select_list(<>),
-    "select" <List<SelectItem>> <From>  => ir::select_list(<>),
+    "select" <Expr>             <From?> => ir::select_expr(<>),
+    "select" <List<SelectItem>> <From?> => ir::select_list(<>),
 };
 
 SelectItem: ir::Member = {
     <Expr> "as" <"ident">   => ir::select_item(<>),
 };
 
-From: ir::From = {
+// TODO from <expr>
+From: ir::Iter = {
     "from" <"ident">                    => ir::from_table(<>),
     "from" <FromSource> "as" <"ident">  => ir::from_source(<>),
 };
 
-FromSource: ir::FromSource = {
+FromSource: ir::Source = {
     <"ident">                   => ir::from_source_table(<>),
     <"ident"> "$" <Segment+>    => ir::from_source_path(<>),
 };

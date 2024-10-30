@@ -1,6 +1,7 @@
 use rusqlite::Statement;
 
 use crate::value::Value;
+use crate::Result;
 
 /// Cursor holds a prepared SQLite statement that can be stepped.
 pub struct Cursor {
@@ -30,16 +31,13 @@ impl Cursor {
         Self { rows, pos, end }
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.end == 0
-    }
-
-    pub fn next(&mut self) -> bool {
-        self.pos += 1;
-        self.pos < self.end
-    }
-
-    pub fn row(&self) -> Value {
-        self.rows[self.pos].clone()
+    pub fn next(&mut self) -> Result<Option<Value>> {
+        if self.pos >= self.end {
+            Ok(None)
+        } else {
+            let value = self.rows[self.pos].clone();
+            self.pos += 1;
+            Ok(Some(value))
+        }
     }
 }

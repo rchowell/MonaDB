@@ -26,24 +26,21 @@ pub enum Vop {
     Insert(String),
     /// Insert n values into the table.
     InsertBatch(String, usize),
+    /// Jump to the instruction, pc = p0.
+    Jump(usize),
     /// JSON Path Index
     Jpi(usize),
     /// JSON Path Key
     Jpk(String),
     /// JSON Path Expression
     Jpe,
-    /// Load a value (push) from cursors[i].
-    LoadC(usize),
-    /// Load a value (push) from stack[i].
-    LoadV(usize),
-    /// Advances the cursor, assigning the row to `var`.
-    /// If there is a row, then jump to `jmp`; otherwise goto next.
-    Next { jmp: usize },
+    /// Copy a value from stack[i] to the top.
+    Load(usize),
+    /// Next from cursors[p0], else jump to p1.
+    Next(usize, usize),
     /// Opens a table for reading with the cursor positioned at the first row.
-    Open {
-        /// TODO replace table with cursor.
-        table: String,
-    },
+    /// TODO replace table with cursor.
+    Open(String),
     //
     //--- Object --- 
     //
@@ -66,64 +63,17 @@ pub enum Vop {
     Ge,
     Eq,
     Ne,
-    ///--- Logical ---
-    Pop,
-    /// Push a value into a register.
-    Push(Value),
+    ///---- Stack Manipulation ---
     /// Pop a value from the stack.
-    /// Returns the value at the top of the stack.
-    ///--- Control Transfer ---
-    Return,
-    /// Set cursor to the start; jump to `jmp` if the table is empty.
-    Rewind { jmp: usize },
+    Pop,
+    /// Push a value onto the stack.
+    Push(Value),
+    /// Yield top-of-stack from the VM loop; dropping all values after p0.
+    Yield(usize),
     /// Begin a transaction.
     Transaction,
     /// Exit the VM.
     Exit,
-}
-
-/// These are methods so that I can later optimize the Vop representation.
-/// ... without having to gut compiler.rs
-impl Vop {
-    #[inline]
-    pub fn exit() -> Vop {
-        Vop::Exit
-    }
-
-    #[inline]
-    pub fn clear(table: String) -> Vop {
-        Vop::Clear { table }
-    }
-
-    #[inline]
-    pub fn create_table(table: Table) -> Vop {
-        Vop::CreateTable { table }
-    }
-
-    #[inline]
-    pub fn drop(table: String) -> Vop {
-        Vop::Drop { table }
-    }
-
-    #[inline]
-    pub fn init() -> Vop {
-        Vop::Init
-    }
-
-    #[inline]
-    pub fn next(jmp: usize) -> Vop {
-        Vop::Next { jmp }
-    }
-
-    #[inline]
-    pub fn open(table: String) -> Vop {
-        Vop::Open { table }
-    }
-
-    #[inline]
-    pub fn rewind(jmp: usize) -> Vop {
-        Vop::Rewind { jmp }
-    }
 }
 
 /// VM holds the state of the virtual machine.
@@ -193,15 +143,16 @@ impl<'r> VM<'r> {
                     let v = v.jpk(key).unwrap_or_default();
                     self.push(v);
                 }
-                Vop::LoadC(idx) => {
-                    let row = self.cursors[*idx].row();
-                    // println!("PUSH {:?}", row);
-                    self.push(row);
-                }
-                Vop::LoadV(idx) => {
+                Vop::Load(idx) => {
                     let v = self.stack[*idx].clone();
                     // println!("VAR: {} ", v);
                     self.push(v);
+                }
+                Vop::Next(cursor, jmp) => {
+                    match self.cursors[*cursor].next()? {
+                        Some(next) => self.push(next),
+                        None => self.pc = *jmp,
+                    };
                 }
                 Vop::Obj => {
                     self.stack.push(Value::object());
@@ -215,10 +166,9 @@ impl<'r> VM<'r> {
                 Vop::ObjSpread => {
                     let val = self.pop();
                     let obj = self.peek();
-                    // println!("OBJ_SPREAD: {} ", val);
                     obj.spread(val);
                 }
-                Vop::Open { table } => {
+                Vop::Open(table)  => {
                     self.cursors.push(self.db.scan(table)?);
                 }
                 Vop::Pop => {
@@ -227,19 +177,13 @@ impl<'r> VM<'r> {
                 Vop::Push(v) => {
                     self.push(v.clone());
                 }
-                Vop::Return => {
+                Vop::Yield(tofs) => {
                     let v = self.pop();
+                    self.drop(*tofs);
                     return Ok(Some(v));
                 }
-                Vop::Rewind { jmp } => {
-                    if self.cursors[0].is_empty() {
-                        self.pc = *jmp;
-                    }
-                }
-                Vop::Next { jmp } => {
-                    if self.cursors[0].next() {
-                        self.pc = *jmp;
-                    }
+                Vop::Jump(jmp) => {
+                    self.pc = *jmp;
                 }
                 Vop::Transaction => {
                     self.db.transaction();
@@ -248,7 +192,7 @@ impl<'r> VM<'r> {
                     return Ok(None);
                 }
                 //
-                // 
+                // Operators
                 //
                 Vop::Add => {
                     let r = self.pop();
@@ -319,6 +263,10 @@ impl<'r> VM<'r> {
 
     fn pop(&mut self) -> Value {
         self.stack.pop().unwrap()
+    }
+
+    fn drop(&mut self, tofs: usize) {
+        self.stack.truncate(tofs);
     }
 
     fn take(&mut self, n: usize) -> Vec<Value> {

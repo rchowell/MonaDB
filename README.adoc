@@ -47,6 +47,8 @@ _This section contains a list of features/ideas that are not yet implemented._
 * [ ] Better error messages.
 * [ ] Formatted output.
 * [ ] Load input from a file into a table.
+* [ ] Have "schema" VM.
+* [ ] Dump current code buffer on error when debug is on.
 
 == Worklog
 
@@ -116,8 +118,6 @@ For September, I would like to have the CRUD operations working and start the RQ
 * [x] Run a scan against the in-memory "table".
 * [x] Send results to stdout.
 * [x] Make the most rudimentary file format!
-
-.Notes
 * I have a VM loop and cursor.
 * Start with loading jsonlines from stdin.
 * Figure out a projection operator

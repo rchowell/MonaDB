@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, vec};
 
 use crate::value::*;
 
@@ -44,32 +44,39 @@ impl Display for Table {
 }
 
 //------------------------------
-// Select Clause
+// DQL
 //------------------------------
 
-/// SELECT <sel> ...
+pub type Select = Block;
+
 #[derive(Debug)]
-pub struct Select {
-    pub inp: From,
-    pub sel: Vec<SelectItem>,
+pub struct Block {
+    pub iter: Iter,
+    pub pred: Option<Expr>,
+    pub cons: Expr,
 }
 
-pub type SelectItem = Member;
-
-//------------------------------
-// From Clause
-//------------------------------
-
 #[derive(Debug)]
-pub struct From {
-    pub src: FromSource,
+pub enum Source {
+    Table(String),
+    Path(Path),
+    Value(Value),
+}
+
+// this is a single source iter, consider joins
+#[derive(Debug)]
+pub struct Iter {
+    pub src: Source,
     pub var: String, // AS <var>
 }
 
-#[derive(Debug)]
-pub enum FromSource {
-    Table(String),
-    Path(Path),
+impl Default for Iter {
+    fn default() -> Self {
+        Iter {
+            src: Source::Value(Value::null()),
+            var: "".to_string(),
+        }
+    }
 }
 
 //------------------------------
@@ -224,34 +231,35 @@ pub fn insert(target: String, source: Vec<Expr>) -> Insert {
 }
 
 #[inline]
-pub fn select_star(from: From) -> Select {
+pub fn select_star(from: Iter) -> Block {
     let var = Expr::Var(from.var.clone());
-    let member = Member::Spread(var);
-    Select {
-        inp: from,
-        sel: vec![member],
+    let obj = vec![Member::Spread(var)];
+    Block {
+        iter: from.into(),
+        pred: None,
+        cons: Expr::Obj(obj),
     }
 }
 
 #[inline]
-pub fn select_list(members: Vec<Member>, from: From) -> Select {
-    Select {
-        inp: from,
-        sel: members,
+pub fn select_expr(expr: Expr, from: Option<Iter>) -> Block {
+    Block {
+        iter: from.unwrap_or_default().into(),
+        pred: None,
+        cons: expr,
     }
 }
 
-// select_item with no alias; derive an alias.
 #[inline]
-pub fn select_item_var(expr: Expr) -> Member {
-    let name = match &expr {
-        Expr::Var(var) => var.clone(),
-        Expr::Jpk(jpk) => jpk.key.clone(),
-        _ => panic!("select_item_var: {:?}", expr),
-    };
-    select_item(expr, name)
+pub fn select_list(members: Vec<Member>, from: Option<Iter>) -> Block {
+    Block {
+        iter: from.unwrap_or_default().into(),
+        pred: None,
+        cons: Expr::Obj(members),
+    }
 }
 
+// TODO select x.*, y.* ...
 // select_item with .* (spread).
 #[inline]
 pub fn select_item_star(expr: Expr) -> Member {
@@ -265,25 +273,25 @@ pub fn select_item(expr: Expr, name: String) -> Member {
 }
 
 #[inline]
-pub fn from_table(tbl: String) -> From {
-    let src = FromSource::Table(tbl.clone());
+pub fn from_table(tbl: String) -> Iter {
+    let src = Source::Table(tbl.clone());
     let var = tbl.clone();
-    From { src, var }
+    Iter { src, var }
 }
 
 #[inline]
-pub fn from_source(src: FromSource, var: String) -> From {
-    From { src, var }
+pub fn from_source(src: Source, var: String) -> Iter {
+    Iter { src, var }
 }
 
 #[inline]
-pub fn from_source_table(tbl: String) -> FromSource {
-    FromSource::Table(tbl.clone())
+pub fn from_source_table(tbl: String) -> Source {
+    Source::Table(tbl.clone())
 }
 
 #[inline]
-pub fn from_source_path(identifier: String, segments: Vec<Segment>) -> FromSource {
-    FromSource::Path(Path { identifier, segments })
+pub fn from_source_path(identifier: String, segments: Vec<Segment>) -> Source {
+    Source::Path(Path { identifier, segments })
 }
 
 #[inline]

@@ -1,0 +1,63 @@
+
+.Operations
+* scan/iterate
+* map
+* filter
+* reduce
+* sort
+* limit (limit)
+* skip (offset)
+* slice (limit+offset)
+
+.Refs
+* https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array
+* https://docs.oracle.com/javase/8/docs/api/?java/util/stream/Stream.html
+* https://doc.rust-lang.org/std/iter/trait.Iterator.html
+
+== Intermediate Representation
+
+* Tree IR is easy to build from the parser.
+* Compiler needs to flatten the tree to something more linear for codegen.
+
+* Language is functional-like.
+* Parser is tree-like.
+* IR is a block tree; where each block makes imperative codegen easier.
+* Codegen wants a linear, imperative representation.
+
+[source]
+----
+// sql like
+
+select map(t) from T as t where predicate(t);
+
+from(T).filter(predicate).map(map);
+
+// functional
+
+
+// bytecode replicating a fallible streaming iterator
+
+while let Some(value) = T.next()? {  // 0: next(c, n+1)
+    if (predicate(value)) {          // .......
+        yield map(value);            //
+    }
+                                     // n: jump(0)
+}                                    // n+1
+
+
+// joins
+//-------
+// select map(l, r) from L, R where predicate(l, r);
+// from (L, R) where, select ...
+// from (L, R) | where predicate(l, r) | select map(l, r)
+
+while let Some(lhs) = L.next()? {
+    while let Some(rhs) = R.next()? {
+        if (predicate(lhs, rhs)) {
+            yield map(lhs, rhs);
+        }
+    }
+}
+
+// from (L, R) | select map(l, r)
+----

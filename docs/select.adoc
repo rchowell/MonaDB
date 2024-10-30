@@ -1,11 +1,19 @@
 = Select Statement
 
+.TODOS
+* [ ] dig into what sane implicit references might behave like
+* [ ] where clause
+
 .Example
 [source,rql]
 ----
-select p.x from points as p;
+-- basic
+select 1 + 1;
 
 -- equivalences
+
+select { p.x } from points as p;
+select p.x as x from points as p;
 
 select { p.x, p.y } from points as p;
 select p.x as x, p.y as y from points as p;

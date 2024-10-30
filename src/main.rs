@@ -175,8 +175,8 @@ fn main() {
                 },
                 Command::Select { table } => {
                     let mut cursor = mona.scan(&table).expect("Could not select rows");
-                    while cursor.next() {
-                        println!("{:?}", cursor.row());
+                    while let Some(value) = cursor.next().unwrap() {
+                        println!("{:?}", value);
                     }
                 },
             }
