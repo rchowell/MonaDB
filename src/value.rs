@@ -1,4 +1,4 @@
-use std::{cmp, fmt::{Debug, Display}};
+use std::fmt::{Debug, Display};
 
 use crate::Result;
 use serde_json::{Map, Value as JsonValue};

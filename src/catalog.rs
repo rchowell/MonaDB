@@ -227,16 +227,15 @@ fn parse_table(ddl: &str) -> Result<Table> {
     }
 }
 
-// TODO keys
 impl ir::Table {
     /// The sqlite `CREATE TABLE` statement.
     fn to_sqlite_ddl(&self) -> String {
         format!("CREATE TABLE {} (_ BLOB)", self.name)
     }
 
-    /// Convert the table to a scan query.
+    /// Convert the table to a scan query (with primary key rowid->oid).
     pub fn to_sqlite_select(&self) -> String {
-        format!("SELECT _ FROM {}", self.name)
+        format!("SELECT oid as oid, _ FROM {}", self.name)
     }
 
     /// Convert the table to an insert query with the appropriate parameters (i.e. ?).

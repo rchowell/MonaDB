@@ -1,10 +1,12 @@
 = Select Statement
 
+The Select Statement _maps_ the input bindings and applies the constructor; the constructor may be an object or a list of select items.
+
 .TODOS
 * [ ] dig into what sane implicit references might behave like
 * [ ] where clause
 
-.Example
+.Examples
 [source,rql]
 ----
 -- basic
@@ -53,6 +55,16 @@ select_path
     expr_jpk
 ----
 
-== Description
+== Proposals
 
-The Select Statement _maps_ the input bindings and applies the constructor; the constructor may be an object or a list of select items.
+[source,rql]
+----
+-- select one
+select * from T@<id>;
+
+-- with constructor
+select upper(t.name) from T@<id> as t;
+
+-- delete one
+delete from T@<id>;
+----

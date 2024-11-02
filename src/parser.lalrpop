@@ -1,7 +1,4 @@
-use std::str::FromStr;
-use lalrpop_util::ParseError;
 use crate::error::Error;
-use crate::compiler::Compiler;
 use crate::ir;
 use crate::lexer::Token;
 use crate::value::Value;

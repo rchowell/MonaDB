@@ -34,7 +34,7 @@ pub enum Vop {
     Jpk(String),
     /// JSON Path Expression
     Jpe,
-    /// Copy a value from stack[i] to the top.
+    /// Load a value from cursors[p0] to the stack.
     Load(usize),
     /// Next from cursors[p0], else jump to p1.
     Next(usize, usize),
@@ -63,13 +63,16 @@ pub enum Vop {
     Ge,
     Eq,
     Ne,
-    ///---- Stack Manipulation ---
+    ///---- Stack Instructions ---
     /// Pop a value from the stack.
     Pop,
     /// Push a value onto the stack.
     Push(Value),
-    /// Yield top-of-stack from the VM loop; dropping all values after p0.
-    Yield(usize),
+    ///---- Cursor Instructions ---
+    /// Rewind the cursor (p0), jump (p1) if empty.
+    Rewind(usize, usize),
+    /// Return top-of-stack from the VM loop; dropping all values after p0.
+    Return(usize),
     /// Begin a transaction.
     Transaction,
     /// Exit the VM.
@@ -83,7 +86,6 @@ pub struct VM<'r> {
     pc: usize,
     program: Code,
     cursors: Vec<Cursor>,
-    // moving from registers to stack for simplicity..
     stack: Vec<Value>,
 }
 
@@ -94,7 +96,6 @@ impl<'r> VM<'r> {
             pc: 0,
             program,
             cursors: vec![],
-            //
             stack: vec![],
         }
     }
@@ -143,16 +144,10 @@ impl<'r> VM<'r> {
                     let v = v.jpk(key).unwrap_or_default();
                     self.push(v);
                 }
-                Vop::Load(idx) => {
-                    let v = self.stack[*idx].clone();
-                    // println!("VAR: {} ", v);
-                    self.push(v);
-                }
-                Vop::Next(cursor, jmp) => {
-                    match self.cursors[*cursor].next()? {
-                        Some(next) => self.push(next),
-                        None => self.pc = *jmp,
-                    };
+                Vop::Load(cursor) => {
+                    let row = self.cursors[*cursor].curr();
+                    let val = row.val.clone();
+                    self.push(val);
                 }
                 Vop::Obj => {
                     self.stack.push(Value::object());
@@ -168,16 +163,13 @@ impl<'r> VM<'r> {
                     let obj = self.peek();
                     obj.spread(val);
                 }
-                Vop::Open(table)  => {
-                    self.cursors.push(self.db.scan(table)?);
-                }
                 Vop::Pop => {
                     let _ = self.pop();
                 }
                 Vop::Push(v) => {
                     self.push(v.clone());
                 }
-                Vop::Yield(tofs) => {
+                Vop::Return(tofs) => {
                     let v = self.pop();
                     self.drop(*tofs);
                     return Ok(Some(v));
@@ -249,6 +241,22 @@ impl<'r> VM<'r> {
                     let l = self.pop();
                     self.push_bool(l != r);
                 }
+                //
+                // Cursor Instructions
+                //
+                Vop::Open(table)  => {
+                    self.cursors.push(self.db.scan(table)?);
+                }
+                Vop::Next(cursor, jmp) => {
+                    if self.cursors[*cursor].next() {
+                        self.pc = *jmp; // loop if has next
+                   }
+                }
+                Vop::Rewind(cursor  , jmp) => {
+                    if !self.cursors[*cursor].rewind() {
+                        self.pc = *jmp; // jump if empty
+                    }
+                },
             }
         }
     }

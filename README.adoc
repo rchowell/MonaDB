@@ -12,26 +12,14 @@ What if SQLite were a xref:DESIGN.adoc[JSON Database]?
 
 The goal is, that by Feb 1, I can host a website backed by rhodb.
 
-.Milestones
-. Table creation
-. Item CRUD 
-
 == Backlog
 
 _This section contains a list of features/ideas that are not yet implemented._
 
-.Uncategorized
-* [ ] Testing framework, dbgen, performance and language comparison to jq and sqlite jsonb.
-* [ ] Comparison report: jq, sqlite, mongodb, couchbaselite, pouchdb, polodb.
-* [ ] Render language documents to HTML.
-* [ ] Row pointers.
+.Requirements
 * [ ] UPDATE and conditional DELETE (needs row pointers)
 * [ ] Error on duplicate keys.
-* [ ] Language documentation should have links to other grammar rules.
-* [ ] Explore pro's / con's of typed arrays.
 * [ ] Computed property names in objects.
-* [ ] Add `emit_op` style methods in compiler to replace vop helpers (easy-ish find+replace).
-* [ ] Pre-commpute a table's sqlite queries because they are always the same.
 * [ ] Support for open tables.
 * [ ] Document namespaces.
 * [ ] Constraints (DDL) no enforcement yet.
@@ -40,15 +28,22 @@ _This section contains a list of features/ideas that are not yet implemented._
 ** [ ] UNIQUE
 ** [ ] CHECK
 ** [ ] DEFAULT
-* [ ] Document and use consistent ABNF
-* [ ] Document comparisons to MongoDB
-* [ ] Establish a consistent language documentation format a'la Mozilla JavaScript style.
-* [ ] Remove compiler `emit` and Vop factory methods to just use `emit_<op>` style methods.
-* [ ] Better error messages.
-* [ ] Formatted output.
 * [ ] Load input from a file into a table.
 * [ ] Have "schema" VM.
-* [ ] Dump current code buffer on error when debug is on.
+
+.Enhancements
+* [ ] Testing framework, dbgen, performance and language comparison to jq and sqlite jsonb.
+* [ ] Better error messages.
+* [ ] Formatted output.
+* [ ] Dump code buffer and stack on error when debug is on.
+
+.Documentation
+* [ ] Language documentation should have links to other grammar rules.
+* [ ] Establish a consistent language documentation format a'la Mozilla JavaScript style.
+* [ ] Comparison report: jq, sqlite, mongodb, couchbaselite, pouchdb, polodb.
+* [ ] Render language documents to HTML.
+* [ ] Document and use consistent ABNF
+* [ ] Explore pro's / con's of typed arrays.
 
 == Worklog
 
@@ -56,15 +51,18 @@ _This section contains various mini-goals to drive the project._
 
 === G4 Nov 2024
 
-* [ ] Make select operate as listcomp / compexp.
+* [ ] Row pointers.
+* [x] Make select operate as listcomp / compexp.
+* [x] Toggle debug output.
 * [ ] Remove VM dep on Rho, use "Connection".
 * [ ] Make "Catalog" the "Connection" ??
 * [ ] Read JSONLines input
 * [ ] WHERE
 * [ ] LIMIT/OFFSET
-* [ ] Cross-join.
+* [ ] CROSS JOIN
 * [ ] Scalar functions
-* [ ] Toggle debug output.
+* [ ] Check schema on insert.
+* [ ] The cursor should be an iterator over the sqlite connection.
 
 === G3 Oct 2024
 
@@ -81,7 +79,9 @@ _This section contains various mini-goals to drive the project._
 * [x] Standardize naming of bindings/attributes/fields/members including rows/objs/tables/etc.
 * [x] Document JSONPath and unnesting syntax.
 * [x] Use stack-based VM for simpler ownership patterns.
-* [ ] The cursor should be an iterator over the sqlite connection.
+* [x] Remove compiler `emit` and Vop factory methods to just use `emit_<op>` style methods.
+* [x] Add `emit_op` style methods in compiler to replace vop helpers (easy-ish find+replace).
+* [x] Pre-commpute a table's sqlite queries because they are always the same.
 
 === G2 Sep 2024
 

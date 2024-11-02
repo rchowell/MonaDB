@@ -2,11 +2,12 @@
 - Consider using the top-level function name as the alias name
 - What about top-level single values and subquery coercion?
 - Consider multiple backends (SQLite, Redis, Rho file, Rho memory).
+- Should there be similar mongo-like getOne, getMany, etc?
 
 == Closed Questions
 
 . Why not compile to Lua or SQLite bytecode? (missing operations eventual perf??)
-.. A. Eventual go is no deps or stdlib.
+.. A. Eventual goal is no deps or stdlib.
 . Q. Look into macros vs inline functions (premature??).
 .. A. Don't worry about it.
 

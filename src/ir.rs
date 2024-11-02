@@ -261,10 +261,10 @@ pub fn select_list(members: Vec<Member>, from: Option<Iter>) -> Block {
 
 // TODO select x.*, y.* ...
 // select_item with .* (spread).
-#[inline]
-pub fn select_item_star(expr: Expr) -> Member {
-    member_spread(expr)
-}
+// #[inline]
+// pub fn select_item_star(expr: Expr) -> Member {
+//     member_spread(expr)
+// }
 
 // select_item with alias.
 #[inline]
@@ -294,15 +294,16 @@ pub fn from_source_path(identifier: String, segments: Vec<Segment>) -> Source {
     Source::Path(Path { identifier, segments })
 }
 
-#[inline]
-pub fn member_var(expr: Expr) -> Member {
-    let name = match &expr {
-        Expr::Var(var) => var.clone(),
-        Expr::Jpk(jpk) => jpk.key.clone(),
-        _ => panic!("member_var: {:?}", expr),
-    };
-    Member::Assign(name, expr)
-}
+// TODO { x, y } => { x: x, y: y } shorthand
+// #[inline]
+// pub fn member_var(expr: Expr) -> Member {
+//     let name = match &expr {
+//         Expr::Var(var) => var.clone(),
+//         Expr::Jpk(jpk) => jpk.key.clone(),
+//         _ => panic!("member_var: {:?}", expr),
+//     };
+//     Member::Assign(name, expr)
+// }
 
 #[inline]
 pub fn member_assign(name: String, expr: Expr) -> Member {

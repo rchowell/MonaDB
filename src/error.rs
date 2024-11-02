@@ -1,5 +1,3 @@
-use std::fmt::format;
-
 use lalrpop_util::ParseError;
 use crate::lexer::Token;
 

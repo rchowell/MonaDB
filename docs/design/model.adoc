@@ -61,3 +61,23 @@ while let Some(lhs) = L.next()? {
 
 // from (L, R) | select map(l, r)
 ----
+
+== Deleting Rows
+
+Here is some design for basic row deletions using the MonaDB VM, then invoking SQLite. This may reach a scaling limit (tbd), but it's a start - and I could always batch deletes in an SQLite transaction.
+
+[source]
+----
+-- input
+delete from T where predicate(t);
+
+-- Step 1. execute predicate in MonaDB.
+let oids = exec(select oid from T where predicate(t)).collect();
+
+-- Step 2. execute deletions in sqlite.
+delete from T where oid in $oids;
+----
+
+.Idea
+* scan with oid (have locals stack with oid/value pairs)
+* each local holds its oid

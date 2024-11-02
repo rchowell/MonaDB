@@ -88,20 +88,25 @@ impl<'cat> Compiler<'cat> {
         // loop body
         self.cc_expr(block.cons)?;
         // loop close
-        self.emit_yield(tofs);
-        self.emit_jump(next);
+        self.emit_return(tofs);
+        self.emit_next(0, next + 1);
         self.patch(next, self.pc() + 1)?;
         Ok(())
     }
 
-    /// Compile an iteration operator.
+    /// Compile an iteration operator, callers must patch the return pc.
     /// 
     /// TODO handle paths
     /// TODO multiple cursors
     ///
-    /// 1. Define the variable into which values are scanned.
-    /// 2. Open the table as a new cursor and rewind.
-    /// 3. Emit a `loadc` for this cursor.
+    /// | PC  | INSTRUCTION | NOTE
+    /// +-----+-------------+-----------
+    /// | 0   | open        |
+    /// | 1   | rewind      | if empty, jump to n+1
+    /// | 2   |  (loop)     |
+    /// | ..  |             |
+    /// | n   | next        | if next, jump to 2
+    /// | n+1 | ...         |   
     ///
     fn cc_iter(&mut self, iter: Iter) -> Result<usize> {
         let table = match iter.src {
@@ -112,14 +117,15 @@ impl<'cat> Compiler<'cat> {
         // define the iteration variable
         self.define(iter.var);
         self.emit_open(table);
-        self.emit_next(0, 0); //
-        Ok(self.pc()) // <-- PATCH next(_, jmp)
+        self.emit_rewind(0, 0);
+        Ok(self.pc()) // <-- PATCH rewind(_, jmp)
     }
 
     /// Patch the control-flow instruction at code[pc] to jump to dst.
     fn patch(&mut self, pc: usize, dst: usize) -> Result<()> {
         match self.code.get_mut(pc).unwrap() {
             Vop::Next(_, jmp) => *jmp = dst,
+            Vop::Rewind(_, jmp) => *jmp = dst,
             _ => unsupported!("cannot patch instruction at pc[{}]", pc),
         }
         Ok(())
@@ -229,11 +235,6 @@ impl<'cat> Compiler<'cat> {
     // INSTRUCTIONS
     //------------------------------
 
-    // TODO remove me
-    fn emit(&mut self, op: Vop) {
-        self.code.push(op)
-    }
-
     fn emit_clear(&mut self, table: String) {
         self.code.push(Vop::Clear { table })
     }
@@ -274,9 +275,9 @@ impl<'cat> Compiler<'cat> {
         self.code.push(Vop::Jpk(key));
     }
 
-    fn emit_jump(&mut self, jmp: usize) {
-        self.code.push(Vop::Jump(jmp));
-    }
+    // fn emit_jump(&mut self, jmp: usize) {
+    //     self.code.push(Vop::Jump(jmp));
+    // }
 
     fn emit_load(&mut self, idx: usize) {
         self.code.push(Vop::Load(idx))
@@ -306,8 +307,12 @@ impl<'cat> Compiler<'cat> {
         self.code.push(Vop::Push(value))
     }
 
-    fn emit_yield(&mut self, tofs: usize) {
-        self.code.push(Vop::Yield(tofs));
+    fn emit_rewind(&mut self, cursor: usize, jmp: usize) {
+        self.code.push(Vop::Rewind(cursor, jmp));
+    }
+
+    fn emit_return(&mut self, tofs: usize) {
+        self.code.push(Vop::Return(tofs));
     }
 }
 
