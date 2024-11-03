@@ -204,8 +204,7 @@ fn main() {
                     println!("ok.");
                 },
                 Err(e) => {
-                    // compilation error
-                    println!("{:?}", e);
+                    println!("{}", e.pretty(&buffer));
                     println!("error.");
                 }
             }

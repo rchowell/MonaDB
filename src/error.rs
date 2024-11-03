@@ -6,7 +6,7 @@ use crate::lexer::Token;
 pub enum Error {
     IoError(String),
     InternalError(String),
-    SyntaxError(String),
+    SyntaxError(Hint),
     Unsupported(String),
     #[default]
     Unknown,
@@ -14,7 +14,47 @@ pub enum Error {
     UnknownRoutine(String),
 }
 
-// TODO impl Error
+impl Error {
+
+    pub fn pretty(&self, input: &str) -> String {
+        match self {
+            Error::SyntaxError(hint) => {
+            let mut result = String::new();
+            let lines: Vec<&str> = input.lines().collect();
+            let line_number = input[..hint.location].lines().count();
+            let column_number = hint.location - input[..hint.location].rfind('\n').unwrap_or(0);
+
+            // header
+            result.push_str("\n");
+            result.push_str("error: ");
+            result.push_str(&hint.message);
+            result.push_str("\n");
+            result.push_str("  |\n");
+            // location
+            if let Some(line) = lines.get(line_number - 1) {
+                result.push_str("  | ");
+                result.push_str(line);
+                result.push('\n');
+                result.push_str("  | ");
+                result.push_str(&" ".repeat(column_number));
+                result.push('^');
+            }
+            // spacing
+            result.push_str("\n");
+
+            result
+            }
+            _ => format!("{:?}", self),
+        }
+
+    }
+    
+}
+
+// TODO maybe remove me?
+pub fn err_unknown_routine(sym: &str) -> Error {
+    Error::UnknownRoutine(format!("unknown routine: {}", sym))
+}
 
 #[macro_export]
 macro_rules! error {
@@ -38,7 +78,7 @@ impl From<rusqlite::Error> for Error {
 
 impl From<serde_json::Error> for Error {
     fn from(e: serde_json::Error) -> Error {
-        Error::SyntaxError(e.to_string())
+        Error::IoError(e.to_string())
     }
 }
 
@@ -46,28 +86,45 @@ impl From<ParseError<usize, Token, Error>> for Error {
     fn from(e: ParseError<usize, Token, Error>) -> Error {
         match e {
             ParseError::User { error } => error,
-            ParseError::UnrecognizedEof { .. } => err_syntax("unexpected EOF"),
+            ParseError::UnrecognizedEof { location, expected } => {
+                let hint = Hint {
+                    message: "unexpected EOF".to_string(),
+                    location,
+                    expected,
+                };
+                Error::SyntaxError(hint)
+            }
             ParseError::InvalidToken { location } => {
-                // unexpected
-                err_syntax(&format!("unexpected token at {:?}", location))
+                let hint = Hint {
+                    message: "unexpected token".to_string(),
+                    location,
+                    expected: vec![],
+                };
+                Error::SyntaxError(hint)
             }
             ParseError::UnrecognizedToken { token, expected } => {
-                // expected something different
-                let expected = expected.join(", ");
-                err_syntax(&format!("unexpected token at {:?}, expected {}", token.0, expected))
+                let hint = Hint {
+                    message: "unrecognized token".to_string(),
+                    location: token.0,
+                    expected,
+                };
+                Error::SyntaxError(hint)
             },
             ParseError::ExtraToken { token } => {
-                // unexpected
-                err_syntax(&format!("unexpected token {:?} at {:?}", token.1, token.0))
+                let hint = Hint {
+                    message: "extra token".to_string(),
+                    location: token.0,
+                    expected: vec![],
+                };
+                Error::SyntaxError(hint)
             },
         }
     }
 }
 
-pub fn err_syntax(message: &str) -> Error {
-    Error::SyntaxError(message.to_string())
-}
-
-pub fn err_unknown_routine(sym: &str) -> Error {
-    Error::UnknownRoutine(format!("unknown routine: {}", sym))
+#[derive(Debug, Clone, PartialEq)]
+pub struct Hint {
+    pub message: String,
+    pub location: usize,
+    pub expected: Vec<String>,
 }

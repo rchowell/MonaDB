@@ -221,7 +221,7 @@ fn parse_table(ddl: &str) -> Result<Table> {
     if let Statement::Create(Create::Table(table)) = ddl {
         Ok(table)
     } else {
-        Err(Error::SyntaxError(
+        Err(Error::InternalError(
             "Expected `create table` statement".to_string(),
         ))
     }

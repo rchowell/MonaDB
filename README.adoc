@@ -33,9 +33,9 @@ _This section contains a list of features/ideas that are not yet implemented._
 
 .Enhancements
 * [ ] Testing framework, dbgen, performance and language comparison to jq and sqlite jsonb.
-* [ ] Better error messages.
 * [ ] Formatted output.
 * [ ] Dump code buffer and stack on error when debug is on.
+* [ ] Add a trace option.
 
 .Documentation
 * [ ] Language documentation should have links to other grammar rules.
@@ -54,6 +54,7 @@ _This section contains various mini-goals to drive the project._
 * [ ] Row pointers.
 * [x] Make select operate as listcomp / compexp.
 * [x] Toggle debug output.
+* [x] Better error messages.
 * [ ] Remove VM dep on Rho, use "Connection".
 * [ ] Make "Catalog" the "Connection" ??
 * [ ] Read JSONLines input
