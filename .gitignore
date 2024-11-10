@@ -1,3 +1,11 @@
-target/
+# IDE
 .vscode/
+
+# rust
+target/
+
+# docs
+docs/build/
+
+# monadb
 .monadb_history
