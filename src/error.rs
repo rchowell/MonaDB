@@ -29,17 +29,23 @@ impl Error {
             result.push_str("error: ");
             result.push_str(&hint.message);
             result.push_str("\n");
-            result.push_str("  |\n");
+            result.push_str("  │\n");
             // location
             if let Some(line) = lines.get(line_number - 1) {
-                result.push_str("  | ");
+                result.push_str("  │ ");
                 result.push_str(line);
                 result.push('\n');
-                result.push_str("  | ");
+                result.push_str("  │ ");
                 result.push_str(&" ".repeat(column_number));
                 result.push('^');
+                result.push_str("\n");
             }
-            // spacing
+
+            // expected
+            if hint.expected.len() > 0 {
+                result.push_str("  └─ expected: ");
+                result.push_str(&hint.expected.join(", "));
+            }
             result.push_str("\n");
 
             result

@@ -78,19 +78,38 @@ impl<'cat> Compiler<'cat> {
     }
 
     fn cc_select(&mut self, select: Select) -> Result<()> {
-        self.cc_block(select)
-    }
-
-    fn cc_block(&mut self, block: Block) -> Result<()> {
         // loop open
         let tofs = self.vars.len(); // top-of-stack
-        let next = self.cc_iter(block.iter)?;
+        let next = self.cc_iter(select.from)?;
         // loop body
-        self.cc_expr(block.cons)?;
+        self.cc_select_constructor(select.select, tofs)?;
+        // TODO where execution
+        if (select.where_).is_some() {
+            unsupported!("where clause")
+        }
         // loop close
         self.emit_return(tofs);
         self.emit_next(0, next + 1);
         self.patch(next, self.pc() + 1)?;
+        Ok(())
+    }
+
+    fn cc_select_constructor(&mut self, constructor: Constructor, sos: usize) -> Result<()> {
+        match constructor {
+            Constructor::None => (),
+            Constructor::Star => {
+                self.emit_obj();
+                let mut i = sos; // start-of-scope
+                let n = self.vars.len();
+                while i < n {
+                    self.emit_load(i);
+                    self.emit_obj_spread();
+                    i += 1;
+                }
+            },
+            Constructor::Expr(expr) => self.cc_expr(expr)?,
+            Constructor::List(members) => self.cc_expr_obj(members)?,
+        }
         Ok(())
     }
 
@@ -111,8 +130,8 @@ impl<'cat> Compiler<'cat> {
     fn cc_iter(&mut self, iter: Iter) -> Result<usize> {
         let table = match iter.src {
             Source::Table(table) => table,
-            Source::Path(path) => todo!("from path: {:?}", path),
-            Source::Value(_) => todo!("from value"),
+            Source::Path(path) => unsupported!("from path: {:?}", path),
+            Source::Value(_) => unsupported!("from value"),
         };
         // define the iteration variable
         self.define(iter.var);

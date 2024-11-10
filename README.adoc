@@ -30,6 +30,8 @@ _This section contains a list of features/ideas that are not yet implemented._
 ** [ ] DEFAULT
 * [ ] Load input from a file into a table.
 * [ ] Have "schema" VM.
+* [ ] f-strings for string interpolation.
+* [ ] null operators
 
 .Enhancements
 * [ ] Testing framework, dbgen, performance and language comparison to jq and sqlite jsonb.
@@ -55,6 +57,7 @@ _This section contains various mini-goals to drive the project._
 * [x] Make select operate as listcomp / compexp.
 * [x] Toggle debug output.
 * [x] Better error messages.
+* [x] dig into what sane implicit references might behave like
 * [ ] Remove VM dep on Rho, use "Connection".
 * [ ] Make "Catalog" the "Connection" ??
 * [ ] Read JSONLines input
@@ -62,6 +65,8 @@ _This section contains various mini-goals to drive the project._
 * [ ] LIMIT/OFFSET
 * [ ] CROSS JOIN
 * [ ] Scalar functions
+* [ ] Delete with WHERE
+* [ ] Select One
 * [ ] Check schema on insert.
 * [ ] The cursor should be an iterator over the sqlite connection.
 

@@ -3,13 +3,11 @@
 The Select Statement _maps_ the input bindings and applies the constructor; the constructor may be an object or a list of select items.
 
 .TODOS
-* [ ] dig into what sane implicit references might behave like
 * [ ] where clause
 
 .Examples
 [source,rql]
 ----
--- basic
 select 1 + 1;
 
 -- equivalences
@@ -33,15 +31,17 @@ select { ...t, ...s } from t, s;
 [source,mckeeman]
 ----
 select_statement
-    "select" select_constructor "from" table_name
+    "select" select_constructor
+    "select" select_constructor select_body
 
 select_constructor
+    "."
     "*"
-    select_obj
+    select_expr
     select_list
 
-select_object
-    expr_obj
+select_expr
+    expr
 
 select_list
     select_item
@@ -57,6 +57,7 @@ select_path
 
 == Proposals
 
+.select/delete one
 [source,rql]
 ----
 -- select one
@@ -68,3 +69,58 @@ select upper(t.name) from T@<id> as t;
 -- delete one
 delete from T@<id>;
 ----
+
+== Spread Operator
+
+[source,rql]
+----
+select * from T     -- map vars.*   / spread
+select . from T     -- map vars     / identity
+----
+
+.Equivalences
+[source]
+----
+*           <=> { ... }
+a.*         <=> { ...a }
+a.*, b.*    <=> { ...a, ...b }
+----
+
+.Example 1
+[source,rql]
+----
+-- input: T = [ { x: 1, y: 2 } ]
+
+select * from T as t;           -- vars { t: t }
+select t.* from T as t;         -- ..
+select { ...t } from T as t;    -- vars { x: t.x, y: t.y }
+
+-- output: [ { x: 1, y: 2 } ]
+----
+
+.Example 2
+[source]
+----
+-- input: T = [ { x: 1, y: 2 } ]
+
+select . from T as t with *;         -- vars { x: t.x, y: t.y }
+select . from T as t with t.*;       -- ..
+select . from T as t with { ...t };  -- ..
+
+-- output: [ { x: 1, y: 2 } ]
+----
+
+.Example 3
+[source,rql]
+----
+-- input: T = [ { x: 1, y: 2 } ]
+
+select * from T as t;           -- vars { t: t }
+select t.* from T as t;         -- ..
+select { ...t } from T as t;    -- vars { x: t.x, y: t.y }
+
+-- output: [ { x: 1, y: 2 } ]
+----
+
+
+

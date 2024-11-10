@@ -47,13 +47,24 @@ impl Display for Table {
 // DQL
 //------------------------------
 
-pub type Select = Block;
+#[derive(Debug)]
+pub struct Select {
+    pub from: Iter,
+    // pub with: Option<Expr>,
+    pub where_: Option<Expr>, 
+    // group
+    // having
+    // order
+    // fetch
+    pub select: Constructor,
+}
 
 #[derive(Debug)]
-pub struct Block {
-    pub iter: Iter,
-    pub pred: Option<Expr>,
-    pub cons: Expr,
+pub enum Constructor {
+    None,
+    Star,
+    Expr(Expr),
+    List(Vec<Member>),
 }
 
 #[derive(Debug)]
@@ -231,40 +242,22 @@ pub fn insert(target: String, source: Vec<Expr>) -> Insert {
 }
 
 #[inline]
-pub fn select_star(from: Iter) -> Block {
-    let var = Expr::Var(from.var.clone());
-    let obj = vec![Member::Spread(var)];
-    Block {
-        iter: from.into(),
-        pred: None,
-        cons: Expr::Obj(obj),
+pub fn select(select: Constructor, block: Select) -> Select {
+    Select {
+        from: block.from,
+        where_: block.where_,
+        select,
     }
 }
 
 #[inline]
-pub fn select_expr(expr: Expr, from: Option<Iter>) -> Block {
-    Block {
-        iter: from.unwrap_or_default().into(),
-        pred: None,
-        cons: expr,
+pub fn select_block(from: Iter, where_: Option<Expr>) -> Select {
+    Select {
+        from,
+        where_,
+        select: Constructor::None,
     }
 }
-
-#[inline]
-pub fn select_list(members: Vec<Member>, from: Option<Iter>) -> Block {
-    Block {
-        iter: from.unwrap_or_default().into(),
-        pred: None,
-        cons: Expr::Obj(members),
-    }
-}
-
-// TODO select x.*, y.* ...
-// select_item with .* (spread).
-// #[inline]
-// pub fn select_item_star(expr: Expr) -> Member {
-//     member_spread(expr)
-// }
 
 // select_item with alias.
 #[inline]
@@ -504,5 +497,17 @@ mod test {
             let _ = parse(&input);
         }
         // ok, no panics
+    }
+
+    #[test]
+    pub fn sfw()  {
+        let input = "select * from T where S";
+        let statement = parse(input);
+        if let Statement::Select(block) = statement {
+            assert_eq!(block.from.var, "T");
+            assert!(block.where_.is_some());
+        } else {
+            panic!("Expected Select statement");
+        }
     }
 }

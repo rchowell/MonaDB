@@ -107,6 +107,8 @@ pub enum Token {
     Select,
     #[token("table")]
     Table,
+    #[token("where")]
+    Where,
     //-------------------------
     // Types
     //-------------------------

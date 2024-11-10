@@ -47,6 +47,7 @@ extern {
         "into"      => Token::Into,
         "select"    => Token::Select,
         "table"     => Token::Table,
+        "where"     => Token::Where,
         // types
         "t_bool"    => Token::TypeBool,
         "t_number"  => Token::TypeNumber,
@@ -67,6 +68,10 @@ extern {
 
 pub Rql = <Statement> ";";
 
+//------------------------------
+// STATEMENTS
+//------------------------------
+
 Statement: ir::Statement = {
     Create  => ir::Statement::Create(<>),
     Delete  => ir::Statement::Delete(<>),
@@ -75,11 +80,12 @@ Statement: ir::Statement = {
     Select  => ir::Statement::Select(<>),
 };
 
+// CREATE STATEMENT
+//------------------------------
+
 Create: ir::Create = CreateTable;
 
-CreateTable: ir::Create = {
-    "create" "table" <TableDefinition> => ir::Create::Table(<>),
-};
+CreateTable: ir::Create = "create" "table" <TableDefinition> => ir::Create::Table(<>);
 
 TableDefinition: ir::Table = {
     <TableName>                => ir::table_definition(<>, ir::t_any()),
@@ -90,20 +96,32 @@ TableName: String = "ident";
 
 // TODO TableOptions
 
+// SELECT STATEMENT
+//------------------------------
+
 Select: ir::Select = {
-    "select" "*"                <From>  => ir::select_star(<>),
-    "select" <Expr>             <From?> => ir::select_expr(<>),
-    "select" <List<SelectItem>> <From?> => ir::select_list(<>),
+    "select" <SelectConstructor>                => todo!("select without block"),
+    "select" <SelectConstructor> <SelectBlock>  => ir::select(<>),
 };
 
-SelectItem: ir::Member = {
-    <Expr> "as" <"ident">   => ir::select_item(<>),
+SelectConstructor: ir::Constructor = {
+    "."                => ir::Constructor::None,
+    "*"                => ir::Constructor::Star,
+    <Expr>             => ir::Constructor::Expr(<>),
+    <List<SelectItem>> => ir::Constructor::List(<>),
 };
+
+// TODO clean up select item modeling when implementing the with clause.
+SelectItem: ir::Member = <Expr> "as" <"ident"> => ir::select_item(<>);
+
+SelectBlock: ir::Select =
+    <From>
+    <Where?> => ir::select_block(<>);
 
 // TODO from <expr>
 From: ir::Iter = {
     "from" <"ident">                    => ir::from_table(<>),
-    "from" <FromSource> "as" <"ident">  => ir::from_source(<>),
+    "from" <FromSource> "as"? <"ident"> => ir::from_source(<>),
 };
 
 FromSource: ir::Source = {
@@ -111,18 +129,29 @@ FromSource: ir::Source = {
     <"ident"> "$" <Segment+>    => ir::from_source_path(<>),
 };
 
-Insert: ir::Insert = {
-    "insert" "into" <InsertTarget> "(" <InsertSource> ")" => ir::insert(<>),
-};
+Where: ir::Expr = "where" <Expr>;
+
+// INSERT STATEMENT
+//------------------------------
+
+Insert: ir::Insert = "insert" "into" <InsertTarget> "(" <InsertSource> ")" => ir::insert(<>);
 
 InsertTarget: String = "ident";
 
 InsertSource: Vec<ir::Expr> = List<Expr>;
 
-// TODO
+// DELETE STATEMENT
+//------------------------------
+
+// TODO delete statement
+
 Delete: String = "delete" "from" <"ident">;
 
-// TODO
+// DROP STATEMENT
+//------------------------------
+
+// TODO drop statement
+
 Drop: String = "drop" "table" <"ident">;
 
 //------------------------------
