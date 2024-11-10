@@ -75,7 +75,7 @@ impl MonaDB {
         if debug {
             println!();
             println!("┌──────┬──────┬──────┐");
-            println!("│ Addr │ Inst │ Args │");
+            println!("│ addr │ code │ args │");
             println!("├──────┼──────┼──────┤");
             for (addr, op) in program.iter().enumerate() {
                 println!("│  {:03} │ {:?}", addr, op);

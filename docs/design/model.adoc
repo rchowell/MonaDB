@@ -55,8 +55,6 @@ select sum, y
 [source]
 ----
 -- assignment
-
-x := 1; // looks very out of place to be honest..
 1 as x;
 
 -- casts

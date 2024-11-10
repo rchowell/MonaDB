@@ -63,7 +63,10 @@ pub enum Vop {
     Ge,
     Eq,
     Ne,
-    ///---- Stack Instructions ---
+    ///--- Control ---
+    If(usize), 
+    IfNot(usize), 
+    ///--- Stack --------
     /// Pop a value from the stack.
     Pop,
     /// Push a value onto the stack.
@@ -242,7 +245,20 @@ impl<'r> VM<'r> {
                     self.push_bool(l != r);
                 }
                 //
-                // Cursor Instructions
+                // Control
+                //
+                Vop::If(jmp) => {
+                    if self.pop().is_truthy() {
+                        self.pc = *jmp;
+                    }
+                }
+                Vop::IfNot(jmp) => {
+                    if !self.pop().is_truthy() {
+                        self.pc = *jmp;
+                    }
+                }
+                //
+                // Cursor
                 //
                 Vop::Open(table)  => {
                     self.cursors.push(self.db.scan(table)?);

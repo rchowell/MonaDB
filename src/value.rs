@@ -47,6 +47,20 @@ impl Value {
         Value(JsonValue::Object(Map::new()))
     }
 
+    #[inline]
+    pub fn is_truthy(&self) -> bool {
+        if self.is_null() {
+            return false;
+        }
+        if let Some(b) = self.0.as_bool() {
+            return b;
+        }
+        if let Some(n) = self.0.as_f64() {
+            return n != 0.0;
+        }
+        return true
+    }
+
     /// TryFrom str.
     pub fn from_str(s: &str) -> Result<Value> {
         let inner = serde_json::from_str(s)?;

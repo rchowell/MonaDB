@@ -27,6 +27,9 @@ pub struct Var {
     pub name: String,
 }
 
+/// Track patches (instruction, offset).
+type Patch = (usize, usize);
+
 impl<'cat> Compiler<'cat> {
     pub fn new(catalog: &Catalog) -> Compiler {
         Compiler {
@@ -78,19 +81,31 @@ impl<'cat> Compiler<'cat> {
     }
 
     fn cc_select(&mut self, select: Select) -> Result<()> {
+        //
         // loop open
-        let tofs = self.vars.len(); // top-of-stack
-        let next = self.cc_iter(select.from)?;
+        let mut patch: Vec<Patch> = vec![];
+        let scope = self.vars.len();
+        let loop_ = self.cc_iter(select.from)?;
+        patch.push((loop_, 1)); // <- patch loop (rewind) to next+1
+
         // loop body
-        self.cc_select_constructor(select.select, tofs)?;
-        // TODO where execution
-        if (select.where_).is_some() {
-            unsupported!("where clause")
+        if let Some(cond) = select.where_ {
+            self.cc_expr(cond)?;
+            self.emit_if_not(0);
+            patch.push((self.pc(), 0)); // <- patch if_not to next
         }
+        self.cc_select_constructor(select.select, scope)?;
+
         // loop close
-        self.emit_return(tofs);
-        self.emit_next(0, next + 1);
-        self.patch(next, self.pc() + 1)?;
+        self.emit_return(scope);
+        self.emit_next(0, loop_ + 1);
+        let next = self.pc();
+
+        // patch jumps
+        for (pc, offset) in patch {
+            self.patch(pc, next + offset)?;
+        }
+
         Ok(())
     }
 
@@ -106,7 +121,7 @@ impl<'cat> Compiler<'cat> {
                     self.emit_obj_spread();
                     i += 1;
                 }
-            },
+            }
             Constructor::Expr(expr) => self.cc_expr(expr)?,
             Constructor::List(members) => self.cc_expr_obj(members)?,
         }
@@ -114,18 +129,18 @@ impl<'cat> Compiler<'cat> {
     }
 
     /// Compile an iteration operator, callers must patch the return pc.
-    /// 
+    ///
+    /// | ADDR | INSTRUCTION | NOTE
+    /// +------+-------------+-----------
+    /// | 0    | open        |
+    /// | 1    | rewind      | if empty, jump to n+1
+    /// | 2    |  (loop)     |
+    /// | ..   |             |
+    /// | n    | next        | if next, jump to 2
+    /// | n+1  | ...         |   
+    ///
     /// TODO handle paths
     /// TODO multiple cursors
-    ///
-    /// | PC  | INSTRUCTION | NOTE
-    /// +-----+-------------+-----------
-    /// | 0   | open        |
-    /// | 1   | rewind      | if empty, jump to n+1
-    /// | 2   |  (loop)     |
-    /// | ..  |             |
-    /// | n   | next        | if next, jump to 2
-    /// | n+1 | ...         |   
     ///
     fn cc_iter(&mut self, iter: Iter) -> Result<usize> {
         let table = match iter.src {
@@ -136,13 +151,15 @@ impl<'cat> Compiler<'cat> {
         // define the iteration variable
         self.define(iter.var);
         self.emit_open(table);
-        self.emit_rewind(0, 0);
-        Ok(self.pc()) // <-- PATCH rewind(_, jmp)
+        self.emit_rewind(0, 0); // <- patch to n+1
+        Ok(self.pc())
     }
 
     /// Patch the control-flow instruction at code[pc] to jump to dst.
     fn patch(&mut self, pc: usize, dst: usize) -> Result<()> {
         match self.code.get_mut(pc).unwrap() {
+            Vop::If(jmp) => *jmp = dst,
+            Vop::IfNot(jmp) => *jmp = dst,
             Vop::Next(_, jmp) => *jmp = dst,
             Vop::Rewind(_, jmp) => *jmp = dst,
             _ => unsupported!("cannot patch instruction at pc[{}]", pc),
@@ -180,7 +197,7 @@ impl<'cat> Compiler<'cat> {
             ">=" => self.code.push(Vop::Ge),
             ">" => self.code.push(Vop::Gt),
             "!=" => self.code.push(Vop::Ne),
-            _ => return Err(err_unknown_routine(op.sym.as_str()))
+            _ => return Err(err_unknown_routine(op.sym.as_str())),
         };
         Ok(())
     }
@@ -270,6 +287,14 @@ impl<'cat> Compiler<'cat> {
         self.code.push(Vop::Exit)
     }
 
+    fn emit_if(&mut self, jmp: usize) {
+        self.code.push(Vop::If(jmp))
+    }
+
+    fn emit_if_not(&mut self, jmp: usize) {
+        self.code.push(Vop::IfNot(jmp))
+    }
+
     fn emit_init(&mut self) {
         self.code.push(Vop::Init)
     }
@@ -293,10 +318,6 @@ impl<'cat> Compiler<'cat> {
     fn emit_jpk(&mut self, key: String) {
         self.code.push(Vop::Jpk(key));
     }
-
-    // fn emit_jump(&mut self, jmp: usize) {
-    //     self.code.push(Vop::Jump(jmp));
-    // }
 
     fn emit_load(&mut self, idx: usize) {
         self.code.push(Vop::Load(idx))

@@ -10,7 +10,7 @@ What if SQLite were a xref:DESIGN.adoc[JSON Database]?
 
 == Goal
 
-The goal is, that by Feb 1, I can host a website backed by rhodb.
+The goal is, that by Feb 1, I can host a website backed by MonaDB.
 
 == Backlog
 
@@ -32,12 +32,15 @@ _This section contains a list of features/ideas that are not yet implemented._
 * [ ] Have "schema" VM.
 * [ ] f-strings for string interpolation.
 * [ ] null operators
+* [ ] CAST and '::' syntax.
+* [ ] Check schema on insert.
 
 .Enhancements
 * [ ] Testing framework, dbgen, performance and language comparison to jq and sqlite jsonb.
 * [ ] Formatted output.
+* [ ] Highlighted output.
 * [ ] Dump code buffer and stack on error when debug is on.
-* [ ] Add a trace option.
+* [ ] Debug with trace.
 
 .Documentation
 * [ ] Language documentation should have links to other grammar rules.
@@ -45,7 +48,6 @@ _This section contains a list of features/ideas that are not yet implemented._
 * [ ] Comparison report: jq, sqlite, mongodb, couchbaselite, pouchdb, polodb.
 * [ ] Render language documents to HTML.
 * [ ] Document and use consistent ABNF
-* [ ] Explore pro's / con's of typed arrays.
 
 == Worklog
 
@@ -53,21 +55,21 @@ _This section contains various mini-goals to drive the project._
 
 === G4 Nov 2024
 
-* [ ] Row pointers.
+* [x] Row pointers.
 * [x] Make select operate as listcomp / compexp.
 * [x] Toggle debug output.
 * [x] Better error messages.
 * [x] dig into what sane implicit references might behave like
+* [x] WHERE
+* [ ] WITH
 * [ ] Remove VM dep on Rho, use "Connection".
 * [ ] Make "Catalog" the "Connection" ??
 * [ ] Read JSONLines input
-* [ ] WHERE
-* [ ] LIMIT/OFFSET
+* [ ] FETCH
 * [ ] CROSS JOIN
 * [ ] Scalar functions
 * [ ] Delete with WHERE
 * [ ] Select One
-* [ ] Check schema on insert.
 * [ ] The cursor should be an iterator over the sqlite connection.
 
 === G3 Oct 2024
