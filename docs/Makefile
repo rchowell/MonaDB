@@ -1,6 +1,6 @@
 ASCIIDOCTOR=asciidoctor
-SRC=$(wildcard *.adoc)
 BUILD_DIR=build
+SRC=$(shell find . -name '*.adoc')
 HTML=$(SRC:%.adoc=$(BUILD_DIR)/%.html)
 
 .PHONY: all build clean

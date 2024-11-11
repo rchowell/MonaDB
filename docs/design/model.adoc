@@ -13,6 +13,7 @@ Transforms using simplified SQL verbs for familiarity.
 | group  | reduce
 | order  | sort
 | fetch  | limit/offset
+| step   | step
 |===
 
 .Loop

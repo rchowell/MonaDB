@@ -21,19 +21,15 @@ _This section contains a list of features/ideas that are not yet implemented._
 * [ ] Error on duplicate keys.
 * [ ] Computed property names in objects.
 * [ ] Support for open tables.
-* [ ] Document namespaces.
-* [ ] Constraints (DDL) no enforcement yet.
-** [ ] PRIMARY KEY
-** [x] NOT NULL
-** [ ] UNIQUE
-** [ ] CHECK
-** [ ] DEFAULT
+* [ ] Document namespaces (??).
+* [ ] DDL with constraints (no enforcement).
 * [ ] Load input from a file into a table.
 * [ ] Have "schema" VM.
 * [ ] f-strings for string interpolation.
 * [ ] null operators
 * [ ] CAST and '::' syntax.
 * [ ] Check schema on insert.
+* [ ] Scope/frame drop for cursors and counters cleanup.
 
 .Enhancements
 * [ ] Testing framework, dbgen, performance and language comparison to jq and sqlite jsonb.
@@ -61,6 +57,7 @@ _This section contains various mini-goals to drive the project._
 * [x] dig into what sane implicit references might behave like
 * [x] WHERE
 * [x] Render language documents to HTML.
+* [x] LIMIT/OFFSET
 * [ ] WITH
 * [ ] Remove VM dep on Rho, use "Connection".
 * [ ] Make "Catalog" the "Connection" ??

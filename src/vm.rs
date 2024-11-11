@@ -50,6 +50,10 @@ pub enum Vop {
     ObjAssign(String),
     /// Spread a value into an object.
     ObjSpread,
+    ///--- Counters -----
+    CntSet(usize, u64),
+    CntIfPos(usize, usize),
+    CntIfZero(usize, usize),
     ///--- Arithmetic ---
     Add,
     Sub,
@@ -88,8 +92,9 @@ pub struct VM<'r> {
     db: &'r MonaDB,
     pc: usize,
     program: Code,
-    cursors: Vec<Cursor>,
     stack: Vec<Value>,
+    cursors: Vec<Cursor>,
+    counters: Vec<u64>,
 }
 
 impl<'r> VM<'r> {
@@ -98,11 +103,38 @@ impl<'r> VM<'r> {
             db,
             pc: 0,
             program,
-            cursors: vec![],
             stack: vec![],
+            cursors: vec![],
+            counters: vec![0; 10],
         }
     }
 
+    fn push(&mut self, value: Value) {
+        self.stack.push(value);
+    }
+
+    fn push_bool(&mut self, value: bool) {
+        self.stack.push(Value::bool(value));
+    }
+
+    fn pop(&mut self) -> Value {
+        self.stack.pop().unwrap()
+    }
+
+    fn drop(&mut self, tofs: usize) {
+        self.stack.truncate(tofs);
+    }
+
+    fn take(&mut self, n: usize) -> Vec<Value> {
+        let i = self.stack.len() - n;
+        self.stack.split_off(i)
+    }
+
+    fn peek(&mut self) -> &mut Value {
+        self.stack.last_mut().unwrap()
+    }
+
+    /// The VM loop.
     pub fn next(&mut self) -> Result<Option<Value>> {
         loop {
             let op = self.program[self.pc].clone(); // <-- CLONE INSTRUCTION (MAKE THESE u64)
@@ -273,32 +305,26 @@ impl<'r> VM<'r> {
                         self.pc = *jmp; // jump if empty
                     }
                 },
+                //
+                // Counters
+                //
+                Vop::CntSet(c, v) => {
+                    self.counters[*c] = *v;
+                },
+                Vop::CntIfPos(c, jmp) => {
+                    if self.counters[*c] > 0 {
+                        self.counters[*c] -= 1;
+                        self.pc = *jmp;
+                    }
+                },
+                Vop::CntIfZero(c, jmp) => {
+                    if self.counters[*c] == 0 {
+                        self.pc = *jmp;
+                    } else {
+                        self.counters[*c] -= 1;
+                    }
+                },
             }
         }
-    }
-
-    fn push(&mut self, value: Value) {
-        self.stack.push(value);
-    }
-
-    fn push_bool(&mut self, value: bool) {
-        self.stack.push(Value::bool(value));
-    }
-
-    fn pop(&mut self) -> Value {
-        self.stack.pop().unwrap()
-    }
-
-    fn drop(&mut self, tofs: usize) {
-        self.stack.truncate(tofs);
-    }
-
-    fn take(&mut self, n: usize) -> Vec<Value> {
-        let i = self.stack.len() - n;
-        self.stack.split_off(i)
-    }
-
-    fn peek(&mut self) -> &mut Value {
-        self.stack.last_mut().unwrap()
     }
 }

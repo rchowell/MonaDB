@@ -42,6 +42,7 @@ extern {
         "create"    => Token::Create,
         "delete"    => Token::Delete,
         "drop"      => Token::Drop,
+        "fetch"     => Token::Fetch,
         "from"      => Token::From,
         "insert"    => Token::Insert,
         "into"      => Token::Into,
@@ -116,7 +117,8 @@ SelectItem: ir::Member = <Expr> "as" <"ident"> => ir::select_item(<>);
 
 SelectBlock: ir::Select =
     <From>
-    <Where?> => ir::select_block(<>);
+    <Where?>
+    <Fetch?> => ir::select_block(<>);
 
 // TODO from <expr>
 From: ir::Iter = {
@@ -129,7 +131,13 @@ FromSource: ir::Source = {
     <"ident"> "$" <Segment+>    => ir::from_source_path(<>),
 };
 
-Where: ir::Expr = "where" <Expr>;
+Where: ir::Where = "where" <Expr>;
+
+Fetch: ir::Fetch = {
+    "fetch" <"number">                  => ir::fetch_take(<>),
+    "fetch" <"number"> ".."             => ir::fetch_skip(<>),
+    "fetch" <"number"> ".." <"number">  => ir::fetch_range(<>),
+};
 
 // INSERT STATEMENT
 //------------------------------

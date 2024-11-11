@@ -1,0 +1,17 @@
+= Fetch Clause
+
+The fetch clause is a concise limit/offset.
+
+.Examples
+[source,rql]
+----
+-- fetch forms
+
+fetch 100       -- limit 100
+fetch 50..100   -- limit 100, offset 50
+fetch 50..      -- offset 50
+
+-- fetch with step
+
+fetch 1..10 step 1
+----

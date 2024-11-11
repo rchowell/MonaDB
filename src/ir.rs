@@ -51,11 +51,11 @@ impl Display for Table {
 pub struct Select {
     pub from: Iter,
     // pub with: Option<Expr>,
-    pub where_: Option<Expr>, 
+    pub where_: Option<Where>, 
     // group
     // having
     // order
-    // fetch
+    pub fetch: Option<Fetch>,
     pub select: Constructor,
 }
 
@@ -88,6 +88,15 @@ impl Default for Iter {
             var: "".to_string(),
         }
     }
+}
+
+pub type Where = Expr;
+
+#[derive(Debug)]
+pub enum Fetch {
+    Skip(u64),
+    Take(u64),
+    Range(u64, u64),
 }
 
 //------------------------------
@@ -246,15 +255,17 @@ pub fn select(select: Constructor, block: Select) -> Select {
     Select {
         from: block.from,
         where_: block.where_,
+        fetch: block.fetch,
         select,
     }
 }
 
 #[inline]
-pub fn select_block(from: Iter, where_: Option<Expr>) -> Select {
+pub fn select_block(from: Iter, where_: Option<Where>, fetch: Option<Fetch>) -> Select {
     Select {
         from,
         where_,
+        fetch,
         select: Constructor::None,
     }
 }
@@ -285,6 +296,21 @@ pub fn from_source_table(tbl: String) -> Source {
 #[inline]
 pub fn from_source_path(identifier: String, segments: Vec<Segment>) -> Source {
     Source::Path(Path { identifier, segments })
+}
+
+#[inline]
+pub fn fetch_skip(offset: f64) -> Fetch {
+    Fetch::Skip(offset as u64)
+}
+
+#[inline]
+pub fn fetch_take(limit: f64) -> Fetch {
+    Fetch::Take(limit as u64)
+}
+
+#[inline]
+pub fn fetch_range(offset: f64, limit: f64) -> Fetch {
+    Fetch::Range(offset as u64, limit as u64)
 }
 
 // TODO { x, y } => { x: x, y: y } shorthand
@@ -441,7 +467,7 @@ mod test {
     }
 
     #[test]
-    fn test_accept_from() {
+    fn test_acceptance_from() {
         let paths = vec![
             // Table
             "T",
@@ -500,14 +526,26 @@ mod test {
     }
 
     #[test]
-    pub fn sfw()  {
-        let input = "select * from T where S";
-        let statement = parse(input);
-        if let Statement::Select(block) = statement {
-            assert_eq!(block.from.var, "T");
-            assert!(block.where_.is_some());
-        } else {
-            panic!("Expected Select statement");
+    pub fn parse_acceptance_where()  {
+        let inputs = vec![
+            "select * from T where 10;",
+            "select * from T where a > 0;",
+            // "select * from T where a > 0 and b = 10;",
+        ];
+        for input in inputs {
+            let _ = parse(input);
+        }
+    }
+
+    #[test]
+    pub fn parse_acceptance_fetch() {
+        let inputs = vec![
+            "select * from T fetch 20;",
+            "select * from T fetch 10..;",
+            "select * from T fetch 10..20;",
+        ];
+        for input in inputs {
+            let _ = parse(input);
         }
     }
 }

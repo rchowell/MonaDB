@@ -20,6 +20,7 @@ pub struct Compiler<'cat> {
     catalog: &'cat Catalog,
     code: Code,
     vars: Vec<Var>,
+    counters: usize,
 }
 
 /// Variable bindings where [depth] represents stack position.
@@ -36,6 +37,7 @@ impl<'cat> Compiler<'cat> {
             catalog,
             code: vec![],
             vars: vec![],
+            counters: 0,
         }
     }
 
@@ -81,30 +83,60 @@ impl<'cat> Compiler<'cat> {
     }
 
     fn cc_select(&mut self, select: Select) -> Result<()> {
-        //
-        // loop open
-        let mut patch: Vec<Patch> = vec![];
-        let scope = self.vars.len();
-        let loop_ = self.cc_iter(select.from)?;
-        patch.push((loop_, 1)); // <- patch loop (rewind) to next+1
 
-        // loop body
-        if let Some(cond) = select.where_ {
-            self.cc_expr(cond)?;
+        let scope = self.vars.len();
+        let counters = self.counters;
+        let mut to_patch: Vec<Patch> = vec![];
+
+        // initialize counters before the loop
+        let mut cnt_skip: Option<usize> = None;
+        let mut cnt_take: Option<usize> = None;
+        if let Some(fetch) = &select.fetch {
+            match fetch {
+                Fetch::Skip(n) => cnt_skip = self.define_counter(*n).into(),
+                Fetch::Take(n) => cnt_take = self.define_counter(*n).into(),
+                Fetch::Range(n, m) => {
+                    cnt_skip = self.define_counter(*n).into();
+                    cnt_take = self.define_counter(*m).into();
+                },
+            }
+        }
+
+        // loop open
+        let loop_ = self.cc_iter(select.from)?;
+        to_patch.push((loop_, 1)); // <- patch loop (rewind) to next+1
+
+        // skip (offset)
+        if let Some(counter) = cnt_skip {
+            self.emit_cnt_if_pos(counter, 0);
+            to_patch.push((self.pc(), 0)); // <- patch cnt_if_pos to next
+        }
+
+        // where
+        if let Some(where_) = select.where_ {
+            self.cc_expr(where_)?;
             self.emit_if_not(0);
-            patch.push((self.pc(), 0)); // <- patch if_not to next
+            to_patch.push((self.pc(), 0)); // <- patch if_not to next
         }
         self.cc_select_constructor(select.select, scope)?;
+
+        // take (limit)
+        if let Some(counter) = cnt_take {
+            self.emit_cnt_if_zero(counter, 0);
+            to_patch.push((self.pc(), 1)); // <- patch cnt_if_zero to next+1
+        }
 
         // loop close
         self.emit_return(scope);
         self.emit_next(0, loop_ + 1);
         let next = self.pc();
 
-        // patch jumps
-        for (pc, offset) in patch {
+        // apply patches and cleanup
+        for (pc, offset) in to_patch {
             self.patch(pc, next + offset)?;
         }
+        self.vars.truncate(scope);
+        self.counters = counters;
 
         Ok(())
     }
@@ -158,6 +190,8 @@ impl<'cat> Compiler<'cat> {
     /// Patch the control-flow instruction at code[pc] to jump to dst.
     fn patch(&mut self, pc: usize, dst: usize) -> Result<()> {
         match self.code.get_mut(pc).unwrap() {
+            Vop::CntIfPos(_, jmp) => *jmp = dst,
+            Vop::CntIfZero(_, jmp) => *jmp = dst,
             Vop::If(jmp) => *jmp = dst,
             Vop::IfNot(jmp) => *jmp = dst,
             Vop::Next(_, jmp) => *jmp = dst,
@@ -267,6 +301,14 @@ impl<'cat> Compiler<'cat> {
         self.vars.push(Var { name });
     }
 
+    /// Define a counter with the given value.
+    fn define_counter(&mut self, n: u64) -> usize {
+        let c = self.counters;
+        self.emit_cnt_set(c, n);
+        self.counters += 1;
+        c
+    }
+
     //------------------------------
     // INSTRUCTIONS
     //------------------------------
@@ -287,8 +329,16 @@ impl<'cat> Compiler<'cat> {
         self.code.push(Vop::Exit)
     }
 
-    fn emit_if(&mut self, jmp: usize) {
-        self.code.push(Vop::If(jmp))
+    fn emit_cnt_set(&mut self, counter: usize, value: u64) {
+        self.code.push(Vop::CntSet(counter, value));
+    }
+
+    fn emit_cnt_if_pos(&mut self, counter: usize, jmp: usize) {
+        self.code.push(Vop::CntIfPos(counter, jmp));
+    }
+
+    fn emit_cnt_if_zero(&mut self, counter: usize, jmp: usize) {
+        self.code.push(Vop::CntIfZero(counter, jmp));
     }
 
     fn emit_if_not(&mut self, jmp: usize) {
