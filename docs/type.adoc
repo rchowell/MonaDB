@@ -2,7 +2,73 @@
 
 RQL uses the TypeScript syntax to declare data types.
 
-[example,rql]
+== Types
+
+|===
+| Type | Alias
+
+| boolean   | bool
+| number    | num
+| string    | str
+| array     | arr
+| object    | obj
+|===
+
+== Cast and Coercions
+
+.Syntax
+[source]
+----
+cast(v as bool)
+v::bool
+bool(v)
+----
+
+In these examples, let the following variables denote:
+
+* _b_ - a boolean
+* _n_ - a number
+* _s_ - a string
+* _a_ - an array
+* _o_ - an object
+
+[source]
+----
+bool(b)     -- b
+
+bool(null)  -- false
+bool(0)     -- false
+bool(n)     -- true (for all n != 0)
+
+bool('')    -- false
+bool(s)     -- true (for all s not empty)
+
+bool([])    -- false
+bool(a)     -- true (for all a not empty)
+
+bool({})    -- false
+bool(o)     -- true (for all o not empty)
+----
+
+.Numbers
+[source]
+----
+num(false)  -- 0
+num(true)   -- 1
+num('1.9')  -- 1.9
+num('3')    -- 3
+num('3.14') -- 3.14
+
+int(false)  -- 0
+int(true)   -- 1
+
+float(false)    -- 0.0
+float(true)     -- 1.0
+----
+
+== Syntax
+
+[source,mckeeman]
 ----
 type
     t_any

@@ -1,0 +1,10 @@
+= Functions
+
+.Examples
+[source,sql]
+----
+read('filepath', options: obj)
+----
+
+.References
+* https://www.lua.org/pil/5.3.html

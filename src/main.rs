@@ -1,17 +1,17 @@
-use std::env;
+use std::io::BufRead;
+use std::ops::Not;
+use std::{env, io::IsTerminal};
 use std::path::PathBuf;
 
-use monadb::{value::Value, MonaDB};
+use monadb::MonaDB;
 use rustyline::{error::ReadlineError, history::DefaultHistory, validate::{ValidationContext, ValidationResult, Validator}, Completer, Config, EditMode, Editor, Helper, Highlighter, Hinter};
 
 use clap::{Parser, Subcommand};
 
-/// Cli is the command line interface for rho, but nothing is here yet..
 #[derive(Debug, Parser)]
 #[command(author, version, about, long_about = None, multicall = true)]
 struct Cli {}
 
-/// TODO
 #[derive(Debug, Parser)]
 #[command(multicall = true)]
 struct Commands {
@@ -19,30 +19,12 @@ struct Commands {
     command: Command
 }
 
-/// TODO
 #[derive(Debug, Subcommand)]
 enum Command {
     /// Describe the catalog.
     Info,
     /// Toggle debug mode.
     Debug,
-    /// TODO TEMPORARY – Create a table.
-    Create {
-        table: String,
-    },
-    /// TODO TEMPORARY – Insert a row.
-    Insert {
-        table: String,
-        value: String,
-    },
-    /// TODO TEMPORARY – Drop a table.
-    Drop {
-        table: String,
-    },
-    /// TODO TEMPORARY – Select from a table.
-    Select {
-        table: String,
-    },
     /// Exit the shell.
     Exit,
 }
@@ -108,8 +90,19 @@ impl Validator for LineValidator {
 
 fn main() {
 
-    // OPEN DATABASE 
     let args: Vec<String> = env::args().collect();
+
+    let input = std::io::stdin();
+    if !input.is_terminal() {
+        // interactive
+        for line in input.lock().lines() {
+            let program_string = args[1].clone();
+            println!("Executing program: {}", program_string);
+        }
+    }
+    drop(input);
+
+    // OPEN DATABASE 
     let mut mona = match args.len() {
         1 => {
             MonaDB::memory().expect("Could not open monadb memory")
@@ -161,29 +154,6 @@ fn main() {
                 Command::Exit => {
                     break;
                 }
-                Command::Create { table } => {
-                    // this would require table being public
-                    // what can I do differently?
-                    todo!("create table {}", table);
-                },
-                Command::Insert { table, value } => {
-                    let row = Value::from_str(&value).expect("Could not parse row");
-                    mona.insert(&table, row).expect("Could not insert row");
-                },
-                Command::Drop { table } => {
-                    mona.drop_table(&table).expect("Could not drop table");
-                },
-                Command::Select { table } => {
-                    let mut cursor = mona.scan(&table).expect("Could not select rows");
-                    if !cursor.rewind() {
-                        break; // empty
-                    }
-                    while {
-                        let row = cursor.curr();
-                        println!("{:?}", row.val);
-                        cursor.next()
-                    } {}
-                },
             }
         } else {
             // STATEMENT
@@ -205,7 +175,6 @@ fn main() {
                 },
                 Err(e) => {
                     println!("{}", e.pretty(&buffer));
-                    println!("error.");
                 }
             }
         }

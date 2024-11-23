@@ -1,0 +1,40 @@
+= COPY
+
+.Examples
+[source,sql]
+----
+copy items to 'items.jsonl'
+copy items to 'items.csv'
+copy items to 'items.tsv' { header: false }
+----
+
+.Syntax
+[source]
+----
+copy_statement
+    "copy" copy_source "to" copy_target
+
+copy_source
+    table_name
+    "(" select_statement ")"
+
+copy_target
+    string
+    string copy_options
+
+copy_options
+    "{"  "}"
+----
+
+NOTE: PostgreSQL and DuckDB define a COPY statement; whereas others do not. SQLite has the .import command, MySQL has the LOAD DATA INFILE statement, and MongoDB has the mongoimport utility. MonaDB wants to be familiar to PostgreSQL and DuckDB users, so it supports a COPY statement but as a single form.
+
+== FAQ
+
+Q: How can I read data from a file?
+A: 
+
+Q: How can I write data to a file?
+A: COPY <data> TO <file>
+
+Q: How do I specify additional encoding options?
+A: 

@@ -3,19 +3,41 @@
 The _From Clause_ specifies the source of the data to be queried. The source may be a table, a view, or a subquery.
 
 .Examples
-[source,rql]
+[source,sql]
 ----
--- equivalent, derived alias
-from tbl
-from tbl as tbl
+select * from T
+select * from T, S
+----
+
+== Examples
+
+=== SQL
+
+[source,sql]
+----
+from T
+from T as T
 
 -- explicit alias
-from tbl as t
 
--- JSONPath
+from T as t
+----
 
+=== JSONPath
+
+[source,sql]
+----
 from tbl
 from tbl$[x,y]
-
 from p$.x
+----
+
+=== Select One
+
+[source,sql]
+----
+-- let '123' be some record id
+
+select tbl@123
+delete tbl@123
 ----

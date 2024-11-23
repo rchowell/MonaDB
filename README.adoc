@@ -5,8 +5,9 @@ What if SQLite were a xref:DESIGN.adoc[JSON Database]?
 .Notes
 - Names: monadb, rho, rhodb
 - Language inspiration: JavaScript, TypeScript, Lua, SQL, and Python.
-- No implicit variable names (??)
 - No implicit column references.
+- What if Python were the reference language, so Python and SQL customers can use it effectively?
+- I want to make it possible to define types and operations, there should be a "trait" for each JSON type.
 
 == Goal
 
@@ -23,13 +24,13 @@ _This section contains a list of features/ideas that are not yet implemented._
 * [ ] Support for open tables.
 * [ ] Document namespaces (??).
 * [ ] DDL with constraints (no enforcement).
-* [ ] Load input from a file into a table.
 * [ ] Have "schema" VM.
 * [ ] f-strings for string interpolation.
 * [ ] null operators
 * [ ] CAST and '::' syntax.
 * [ ] Check schema on insert.
 * [ ] Scope/frame drop for cursors and counters cleanup.
+* [ ] Scalar functions
 
 .Enhancements
 * [ ] Testing framework, dbgen, performance and language comparison to jq and sqlite jsonb.
@@ -58,15 +59,14 @@ _This section contains various mini-goals to drive the project._
 * [x] WHERE
 * [x] Render language documents to HTML.
 * [x] LIMIT/OFFSET
+* [ ] Load input from a file into a table.
+* [ ] CROSS JOIN
 * [ ] WITH
+* [ ] Delete with WHERE
+* [ ] Select One
 * [ ] Remove VM dep on Rho, use "Connection".
 * [ ] Make "Catalog" the "Connection" ??
 * [ ] Read JSONLines input
-* [ ] FETCH
-* [ ] CROSS JOIN
-* [ ] Scalar functions
-* [ ] Delete with WHERE
-* [ ] Select One
 * [ ] The cursor should be an iterator over the sqlite connection.
 
 === G3 Oct 2024
