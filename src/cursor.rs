@@ -33,7 +33,7 @@ impl Cursor {
         while let Some(row) = query.next().unwrap() {
             let oid: u64 = row.get(0).unwrap();
             let s: String = row.get(1).unwrap();
-            let val = Value::from_str(&s).unwrap();
+            let val = Value::from(s);
             rows.push(Row { oid, val });
         }
         let pos = 0;
@@ -51,13 +51,13 @@ impl Cursor {
     /// Advance the cursor to the next row; returns true if there is a next row.
     pub fn next(&mut self) -> bool {
         self.pos += 1;
-        return self.pos < self.end;
+        self.pos < self.end
     }
 
     /// Reset the cursor to the start; returns true if there is a next row.
     pub fn rewind(&mut self) -> bool {
         self.pos = 0;
-        return self.end > 0;
+        self.end > 0
     }
 
     /// Return a reference to the current row.

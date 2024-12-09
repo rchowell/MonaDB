@@ -1,11 +1,10 @@
 use std::fmt::{Debug, Display};
 
-use crate::Result;
 use serde_json::{Map, Value as JsonValue};
 use std::ops::{Add, Div, Mul, Rem, Sub};
 
 /// JSON value.
-#[derive(Clone, Hash, Eq)]
+#[derive(Clone, Eq)]
 pub struct Value(JsonValue);
 
 /// Default is null so `.unwrap_or_null()` can be used.
@@ -58,23 +57,12 @@ impl Value {
         if let Some(n) = self.0.as_f64() {
             return n != 0.0;
         }
-        return true
-    }
-
-    /// TryFrom str.
-    pub fn from_str(s: &str) -> Result<Value> {
-        let inner = serde_json::from_str(s)?;
-        Ok(Value(inner))
+        true
     }
 
     /// Serialize the value as a JSON byte vector.
     pub fn to_vec(&self) -> Vec<u8> {
         serde_json::to_vec(&self.0).unwrap()
-    }
-
-    /// Serialize the value as a JSON string.
-    pub fn to_string(&self) -> String {
-        serde_json::to_string(&self.0).unwrap()
     }
 
     /// If the value is an object, return the members – otherwise, None.
@@ -178,15 +166,15 @@ impl Value {
     }
 }
 
-impl From<JsonValue> for Value {
-    fn from(value: JsonValue) -> Self {
-        Value(value)
+impl From<String> for Value {
+    fn from(value: String) -> Self {
+        Value(value.into())
     }
 }
 
-impl Into<JsonValue> for Value {
-    fn into(self) -> JsonValue {
-        self.0
+impl From<JsonValue> for Value {
+    fn from(value: JsonValue) -> Self {
+        Value(value)
     }
 }
 

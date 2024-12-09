@@ -5,7 +5,6 @@ use crate::cursor::Cursor;
 use crate::ir::Table;
 use crate::value::Value;
 use crate::Result;
-use crate::MonaDB;
 
 /// Program is a sequence of virtual machine instructions.
 pub type Program = Vec<Vop>;
@@ -98,7 +97,7 @@ pub struct VM<'conn> {
     counters: Vec<u64>,
 }
 
-impl<'conn> VM<'conn> {
+impl VM<'_> {
 
     pub fn init(conn: &mut Connection, program: Program) -> VM {
         VM {

@@ -6,7 +6,7 @@ pub mod rows;
 
 // lalrpop module
 lalrpop_mod!(
-    #[allow(clippy::ptr_arg)]
+    #[allow(clippy::all)]
     #[rustfmt::skip]
     pub parser
 );
@@ -18,7 +18,6 @@ mod cursor;
 mod ir;
 mod vm;
 
-use std::cell::RefCell;
 use std::path::Path;
 use std::result;
 

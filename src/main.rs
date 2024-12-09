@@ -35,16 +35,6 @@ pub struct LineReader {
 }
 
 impl LineReader {
-    pub fn new() -> LineReader {
-        let config = Config::builder()
-            .edit_mode(EditMode::Vi)
-            .build();
-        let mut editor = Editor::<LineValidator, DefaultHistory>::with_config(config).unwrap();
-        // todo check if history file exists
-        editor.load_history(".monadb_history").unwrap();
-        editor.set_helper(Some(LineValidator));
-        LineReader { editor }
-    }
 
     pub fn close(&mut self) {
         self.editor.save_history(".monadb_history").unwrap();
@@ -68,6 +58,20 @@ impl LineReader {
             }
             Err(_) => None,
         }
+    }
+}
+
+impl Default for LineReader {
+
+    fn default() -> Self {
+        let config = Config::builder()
+            .edit_mode(EditMode::Vi)
+            .build();
+        let mut editor = Editor::<LineValidator, DefaultHistory>::with_config(config).unwrap();
+        // todo check if history file exists
+        editor.load_history(".monadb_history").unwrap();
+        editor.set_helper(Some(LineValidator));
+        LineReader { editor }
     }
 }
 
@@ -101,7 +105,6 @@ fn main() {
         }
         return;
     }
-    drop(input);
 
     // OPEN DATABASE 
     let mut mona = match args.len() {
@@ -119,7 +122,7 @@ fn main() {
     };
 
     // REPL 
-    let mut line_reader = LineReader::new();
+    let mut line_reader = LineReader::default();
     let mut buffer = String::new();
     let mut debug = false;
 
@@ -128,7 +131,7 @@ fn main() {
 
     // MAIN LOOP
     loop {
-        if line_reader.read_line(&mut buffer, ">> ") == None {
+        if line_reader.read_line(&mut buffer, ">> ").is_none() {
             // EOF or interrupt
             break;
         }
@@ -138,7 +141,7 @@ fn main() {
         if buffer.starts_with(".") {
             // PARSE COMMAND
             let line = buffer.strip_prefix(".").unwrap();
-            let args = shlex::split(&line).unwrap();
+            let args = shlex::split(line).unwrap();
             let command = match Commands::try_parse_from(&args) {
                 Ok(commands) => commands.command,
                 Err(message) => {

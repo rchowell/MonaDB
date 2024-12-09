@@ -1,7 +1,6 @@
 use lalrpop_util::ParseError;
 use crate::lexer::Token;
 
-/// TODO DOCUMENTATION
 #[derive(Default, Debug, Clone, PartialEq)]
 pub enum Error {
     IoError(String),
@@ -25,10 +24,10 @@ impl Error {
             let column_number = hint.location - input[..hint.location].rfind('\n').unwrap_or(0);
 
             // header
-            result.push_str("\n");
+            result.push('\n');
             result.push_str("error: ");
             result.push_str(&hint.message);
-            result.push_str("\n");
+            result.push('\n');
             result.push_str("  │\n");
             // location
             if let Some(line) = lines.get(line_number - 1) {
@@ -38,15 +37,15 @@ impl Error {
                 result.push_str("  │ ");
                 result.push_str(&" ".repeat(column_number));
                 result.push('^');
-                result.push_str("\n");
+                result.push('\n');
             }
 
             // expected
-            if hint.expected.len() > 0 {
+            if !hint.expected.is_empty() {
                 result.push_str("  └─ hint: expected ");
                 result.push_str(&hint.expected.join(", "));
             }
-            result.push_str("\n");
+            result.push('\n');
             result
             }
             _ => format!("{:?}", self),
@@ -65,7 +64,7 @@ pub fn err_unknown_routine(sym: &str) -> Error {
 macro_rules! error {
     ($($arg:tt)*) => {{
         let msg = format!($($arg)*);
-        return Err(crate::error::Error::Unknown(msg.to_string()))
+        return Err($crate::error::Error::Unknown(msg.to_string()))
     }}
 }
 

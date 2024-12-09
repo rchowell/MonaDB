@@ -61,9 +61,9 @@ _This section contains various mini-goals to drive the project._
 
 * [x] Make "Catalog" the "Connection"
 * [x] Remove VM dep on MonaDB, use "Connection" directly.
+* [x] git precommit clippy hook
 * [ ] The cursor should be an iterator over the sqlite connection.
 * [ ] WITH Clause
-* [ ] git precommit clippy hook
 
 === Nov 2024
 

@@ -10,7 +10,7 @@ use std::vec;
 macro_rules! unsupported {
     ($($arg:tt)*) => {{
         let msg = format!($($arg)*);
-        return Err(crate::error::Error::Unsupported(msg.to_string()))
+        return Err($crate::error::Error::Unsupported(msg.to_string()))
     }}
 }
 

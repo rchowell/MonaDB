@@ -24,7 +24,6 @@ const SQL_SYNC: &str = "SELECT name, ddl FROM connection;";
 pub struct Connection {
     sqlite: SQLite,
     tables: HashMap<String, Table>,
-    routines: HashMap<String, i32>,
 }
 
 impl Connection {
@@ -52,7 +51,6 @@ impl Connection {
         Ok(Connection {
             sqlite,
             tables: HashMap::new(),
-            routines: Self::routines(),
         })
     }
 
@@ -169,13 +167,6 @@ impl Connection {
         Ok(())
     }
 
-    // TODO fn pointers
-    fn routines() -> HashMap<String, i32> {
-        [("upper", 1), ("lower", 1)]
-            .into_iter()
-            .map(|(k, v)| (k.to_string(), v))
-            .collect()
-    }
 }
 
 /// Convert a `rusqlite::types::ValueRef` to a `Value`.
@@ -197,7 +188,7 @@ impl Debug for Connection {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         writeln!(f, "\nCatalog")?;
         writeln!(f, "-------\n")?;
-        for (_, table) in &self.tables {
+        for table in self.tables.values() {
             writeln!(f, "{}", table)?;
         }
         Ok(())

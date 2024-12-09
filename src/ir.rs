@@ -145,11 +145,11 @@ impl Display for TObject {
         if self.members.is_empty() {
             write!(f, "{{}}")
         } else {
-            write!(f, "{{\n")?;
+            writeln!(f, "{{")?;
             for m in &self.members {
                 write!(f, "  ")?;
                 m.fmt(f)?;
-                write!(f, ",\n")?;
+                writeln!(f, ",")?;
             }
             write!(f, "}}")
         }
@@ -420,7 +420,7 @@ pub fn expr_var(var: String) -> Expr {
 }
 
 #[inline]
-pub fn expr_call(name: String, args: Vec<Expr>) -> Expr {
+pub fn expr_call(name: String, _: Vec<Expr>) -> Expr {
     unimplemented!("function calls, found: {}", name)
 }
 

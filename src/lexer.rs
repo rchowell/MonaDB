@@ -17,7 +17,7 @@ impl<'input> RqlLexer<'input> {
     }
 }
 
-impl<'input> Iterator for RqlLexer<'input> {
+impl Iterator for RqlLexer<'_> {
     type Item = Spanned<Token, usize, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
