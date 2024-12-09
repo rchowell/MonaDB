@@ -43,11 +43,10 @@ impl Error {
 
             // expected
             if hint.expected.len() > 0 {
-                result.push_str("  └─ expected: ");
+                result.push_str("  └─ hint: expected ");
                 result.push_str(&hint.expected.join(", "));
             }
             result.push_str("\n");
-
             result
             }
             _ => format!("{:?}", self),

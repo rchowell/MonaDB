@@ -232,10 +232,11 @@ Selector: ir::Selector = {
 Expr: ir::Expr = {
 
     #[precedence(level="0")]
-    "ident"                     => ir::expr_var(<>),
-    Value                       => ir::expr_lit(<>),
-    "{" <Members> "}"           => ir::expr_obj(<>),
-    "(" <Expr> ")"              => <>,
+    "ident"                         => ir::expr_var(<>),
+    <"ident"> "(" <List<Expr>> ")"  => ir::expr_call(<>),
+    Value                           => ir::expr_lit(<>),
+    "{" <Members> "}"               => ir::expr_obj(<>),
+    "(" <Expr> ")"                  => <>,
 
     #[precedence(level="1")]    #[assoc(side="left")]
     <Expr> "[" <Expr> "]"       => ir::expr_jpe(<>),
@@ -257,7 +258,6 @@ Expr: ir::Expr = {
     <Expr> ">" <Expr>           => ir::expr_op(">", <>),
     <Expr> ">=" <Expr>          => ir::expr_op(">=", <>),
     <Expr> "!=" <Expr>          => ir::expr_op("!=", <>),
-
 }
 
 Value: Value = {

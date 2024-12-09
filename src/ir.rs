@@ -420,6 +420,11 @@ pub fn expr_var(var: String) -> Expr {
 }
 
 #[inline]
+pub fn expr_call(name: String, args: Vec<Expr>) -> Expr {
+    unimplemented!("function calls, found: {}", name)
+}
+
+#[inline]
 pub fn expr_lit(val: Value) -> Expr {
     Expr::Lit(val)
 }

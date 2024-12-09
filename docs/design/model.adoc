@@ -1,6 +1,6 @@
 Transforms using simplified SQL verbs for familiarity.
 
-> mindsent: "we mostly support the familiar SQL thing, but prefer this" ??
+> mindset: "we mostly support the familiar SQL thing, but prefer this" ??
 
 .Operations
 |===
@@ -50,20 +50,6 @@ select sum, y
 * Parser is tree-like.
 * IR is a block tree; where each block makes imperative codegen easier.
 * Codegen wants a linear, imperative representation.
-
-== Basic Operations
-
-[source]
-----
--- assignment
-1 as x;
-
--- casts
-
-1::int      -- -> cast(1 as int)
-2::double   -- -> cast(2 as int)
-3::string   -- -> cast(3 as string)
-----
 
 == Deleting Rows
 

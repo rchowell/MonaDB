@@ -1,12 +1,13 @@
-use std::io::BufRead;
-use std::ops::Not;
-use std::{env, io::IsTerminal};
+use std::io::{BufRead, IsTerminal, Write};
+use std::env;
 use std::path::PathBuf;
 
 use monadb::MonaDB;
 use rustyline::{error::ReadlineError, history::DefaultHistory, validate::{ValidationContext, ValidationResult, Validator}, Completer, Config, EditMode, Editor, Helper, Highlighter, Hinter};
 
 use clap::{Parser, Subcommand};
+use termcolor::StandardStream;
+use termcolor::{Color, ColorChoice, ColorSpec, WriteColor};
 
 #[derive(Debug, Parser)]
 #[command(author, version, about, long_about = None, multicall = true)]
@@ -92,13 +93,13 @@ fn main() {
 
     let args: Vec<String> = env::args().collect();
 
+    // TODO allow executing as a command `cat file.jsonl | mona -q 'select * from stdin'`
     let input = std::io::stdin();
     if !input.is_terminal() {
-        // interactive
         for line in input.lock().lines() {
-            let program_string = args[1].clone();
-            println!("Executing program: {}", program_string);
+            println!("{}", line.unwrap())
         }
+        return;
     }
     drop(input);
 
@@ -121,6 +122,9 @@ fn main() {
     let mut line_reader = LineReader::new();
     let mut buffer = String::new();
     let mut debug = false;
+
+    // STDOUT
+    let mut stdout = StandardStream::stdout(ColorChoice::Always);
 
     // MAIN LOOP
     loop {
@@ -174,7 +178,10 @@ fn main() {
                     println!("ok.");
                 },
                 Err(e) => {
-                    println!("{}", e.pretty(&buffer));
+                    stdout.set_color(ColorSpec::new().set_fg(Some(Color::Red))).unwrap();
+                    writeln!(stdout, "{}", e.pretty(&buffer)).unwrap();
+                    stdout.reset().unwrap();
+                    writeln!(stdout).unwrap();
                 }
             }
         }

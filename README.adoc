@@ -3,11 +3,10 @@
 What if SQLite were a xref:DESIGN.adoc[JSON Database]?
 
 .Notes
-- Names: monadb, rho, rhodb
 - Language inspiration: JavaScript, TypeScript, Lua, SQL, and Python.
-- No implicit column references.
 - What if Python were the reference language, so Python and SQL customers can use it effectively?
 - I want to make it possible to define types and operations, there should be a "trait" for each JSON type.
+- Database extensions are _very_ important.
 
 == Goal
 
@@ -18,19 +17,27 @@ The goal is, that by Feb 1, I can host a website backed by MonaDB.
 _This section contains a list of features/ideas that are not yet implemented._
 
 .Requirements
-* [ ] UPDATE and conditional DELETE (needs row pointers)
-* [ ] Error on duplicate keys.
+* [ ] select one
+* [ ] delete one
+* [ ] CAST functions.
+* [ ] Error on duplicate keys in objects.
 * [ ] Computed property names in objects.
+* [ ] UPDATE and conditional DELETE (needs row pointers)
 * [ ] Support for open tables.
-* [ ] Document namespaces (??).
 * [ ] DDL with constraints (no enforcement).
-* [ ] Have "schema" VM.
-* [ ] f-strings for string interpolation.
 * [ ] null operators
-* [ ] CAST and '::' syntax.
 * [ ] Check schema on insert.
 * [ ] Scope/frame drop for cursors and counters cleanup.
+* [ ] Read JSONLines on stdin to make `mona` a jq tool.
 * [ ] Scalar functions
+* [ ] Load input from a file into a table.
+* [ ] CROSS JOIN
+* [ ] Delete with WHERE
+
+.Existential
+* [ ] How do subqueries work (??) hint: scalar, row, test, comparison, containment, other.
+* [ ] How does string interpolation work (??) hint: f-strings
+* [ ] How do namespaces work (??).
 
 .Enhancements
 * [ ] Testing framework, dbgen, performance and language comparison to jq and sqlite jsonb.
@@ -38,6 +45,7 @@ _This section contains a list of features/ideas that are not yet implemented._
 * [ ] Highlighted output.
 * [ ] Dump code buffer and stack on error when debug is on.
 * [ ] Debug with trace.
+* [ ] Have "schema" VM.
 
 .Documentation
 * [ ] Language documentation should have links to other grammar rules.
@@ -49,7 +57,14 @@ _This section contains a list of features/ideas that are not yet implemented._
 
 _This section contains various mini-goals to drive the project._
 
-=== G4 Nov 2024
+=== Dec 2024
+
+* [ ] Make "Catalog" the "Connection" ??
+* [ ] Remove VM dep on MonaDB, use "Connection" directly.
+* [ ] The cursor should be an iterator over the sqlite connection.
+* [ ] WITH Clause
+
+=== Nov 2024
 
 * [x] Row pointers.
 * [x] Make select operate as listcomp / compexp.
@@ -59,19 +74,9 @@ _This section contains various mini-goals to drive the project._
 * [x] WHERE
 * [x] Render language documents to HTML.
 * [x] LIMIT/OFFSET
-* [ ] Load input from a file into a table.
-* [ ] CROSS JOIN
-* [ ] WITH
-* [ ] Delete with WHERE
-* [ ] Select One
-* [ ] Remove VM dep on Rho, use "Connection".
-* [ ] Make "Catalog" the "Connection" ??
-* [ ] Read JSONLines input
-* [ ] The cursor should be an iterator over the sqlite connection.
 
-=== G3 Oct 2024
+=== Oct 2024
 
-.Goals
 * [x] Finalize syntax for V0 `create table`.
 * [x] Removal of sqlparser
 * [x] Object initializers.
@@ -88,17 +93,15 @@ _This section contains various mini-goals to drive the project._
 * [x] Add `emit_op` style methods in compiler to replace vop helpers (easy-ish find+replace).
 * [x] Pre-commpute a table's sqlite queries because they are always the same.
 
-=== G2 Sep 2024
+=== Sep 2024
 
 For September, I would like to have the CRUD operations working and start the RQL support/documentation.
 
-.Debug Commands
-* [x] `.select <table>`
-* [x] `.create <table>`
-* [x] `.insert <table> <json>`
-* [x] `.drop <table>`
-
-.Goals
+* Commands
+** [x] `.select <table>`
+** [x] `.create <table>`
+** [x] `.insert <table> <json>`
+** [x] `.drop <table>`
 * [x] Persist schemas in a `catalog` table.
 * [x] Basic DDL (CREATE TABLE, DROP TABLE)
 * [x] Basic DML
@@ -116,13 +119,10 @@ For September, I would like to have the CRUD operations working and start the RQ
 * [x] Store rows as sqlite jsonb.
 * [x] (DONT) Can I merge parser and compiler // how should the responsibility be split.
 
-=== G1 Aug 2024
+=== Aug 2024
 
-.Goals
 * [x] Load jsonlines into an in-memory "table".
 * [x] Run a scan against the in-memory "table".
 * [x] Send results to stdout.
 * [x] Make the most rudimentary file format!
-* I have a VM loop and cursor.
-* Start with loading jsonlines from stdin.
-* Figure out a projection operator
+* [x] VM loop and cursor.
