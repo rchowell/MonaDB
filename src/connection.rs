@@ -14,42 +14,43 @@ use crate::{
     value::Value,
     Result,
 };
-use rusqlite::{named_params, types::FromSql, Connection, ToSql};
+use rusqlite::{named_params, types::FromSql, ToSql};
+use rusqlite::Connection as SQLite;
 
-const SQL_INIT: &str = "CREATE TABLE IF NOT EXISTS catalog ( name TEXT PRIMARY KEY, ddl TEXT );";
-const SQL_SYNC: &str = "SELECT name, ddl FROM catalog;";
+const SQL_INIT: &str = "CREATE TABLE IF NOT EXISTS connection ( name TEXT PRIMARY KEY, ddl TEXT );";
+const SQL_SYNC: &str = "SELECT name, ddl FROM connection;";
 
-/// Catalog manages the database tables, routines, and eventually types.
-pub struct Catalog {
-    conn: Connection,
+/// Database Connection
+pub struct Connection {
+    sqlite: SQLite,
     tables: HashMap<String, Table>,
     routines: HashMap<String, i32>,
 }
 
-impl Catalog {
-    /// Load the catalog from a file.
-    pub fn open<P>(path: P) -> Result<Catalog>
+impl Connection {
+    /// Load the connection from a file.
+    pub fn open<P>(path: P) -> Result<Connection>
     where
         P: AsRef<Path>,
     {
-        let conn = Connection::open(path)?;
-        let mut catalog = Catalog::init(conn)?;
-        catalog.sync()?;
-        Ok(catalog)
+        let sqlite = SQLite::open(path)?;
+        let mut connection = Connection::init(sqlite)?;
+        connection.sync()?;
+        Ok(connection)
     }
 
-    /// Load the catalog from an in-memory database.
-    pub fn memory() -> Result<Catalog> {
-        let conn = Connection::open_in_memory()?;
-        let catalog = Catalog::init(conn)?;
-        Ok(catalog)
+    /// Load the connection from an in-memory database.
+    pub fn memory() -> Result<Connection> {
+        let conn = SQLite::open_in_memory()?;
+        let connection = Connection::init(conn)?;
+        Ok(connection)
     }
 
-    /// Initialize the catalog.
-    fn init(conn: Connection) -> Result<Catalog> {
-        conn.execute(SQL_INIT, [])?;
-        Ok(Catalog {
-            conn,
+    /// Initialize the connection.
+    fn init(sqlite: SQLite) -> Result<Connection> {
+        sqlite.execute(SQL_INIT, [])?;
+        Ok(Connection {
+            sqlite,
             tables: HashMap::new(),
             routines: Self::routines(),
         })
@@ -71,12 +72,12 @@ impl Catalog {
         Ok(())
     }
 
-    /// Create a table in the catalog.
+    /// Create a table in the connection.
     pub fn create_table(&mut self, table: &Table) -> Result<()> {
         let create = table.to_sqlite_ddl();
-        let insert = "INSERT INTO catalog VALUES (:name, :ddl);";
+        let insert = "INSERT INTO connection VALUES (:name, :ddl);";
         //
-        let tx = self.conn.transaction()?;
+        let tx = self.sqlite.transaction()?;
         tx.execute(&create, [])?;
         tx.execute(
             insert,
@@ -91,19 +92,19 @@ impl Catalog {
     pub fn clear(&mut self, table: &str) -> Result<()> {
         let delete = format!("DELETE FROM {} WHERE true", table);
 
-        let tx = self.conn.transaction()?;
+        let tx = self.sqlite.transaction()?;
         tx.execute(&delete, [])?;
         tx.commit()?;
 
         Ok(())
     }
 
-    /// Drop a table from the catalog.
-    pub fn drop(&mut self, table: &str) -> Result<()> {
+    /// Drop a table from the connection.
+    pub fn drop_table(&mut self, table: &str) -> Result<()> {
         let drop = format!("DROP TABLE IF EXISTS {};", table);
-        let delete = "DELETE FROM catalog WHERE name = :name;";
+        let delete = "DELETE FROM connection WHERE name = :name;";
 
-        let tx = self.conn.transaction()?;
+        let tx = self.sqlite.transaction()?;
         tx.execute(&drop, [])?;
         tx.execute(delete, named_params! { ":name": table })?;
         tx.commit()?;
@@ -116,7 +117,7 @@ impl Catalog {
         let table = self.get_table(table)?;
         let insert = table.to_sqlite_insert();
         let v = value.to_string();
-        let _ = self.conn.execute(&insert, [v])?;
+        let _ = self.sqlite.execute(&insert, [v])?;
         Ok(())
     }
 
@@ -126,10 +127,10 @@ impl Catalog {
     }
 
     /// Open a cursor to the given table.
-    pub fn scan(&mut self, table: &str) -> Result<Cursor> {
+    pub fn open_cursor(&mut self, table: &str) -> Result<Cursor> {
         let table = self.get_table(table)?;
         let select = table.to_sqlite_select();
-        let statement = self.conn.prepare(&select)?;
+        let statement = self.sqlite.prepare(&select)?;
         Ok(Cursor::new(statement))
     }
 
@@ -149,9 +150,9 @@ impl Catalog {
         Ok(())
     }
 
-    /// Sync the catalog with the sqlite3 `catalog` table.
+    /// Sync the connection with the sqlite3 `connection` table.
     fn sync(&mut self) -> Result<()> {
-        let mut stmt = self.conn.prepare(SQL_SYNC)?;
+        let mut stmt = self.sqlite.prepare(SQL_SYNC)?;
         let mut rows = stmt.query([])?;
         let mut tables = HashMap::new();
         while let Some(row) = rows.next()? {
@@ -163,7 +164,7 @@ impl Catalog {
             }
             tables.insert(name, table);
         }
-        // Replace the catalog
+        // Replace the connection
         self.tables = tables;
         Ok(())
     }
@@ -192,7 +193,7 @@ impl FromSql for Value {
     }
 }
 
-impl Debug for Catalog {
+impl Debug for Connection {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         writeln!(f, "\nCatalog")?;
         writeln!(f, "-------\n")?;
@@ -253,7 +254,7 @@ mod tests {
 
     #[test]
     fn test_create_table() {
-        let mut catalog = Catalog::memory().unwrap();
+        let mut connection = Connection::memory().unwrap();
         let actual = Table {
             name: "foo".to_string(),
             schema: Type::Object(TObject {
@@ -272,8 +273,8 @@ mod tests {
         };
 
         // load the table
-        catalog.create_table(&actual).unwrap();
-        let expected = catalog.get_table("foo").unwrap();
+        connection.create_table(&actual).unwrap();
+        let expected = connection.get_table("foo").unwrap();
 
         // assert round-trip equality
         assert_eq!(actual, *expected);

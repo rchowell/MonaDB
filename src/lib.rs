@@ -12,7 +12,7 @@ lalrpop_mod!(
 );
 
 // internal modules
-mod catalog;
+mod connection;
 mod compiler;
 mod cursor;
 mod ir;
@@ -23,13 +23,10 @@ use std::path::Path;
 use std::result;
 
 use compiler::Compiler;
-use cursor::Cursor;
 use error::Error;
-use catalog::Catalog;
-use ir::Table;
+use connection::Connection;
 use lalrpop_util::lalrpop_mod;
 use rows::Rows;
-use value::Value;
 
 use crate::vm::*;
 
@@ -38,92 +35,49 @@ pub type Result<T, E = Error> = result::Result<T, E>;
 
 /// Rho represents the database connection.
 pub struct MonaDB {
-    catalog: RefCell<Catalog>,
+    connection: Connection,
 }
 
 impl MonaDB {
 
     pub fn open<P>(path: P) -> Result<MonaDB>
     where P: AsRef<Path> {
-        let catalog = Catalog::open(path)?;
-        Ok(MonaDB { 
-            catalog: RefCell::new(catalog),
-        })
+        let connection = Connection::open(path)?;
+        Ok(MonaDB { connection })
     }
 
     pub fn memory() -> Result<MonaDB> {
-        let catalog = Catalog::memory()?;
-        Ok(MonaDB {
-            catalog: RefCell::new(catalog),
-        })
+        let connection = Connection::memory()?;
+        Ok(MonaDB { connection })
     }
 
     pub fn info(&self) {
-        println!("{:?}", self.catalog.borrow());
-    }
-
-    pub fn prepare(&self, rql: &str) -> Result<Code> {
-        let catalog = self.catalog.borrow();
-        let compiler = Compiler::new(&catalog);
-        compiler.compile(rql)
+        println!("{:?}", self.connection);
     }
 
     pub fn exec(&mut self, rql: &str, debug: bool) -> Result<Rows<'_>> {
         let program = self.prepare(rql)?;
-
-        // >> DEBUG
         if debug {
-            println!();
-            println!("┌──────┬──────┬──────┐");
-            println!("│ addr │ code │ args │");
-            println!("├──────┼──────┼──────┤");
-            for (addr, op) in program.iter().enumerate() {
-                println!("│  {:03} │ {:?}", addr, op);
-            }
-            println!("└──────┘");
-            println!();
+            Self::debug(&program)
         }
-        // >> DEBUG
-
-        let vm = VM::init(self, program);
+        let vm = VM::init(&mut self.connection, program);
         Ok(Rows::new(vm))
     }
 
-    /// Clear all entries in a table.
-    pub fn clear(&self, table: &str) -> Result<()> {
-        self.catalog.borrow_mut().clear(table)
+    fn prepare(&self, rql: &str) -> Result<Program> {
+        let compiler = Compiler::new();
+        compiler.compile(rql)
     }
 
-    /// Create a table in the catalog.
-    pub fn create_table(&self, table: &Table) -> Result<()> {
-        self.catalog.borrow_mut().create_table(table)
-    }
-
-    // Drop a table in the catalog.
-    pub fn drop_table(&self, table: &str) -> Result<()> {
-        self.catalog.borrow_mut().drop(table)
-    }
-
-    // Insert value into the table.
-    pub fn insert(&self, table: &str, value: Value) -> Result<()> {
-        self.catalog.borrow_mut().insert(table, value)
-    }
-
-    // Insert values into the table.
-    pub fn insert_batch(&self, table: &str, values: &[Value]) -> Result<()> {
-        self.catalog.borrow_mut().insert_batch(table, values)
-    }
-
-    // Opens a cursor for the table.
-    pub fn scan(&self, table: &str) -> Result<Cursor> {
-        self.catalog.borrow_mut().scan(table)
-    }
-
-    pub fn transaction(&self) {
-        self.catalog.borrow_mut().transaction()
-    }
-
-    pub fn commit(&self) -> Result<()> {
-        self.catalog.borrow_mut().commit()
+    fn debug(program: &Program) {
+        println!();
+        println!("┌──────┬──────┬──────┐");
+        println!("│ addr │ code │ args │");
+        println!("├──────┼──────┼──────┤");
+        for (addr, op) in program.iter().enumerate() {
+            println!("│  {:03} │ {:?}", addr, op);
+        }
+        println!("└──────┘");
+        println!();
     }
 }

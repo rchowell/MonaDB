@@ -1,13 +1,14 @@
 use std::vec;
 
+use crate::connection::Connection;
 use crate::cursor::Cursor;
 use crate::ir::Table;
 use crate::value::Value;
 use crate::Result;
 use crate::MonaDB;
 
-/// Code is a sequence of virtual machine instructions.
-pub type Code = Vec<Vop>;
+/// Program is a sequence of virtual machine instructions.
+pub type Program = Vec<Vop>;
 
 /// Vop is a virtual machine instruction code.
 #[derive(Debug, Clone)]
@@ -88,19 +89,20 @@ pub enum Vop {
 
 /// VM holds the state of the virtual machine.
 /// TODO VM should be using the catalog/connection, not the library.
-pub struct VM<'r> {
-    db: &'r MonaDB,
+pub struct VM<'conn> {
+    conn: &'conn mut Connection,
     pc: usize,
-    program: Code,
+    program: Program,
     stack: Vec<Value>,
     cursors: Vec<Cursor>,
     counters: Vec<u64>,
 }
 
-impl<'r> VM<'r> {
-    pub fn init(db: &MonaDB, program: Code) -> VM {
+impl<'conn> VM<'conn> {
+
+    pub fn init(conn: &mut Connection, program: Program) -> VM {
         VM {
-            db,
+            conn,
             pc: 0,
             program,
             stack: vec![],
@@ -144,24 +146,24 @@ impl<'r> VM<'r> {
                     // do nothing (for now)
                 }
                 Vop::Clear { table } => {
-                    self.db.clear(table)?;
+                    self.conn.clear(table)?;
                 }
                 Vop::CreateTable { table } => {
-                    self.db.create_table(table)?;
+                    self.conn.create_table(table)?;
                 }
                 Vop::Commit => {
-                    self.db.commit()?;
+                    self.conn.commit()?;
                 }
                 Vop::Drop { table } => {
-                    self.db.drop_table(table)?;
+                    self.conn.drop_table(table)?;
                 }
                 Vop::Insert(table) => {
                     let value = self.pop();
-                    self.db.insert(table, value)?;
+                    self.conn.insert(table, value)?;
                 }
                 Vop::InsertBatch(table, n) => {
                     let values = self.take(*n);
-                    self.db.insert_batch(table, &values)?;
+                    self.conn.insert_batch(table, &values)?;
                 }
                 Vop::Jpe => {
                     let e = self.pop();
@@ -213,7 +215,7 @@ impl<'r> VM<'r> {
                     self.pc = *jmp;
                 }
                 Vop::Transaction => {
-                    self.db.transaction();
+                    self.conn.transaction();
                 }
                 Vop::Exit => {
                     return Ok(None);
@@ -293,7 +295,7 @@ impl<'r> VM<'r> {
                 // Cursor
                 //
                 Vop::Open(table)  => {
-                    self.cursors.push(self.db.scan(table)?);
+                    self.cursors.push(self.conn.open_cursor(table)?);
                 }
                 Vop::Next(cursor, jmp) => {
                     if self.cursors[*cursor].next() {

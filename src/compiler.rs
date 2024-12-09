@@ -1,10 +1,9 @@
-use crate::catalog::Catalog;
 use crate::error::err_unknown_routine;
 use crate::ir::*;
 use crate::lexer::RqlLexer;
 use crate::parser::RqlParser;
 use crate::value::Value;
-use crate::{Code, Result, Vop};
+use crate::{Program, Result, Vop};
 use std::vec;
 
 #[macro_export]
@@ -16,9 +15,8 @@ macro_rules! unsupported {
 }
 
 /// Compiler translates RQL queries to Vops.
-pub struct Compiler<'cat> {
-    catalog: &'cat Catalog,
-    code: Code,
+pub struct Compiler {
+    code: Program,
     vars: Vec<Var>,
     counters: usize,
 }
@@ -31,17 +29,16 @@ pub struct Var {
 /// Track patches (instruction, offset).
 type Patch = (usize, usize);
 
-impl<'cat> Compiler<'cat> {
-    pub fn new(catalog: &Catalog) -> Compiler {
+impl Compiler  {
+    pub fn new() -> Compiler {
         Compiler {
-            catalog,
             code: vec![],
             vars: vec![],
             counters: 0,
         }
     }
 
-    pub fn compile(mut self, rql: &str) -> Result<Code> {
+    pub fn compile(mut self, rql: &str) -> Result<Program> {
         self.emit_init();
         match parse(rql)? {
             Statement::Create(create) => self.cc_create(create)?,
