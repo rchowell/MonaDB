@@ -1,0 +1,29 @@
+= Cask
+
+The cask is a modified bitcask for single file.
+
+== Restore
+
+The algorithm to restore the cask map is roughly,
+
+```python
+def restore(file) -> dict:
+    map = {}
+    while not end:
+        pos = file.pos()
+        // read prefix
+        k_size = file.read(2) as u16
+        v_size = file.read(8) as u64
+        key = file.read(k_size) as bytes
+        // skip value
+        file.seek(v_size)
+        // set pointer
+        map[key] = Pointer(pos, file.pos() - pos)
+    return map
+```
+
+== Notes
+
+* Not using bincode to reduces deps.
+* Consider making MAX_KEY_LENGTH configurable (u16).
+* Consider mkaing MAX_VAL_LENGTH configurable (u64).

@@ -4,6 +4,9 @@ pub mod value;
 pub mod lexer;
 pub mod rows;
 
+// private modules
+mod cask;
+
 // lalrpop module
 lalrpop_mod!(
     #[allow(clippy::all)]
