@@ -34,7 +34,9 @@ _This section contains a list of features/ideas that are not yet implemented._
 * [ ] Load input from a file into a table.
 * [ ] CROSS JOIN
 * [ ] Delete with WHERE
+* [ ] Split shell from core to remove deps.
 * [ ] [RESP protocol](https://redis.io/docs/latest/develop/reference/protocol-spec/)
+* [ ] Add memory cask.
 
 .Existential
 * [ ] How do subqueries work (??) hint: scalar, row, test, comparison, containment, other.

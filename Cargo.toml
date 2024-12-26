@@ -12,8 +12,6 @@ bytes = "1.9.0"
 clap = { version = "4.5.16", features = ["derive"] }
 lalrpop-util = { version = "0.21.0", features = ["lexer", "unicode"] }
 logos = "0.14.2"
-# TODO remove
-rusqlite = { version = "0.32.0", features = ["bundled"] }
 # TODO put behind "shell"
 rustyline = { version = "14.0.0", features = ["derive"] }
 # TODO remove

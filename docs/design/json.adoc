@@ -104,3 +104,13 @@ ws
     '000D' ws
     '0009' ws
 ----
+
+> TL;DR: I-JSON messages are "JSON texts" with the interoperability constraints of RFC 7159.
+
+.Constraints
+. Encoded as UTF-8.
+. Numbers SHOULD NOT exceed IEEE 754 64-bit and integers should fit in ~53-bits.
+. For bigger numbers, it is RECOMMENDED to encode them in JSON strings.
+. Objects MUST NOT have duplicate member names.
+. It is RECOMMENDED that timestamps are ISO 8601 strings and durations conform to RFC 3339.
+. It is RECOMMENDED that binary data is encoded as base64url.

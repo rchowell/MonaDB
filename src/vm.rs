@@ -87,7 +87,6 @@ pub enum Vop {
 }
 
 /// VM holds the state of the virtual machine.
-/// TODO VM should be using the catalog/connection, not the library.
 pub struct VM<'conn> {
     conn: &'conn mut Connection,
     pc: usize,

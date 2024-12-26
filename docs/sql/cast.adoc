@@ -1,20 +1,4 @@
-= Type Definitions
-
-RQL uses the TypeScript syntax to declare data types.
-
-== Types
-
-|===
-| Type | Alias
-
-| boolean   | bool
-| number    | num
-| string    | str
-| array     | arr
-| object    | obj
-|===
-
-== Cast and Coercions
+= Cast and Coercions
 
 .Syntax
 [source]

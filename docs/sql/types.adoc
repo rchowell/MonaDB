@@ -1,0 +1,11 @@
+= Types
+
+|===
+| Type      | Alias
+
+| boolean   | bool
+| number    | num
+| string    | str
+| array     | arr
+| object    | obj
+|===

@@ -1,5 +1,3 @@
-use rusqlite::Statement;
-
 use crate::value::Value;
 
 #[derive(Debug, Clone)]
@@ -24,22 +22,6 @@ pub struct Cursor {
 }
 
 impl Cursor {
-    /// Create a new cursor from an SQLite statement.
-    pub fn new(statement: Statement<'_>) -> Self {
-        // TODO use rows and make it lazy.
-        let mut statement = Box::new(statement);
-        let mut query = statement.query([]).unwrap();
-        let mut rows: Vec<Row> = vec![];
-        while let Some(row) = query.next().unwrap() {
-            let oid: u64 = row.get(0).unwrap();
-            let s: String = row.get(1).unwrap();
-            let val = Value::from(s);
-            rows.push(Row { oid, val });
-        }
-        let pos = 0;
-        let end = rows.len();
-        Self { rows, pos, end }
-    }
 
     /// Create a new Cursor from a vector of Rows.
     pub fn vec(rows: Vec<Row>) -> Self {
@@ -64,6 +46,7 @@ impl Cursor {
     pub fn curr(&self) -> &Row {
         self.rows.get(self.pos).expect("illegal cursor position")
     }
+
 }
 
 #[cfg(test)]

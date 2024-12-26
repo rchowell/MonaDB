@@ -61,13 +61,13 @@ select_path
 [source,rql]
 ----
 -- select one
-select * from T@<id>;
+select T@<id>;
 
 -- with constructor
 select upper(t.name) from T@<id> as t;
 
 -- delete one
-delete from T@<id>;
+delete T@<id>;
 ----
 
 == Spread Operator
@@ -121,6 +121,3 @@ select { ...t } from T as t;    -- vars { x: t.x, y: t.y }
 
 -- output: [ { x: 1, y: 2 } ]
 ----
-
-
-
