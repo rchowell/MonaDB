@@ -1,130 +1,163 @@
+use std::collections::HashMap;
 use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
 use std::{fs::File, path::Path};
-use std::collections::HashMap;
 
-use bytes::{BufMut, Bytes, BytesMut};
-use crate::Result;
+use crate::{error, Result};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 
-/// A single-file key-value store based on bitcask.
-#[allow(dead_code)]
 pub struct Cask {
-    map: HashMap<Bytes, Pointer>,
-    log_writer: Log<File>,
-    log_reader: File,
+    bins: LogBins,
+    log_r: LogReader,
+    log_w: LogWriter,
 }
 
-#[allow(dead_code)]
 impl Cask {
+    pub fn new<P>(path: P) -> Result<Cask>
+    where
+        P: AsRef<Path>,
+    {
+        File::create(&path)?;
+        Self::open(path)
+    }
 
     pub fn open<P>(path: P) -> Result<Cask>
     where
         P: AsRef<Path>,
     {
-
-        // hack to get another file descriptor.. 
-        let mut log_reader = File::options().read(true).open(&path)?;
-        let map = Self::restore(&mut log_reader)?;
-        
-        // write to this log
-        let file = File::options().write(true).open(&path)?;
-        let log_writer = Log::new(file)?;
-
-        Ok(Cask { map, log_writer, log_reader })
+        let bins = LogBins::new();
+        let log_r = LogReader::open(&path)?;
+        let log_w = LogWriter::open(&path)?;
+        Cask { bins, log_r, log_w }.sync()
     }
-    
-    pub fn get(&mut self, key: Bytes) -> Result<Option<Bytes>> {
-        if let Some(ptr) = self.map.get(&key) {
+
+    pub fn count(&self, bin: usize) -> usize {
+        self.bins.count(bin)
+    }
+
+    pub fn put(&mut self, bin: usize, key: Bytes, val: Bytes) -> Result<()> {
+        // put to log
+        let rec = LogRecord::new(bin, key.clone(), val)?;
+        let ptr = self.log_w.append(rec)?;
+        // put to bins
+        self.bins.put(bin, key, ptr)
+    }
+
+    pub fn get(&mut self, bin: usize, key: Bytes) -> Result<Option<Bytes>> {
+        if let Some(ptr) = self.bins.get(bin, key)? {
             // debug
-            // println!("ptr(pos={}, len={})", ptr.pos, ptr.len);
-
-            // buffer
-            let mut buf = BytesMut::with_capacity(ptr.len as usize);
-            buf.resize(ptr.len as usize, 0);
-
-            // read
-            self.log_reader.seek(SeekFrom::Start(ptr.pos))?;
-            self.log_reader.read_exact(&mut buf)?;
-
-            // parse record
-            let record: Record = buf.freeze().into();
-
-            // extract value
-            return Ok(Some(record.v))
+            println!("ptr(pos={}, len={})", ptr.pos, ptr.len);
+            let record = self.log_r.get(ptr)?;
+            println!("{:?}", record);
+            return Ok(Some(record.val));
         }
         Ok(None)
     }
 
-    pub fn put(&mut self, key: Bytes, value: Bytes) -> Result<()> {
-        // write to file
-        let record = Record { k: key.clone(), v: value };
-        let ptr = self.log_writer.append(record)?;
-        // update keys
-        self.map.insert(key, ptr);
-        Ok(())
-    }
-    
     pub fn del(&mut self, _key: Bytes) -> Result<bool> {
         Ok(false)
     }
 
     pub fn close(self) {
-        drop(self.log_writer);
+        drop(self.log_w);
     }
 
-    fn restore(file: &mut File) -> Result<HashMap<Bytes, Pointer>> {
+    fn sync(self) -> Result<Self> {
+        // let mut pos: u64 = 0;
+        // let end: u64 = file.metadata()?.len();
 
-        let mut map = HashMap::<Bytes, Pointer>::new();
-        let mut pos: u64 = 0;
-        let end: u64 = file.metadata()?.len();
+        // while pos < end {
+        //     // read header
+        //     let mut k_size = [0u8; 2];
+        //     let mut v_size = [0u8; 8];
+        //     file.read_exact(&mut k_size)?;
+        //     file.read_exact(&mut v_size)?;
+        //     let k_size = u16::from_be_bytes(k_size);
+        //     let v_size = u64::from_be_bytes(v_size);
 
-        while pos < end {
+        //     // read key
+        //     let mut key = BytesMut::with_capacity(k_size as usize);
+        //     key.resize(k_size as usize, 0);
+        //     file.read_exact(&mut key)?;
 
-            // read header
-            let mut k_size = [0u8;2];
-            let mut v_size = [0u8;8];
-            file.read_exact(&mut k_size)?;
-            file.read_exact(&mut v_size)?;
-            let k_size = u16::from_be_bytes(k_size);
-            let v_size = u64::from_be_bytes(v_size);
+        //     // debug
+        //     // println!("k_size={},v_size={},key={:?}", k_size, v_size, &key);
 
+        //     // map[key] = ptr
+        //     let len = 10u64 + (k_size as u64) + v_size;
+        //     let ptr = LogPtr { pos, len };
+        //     map.insert(key.into(), ptr);
 
-            // read key
-            let mut key = BytesMut::with_capacity(k_size as usize);
-            key.resize(k_size as usize, 0);
-            file.read_exact(&mut key)?;
+        //     // seek (has overflow bug)
+        //     file.seek(SeekFrom::Current(len as i64))?;
+        //     pos += len
+        // }
 
-            // debug
-            // println!("k_size={},v_size={},key={:?}", k_size, v_size, &key);
+        // Ok(())
+        Ok(self)
+    }
+}
 
-            // map[key] = ptr
-            let len = 10u64 + (k_size as u64) + v_size;
-            let ptr = Pointer { pos, len };
-            map.insert(key.into(), ptr);
+type LogBin = HashMap<Bytes, LogPtr>;
 
-            // seek (has overflow bug)
-            file.seek(SeekFrom::Current(len as i64))?;
-            pos += len
+struct LogBins {
+    bins: Vec<Option<LogBin>>,
+}
+
+impl LogBins {
+    pub fn new() -> Self {
+        const NONE: Option<LogBin> = None;
+        LogBins {
+            bins: Vec::from([NONE; 127]),
         }
+    }
 
-        Ok(map)
+    pub fn count(&self, bin: usize) -> usize {
+        self.bins[bin].as_ref().map_or(0, |m| m.len())
+    }
+
+    pub fn put(&mut self, bin: usize, key: Bytes, ptr: LogPtr) -> Result<()> {
+        if bin > 127 {
+            error!("bin cannot exceed 127")
+        }
+        if self.bins[bin].is_none() {
+            self.bins[bin] = Some(LogBin::new());
+        }
+        self.bins[bin].as_mut().unwrap().insert(key, ptr);
+        Ok(())
+    }
+
+    pub fn get(&self, bin: usize, key: Bytes) -> Result<Option<LogPtr>> {
+        if bin > 127 {
+            error!("bin cannot exceed 127")
+        }
+        let bin = self.bins[bin].as_ref().unwrap();
+        let ptr = bin.get(&key).copied();
+        Ok(ptr)
     }
 }
 
-/// A writeable log.
-struct Log<W: Write> {
+struct LogWriter {
     pos: u64,
-    log: BufWriter<W>,
+    log: BufWriter<File>,
 }
 
-impl<W> Log<W> where W: Write + Seek {
-
-    pub fn new(mut w: W) -> std::io::Result<Self> {
-        let pos = w.seek(SeekFrom::End(0))?;
-        let log = BufWriter::new(w);
-        Ok(Log{ pos, log })
+impl LogWriter {
+    pub fn new(mut log: File) -> Result<Self> {
+        let pos = log.seek(SeekFrom::End(0))?;
+        let log = BufWriter::new(log);
+        Ok(LogWriter { pos, log })
     }
 
-    pub fn append(&mut self, record: Record) -> Result<Pointer> {
+    pub fn open<P>(path: P) -> Result<Self>
+    where
+        P: AsRef<Path>,
+    {
+        let f = File::options().write(true).open(&path)?;
+        let w = LogWriter::new(f)?;
+        Ok(w)
+    }
+
+    pub fn append(&mut self, record: LogRecord) -> Result<LogPtr> {
         // create buffer
         let pos = self.pos;
         let buf: Bytes = record.into();
@@ -133,122 +166,171 @@ impl<W> Log<W> where W: Write + Seek {
         // TODO remove me
         self.log.flush()?;
         // done
-        Ok(Pointer { pos, len: self.pos - pos })
+        Ok(LogPtr {
+            pos,
+            len: self.pos - pos,
+        })
     }
 }
 
-/// A record (log entry) in the cask file.
-/// Lots of routes to optimize read-writing of records, just bytes for now...
-struct Record {
-    k: Bytes,
-    v: Bytes,
+struct LogReader {
+    log: File,
 }
 
-/// Write a record as bytes (without bincode).
-/// 
-/// [[ ksize ][ vsize ][ key ][ value ]]
-///     u16      u64
-/// 
-impl From<Record> for Bytes {
+impl LogReader {
+    pub fn new(log: File) -> Result<Self> {
+        Ok(LogReader { log })
+    }
 
-    fn from(val: Record) -> Self {
-        let k_size: usize = val.k.len();
-        let v_size: usize = val.v.len();
-        let mut buf = BytesMut::with_capacity(k_size + v_size);
-        buf.put_u16(k_size as u16);
-        buf.put_u64(v_size as u64);
-        buf.put(val.k);
-        buf.put(val.v);
-        buf.into()
+    pub fn open<P>(path: P) -> Result<Self>
+    where
+        P: AsRef<Path>,
+    {
+        let f = File::options().read(true).open(&path)?;
+        let r = LogReader::new(f)?;
+        Ok(r)
+    }
+
+    pub fn get(&mut self, ptr: LogPtr) -> Result<LogRecord> {
+        let mut buf = BytesMut::with_capacity(ptr.len as usize);
+        buf.resize(ptr.len as usize, 0);
+        self.log.seek(SeekFrom::Start(ptr.pos))?;
+        self.log.read_exact(&mut buf)?;
+        Ok(buf.freeze().into())
     }
 }
 
-impl From<Bytes> for Record {
-
-    fn from(value: Bytes) -> Self {
-        // header
-        let k_size_buf: [u8; 2] = value[0..2].try_into().unwrap();
-        let v_size_buf: [u8; 8] = value[2..10].try_into().unwrap();
-        let k_size = u16::from_be_bytes(k_size_buf) as usize;
-        let v_size = u64::from_be_bytes(v_size_buf) as usize;
-        // body
-        let h_o = 10;
-        let k_o = h_o + k_size;
-        let v_o = k_o + v_size;
-        let k = value.slice(h_o..k_o);
-        let v = value.slice(k_o..v_o);
-        Record { k, v }
-    }
-}
-
-// A pointer to a record in the cask file.
-struct Pointer {
+#[derive(Debug, Clone, Copy)]
+struct LogPtr {
     pos: u64,
     len: u64,
 }
 
+#[derive(Debug, Clone)]
+struct LogRecord {
+    bin: u8,
+    key: Bytes,
+    val: Bytes,
+}
+
+impl LogRecord {
+    pub fn new(bin: usize, key: Bytes, val: Bytes) -> Result<Self> {
+        if bin > 127 {
+            error!("bin too large (max 127)")
+        }
+        if key.len() > (u8::MAX as usize) {
+            error!("key too large (max 256b)")
+        }
+        if val.len() > (u16::MAX as usize) {
+            error!("val too large (max 64kb)")
+        }
+        Ok(LogRecord {
+            bin: bin as u8,
+            key,
+            val,
+        })
+    }
+}
+
+impl From<LogRecord> for Bytes {
+    fn from(value: LogRecord) -> Self {
+        // calculate size
+        let flag: u8 = 0b0111111u8 & value.bin;
+        let k_size: usize = value.key.len();
+        let v_size: usize = value.val.len();
+        // write to buffer
+        let mut buf = BytesMut::with_capacity(4 + k_size + v_size);
+        buf.put_u8(flag);
+        buf.put_u8(k_size as u8);
+        buf.put_u16(v_size as u16);
+        buf.put(value.key);
+        buf.put(value.val);
+        buf.freeze()
+    }
+}
+
+impl From<Bytes> for LogRecord {
+    fn from(value: Bytes) -> Self {
+        let bin = *value.first().unwrap();
+        let n = value.slice(1..2).get_u8() as usize;
+        let m = value.slice(2..4).get_u16() as usize;
+        // body
+        let i = 4;
+        let j = i + n;
+        let k = j + m;
+        let key = value.slice(i..j);
+        let val = value.slice(j..k);
+        LogRecord { bin, key, val }
+    }
+}
+
 #[cfg(test)]
 mod test {
-    use std::{fs::File, io::Write};
     use crate::{cask::Cask, Result};
+    use bytes::{BufMut, BytesMut};
+
+    fn cask() -> Result<Cask> {
+        let tmp_dir = tempfile::tempdir()?;
+        let tmp_pth = tmp_dir.path().join("mona.cask");
+        Cask::new(&tmp_pth)
+    }
+
+    fn put_many(cask: &mut Cask, bin: usize, n: usize) -> Result<()> {
+        for i in 0..n {
+            let mut k = BytesMut::new();
+            k.put(&b"key-"[..]);
+            k.put(i.to_string().as_bytes());
+            let mut v = BytesMut::new();
+            v.put(&b"val-"[..]);
+            v.put(i.to_string().as_bytes());
+            cask.put(bin, k.freeze(), v.freeze())?;
+        }
+        Ok(())
+    }
 
     #[test]
-    fn test_write() -> Result<()> {
-        // make path
-        let tmp_dir= tempfile::tempdir()?;
-        let tmp_pth = tmp_dir.path().join("mona.cask");
-        File::create(&tmp_pth)?;
-
-        // open cask
-        let mut cask = Cask::open(&tmp_pth)?;
-
-        // key-value pair
+    fn test_put_one() -> Result<()> {
+        let mut cask = cask()?;
         let k = b"hello".as_slice();
         let v = b"world".as_slice();
-
-        // put a value
-        cask.put(k.into(), v.into())?;
-
-        // close
+        cask.put(0, k.into(), v.into())?;
+        assert_eq!(1, cask.count(0), "bin 0 should have 1 record");
         cask.close();
-
-        // assert 20 bytes are written for [[5][5][hello][world]]
-        let f = File::open(&tmp_pth)?;
-        let s = f.metadata()?.len();
-
-        assert_eq!(20, s, "sizeof(cask) = 20, found {}", s);
         Ok(())
     }
 
     #[test]
-    fn test_read() -> Result<()> {
-        // make file
-        let tmp_dir= tempfile::tempdir().unwrap();
-        let tmp_pth = tmp_dir.path().join("mona.cask");
-
-        // write known bytes
-        let mut file = File::create(&tmp_pth)?;
-        let bytes: Vec<u8> = vec![
-            0x00, 0x05,                                         // 5 (u16)
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05,     // 5 (u64)
-            0x68, 0x65, 0x6c, 0x6c, 0x6f,                       // hello
-            0x77, 0x6f, 0x72, 0x6c, 0x64                        // world
-        ];
-        file.write_all(&bytes)?;
-
-        // open the cask
-        let mut cask = Cask::open(&tmp_pth)?;
-
-        // key-value pair
-        let k = b"hello".as_slice();
-        let v = b"world".as_slice();
-
-        let res = cask.get(k.into())?;
-        
-        // check
-        assert_eq!(res, Some(v.into()), "expected 'world', got {:?}", res);
-
+    fn test_put_many() -> Result<()> {
+        let mut cask = cask()?;
+        let n: usize = 11;
+        let m: usize = 27;
+        put_many(&mut cask, 0, n)?;
+        put_many(&mut cask, 1, m)?;
+        assert_eq!(n, cask.count(0), "bin 0 should have {} records", n);
+        assert_eq!(m, cask.count(1), "bin 1 should have {} records", m);
         Ok(())
     }
 
+    #[test]
+    fn test_get_one_of_one() -> Result<()> {
+        let mut cask = cask()?;
+        // put one
+        let k = b"hello".as_slice();
+        let v = b"world".as_slice();
+        cask.put(0, k.into(), v.into())?;
+        // get one
+        let res = cask.get(0, k.into())?;
+        assert_eq!(Some(v.into()), res, "expected Some(b\"world\")");
+        Ok(())
+}
+
+    #[test]
+    fn test_get_one_of_many() -> Result<()> {
+        let mut cask = cask()?;
+        put_many(&mut cask, 0, 100)?;
+        assert_eq!(Some(b"val-0"[..].into()), cask.get(0, b"key-0"[..].into())?);
+        assert_eq!(Some(b"val-42"[..].into()), cask.get(0, b"key-42"[..].into())?);
+        assert_eq!(None, cask.get(0, b"key-100"[..].into())?);
+        Ok(())
+    }
 }

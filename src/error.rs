@@ -64,7 +64,7 @@ pub fn err_unknown_routine(sym: &str) -> Error {
 macro_rules! error {
     ($($arg:tt)*) => {{
         let msg = format!($($arg)*);
-        return Err($crate::error::Error::Unknown(msg.to_string()))
+        return Err($crate::error::Error::InternalError(msg.to_string()))
     }}
 }
 

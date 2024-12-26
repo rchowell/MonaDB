@@ -3,9 +3,7 @@ pub mod error;
 pub mod value;
 pub mod lexer;
 pub mod rows;
-
-// private modules
-mod cask;
+pub mod cask;
 
 // lalrpop module
 lalrpop_mod!(

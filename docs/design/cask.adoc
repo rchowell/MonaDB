@@ -1,10 +1,51 @@
 = Cask
 
-The cask is a modified bitcask for single file.
+The cask is a modified bitcask as a single file representing several key-value bins.
 
-== Restore
+== Format
 
-The algorithm to restore the cask map is roughly,
+The cask format is composed of a head, body, and tail.
+
+=== Head
+
+.Head
+|===
+| Field | Offset | Size | Description
+
+| Magic      |     0 | 4 | MONA
+| Version    |     4 | 1 | A u8 version
+
+|===
+
+=== Body
+
+The body is the compacted record set which does not exist yet.
+
+=== Tail
+
+The tail is the appendable active record set.
+
+.Record
+|===
+| Field | Offset | Size | Description
+
+| Flag      |     0 | 1 | A u8 bit-flag
+| Size(Key)  |     1 | 1 | A u8 size in bytes (N)
+| Size(Val)  |     2 | 2 | A u16 size in bytes (M)
+| Key  |     4 | N | Record key bytes
+| Val  |   4+N | M | Record val bytes
+
+|===
+
+.Rules
+- If the highest-order bit is 1, then it's a tombstone.
+- The next 7 bits are an unsigned integer indicating the bin (127 max bins).
+- The key can have a max size of 256 bytes (u8).
+- The val can have a max size of 64 kilobytes (u16).
+
+== Synchronize
+
+The algorithm to synchronize (restore) the cask map is roughly,
 
 ```python
 def restore(file) -> dict:

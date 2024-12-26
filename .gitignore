@@ -9,3 +9,6 @@ docs/build/
 
 # monadb
 .monadb_history
+
+# other
+.DS_Store
