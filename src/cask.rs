@@ -1,9 +1,18 @@
 use std::collections::HashMap;
 use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
+use std::os::unix::fs::FileExt;
 use std::{fs::File, path::Path};
 
 use crate::{error, Result};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
+
+const MAGIC: &[u8;4] = b"MONA";
+const VERSION: u8 = 1;
+const MAX_BIN: usize = 127;
+const MAX_KEY_SIZE: usize = u8::MAX as usize;
+const MAX_VAL_SIZE: usize = u16::MAX as usize;
+const SIZE_OF_HEAD: usize = 13; 
+const SIZE_OF_RECORD_PREFIX: usize = 4; // |u8|u8|u16|
 
 pub struct Cask {
     bins: LogBins,
@@ -16,7 +25,12 @@ impl Cask {
     where
         P: AsRef<Path>,
     {
-        File::create(&path)?;
+        let mut f = File::create(&path)?;
+        let mut b = BytesMut::with_capacity(SIZE_OF_HEAD);
+        b.put(&MAGIC[..]);
+        b.put_u8(VERSION);
+        b.put_u64(0u64);
+        f.write_all(&b)?;
         Self::open(path)
     }
 
@@ -27,7 +41,7 @@ impl Cask {
         let bins = LogBins::new();
         let log_r = LogReader::open(&path)?;
         let log_w = LogWriter::open(&path)?;
-        Cask { bins, log_r, log_w }.sync()
+        Cask { bins, log_r, log_w }.restore()
     }
 
     pub fn count(&self, bin: usize) -> usize {
@@ -44,10 +58,9 @@ impl Cask {
 
     pub fn get(&mut self, bin: usize, key: Bytes) -> Result<Option<Bytes>> {
         if let Some(ptr) = self.bins.get(bin, key)? {
-            // debug
-            println!("ptr(pos={}, len={})", ptr.pos, ptr.len);
+            // println!("ptr(pos={}, len={})", ptr.pos, ptr.len);
             let record = self.log_r.get(ptr)?;
-            println!("{:?}", record);
+            // println!("{:?}", record);
             return Ok(Some(record.val));
         }
         Ok(None)
@@ -58,41 +71,12 @@ impl Cask {
     }
 
     pub fn close(self) {
+        drop(self.log_r);
         drop(self.log_w);
     }
 
-    fn sync(self) -> Result<Self> {
-        // let mut pos: u64 = 0;
-        // let end: u64 = file.metadata()?.len();
-
-        // while pos < end {
-        //     // read header
-        //     let mut k_size = [0u8; 2];
-        //     let mut v_size = [0u8; 8];
-        //     file.read_exact(&mut k_size)?;
-        //     file.read_exact(&mut v_size)?;
-        //     let k_size = u16::from_be_bytes(k_size);
-        //     let v_size = u64::from_be_bytes(v_size);
-
-        //     // read key
-        //     let mut key = BytesMut::with_capacity(k_size as usize);
-        //     key.resize(k_size as usize, 0);
-        //     file.read_exact(&mut key)?;
-
-        //     // debug
-        //     // println!("k_size={},v_size={},key={:?}", k_size, v_size, &key);
-
-        //     // map[key] = ptr
-        //     let len = 10u64 + (k_size as u64) + v_size;
-        //     let ptr = LogPtr { pos, len };
-        //     map.insert(key.into(), ptr);
-
-        //     // seek (has overflow bug)
-        //     file.seek(SeekFrom::Current(len as i64))?;
-        //     pos += len
-        // }
-
-        // Ok(())
+    fn restore(mut self) -> Result<Self> {
+        self.log_r.restore(&mut self.bins)?;
         Ok(self)
     }
 }
@@ -107,7 +91,7 @@ impl LogBins {
     pub fn new() -> Self {
         const NONE: Option<LogBin> = None;
         LogBins {
-            bins: Vec::from([NONE; 127]),
+            bins: Vec::from([NONE; MAX_BIN]),
         }
     }
 
@@ -116,8 +100,8 @@ impl LogBins {
     }
 
     pub fn put(&mut self, bin: usize, key: Bytes, ptr: LogPtr) -> Result<()> {
-        if bin > 127 {
-            error!("bin cannot exceed 127")
+        if bin > MAX_BIN {
+            error!("bin cannot exceed {}", MAX_BIN)
         }
         if self.bins[bin].is_none() {
             self.bins[bin] = Some(LogBin::new());
@@ -127,8 +111,8 @@ impl LogBins {
     }
 
     pub fn get(&self, bin: usize, key: Bytes) -> Result<Option<LogPtr>> {
-        if bin > 127 {
-            error!("bin cannot exceed 127")
+        if bin > MAX_BIN {
+            error!("bin cannot exceed {}", MAX_BIN)
         }
         let bin = self.bins[bin].as_ref().unwrap();
         let ptr = bin.get(&key).copied();
@@ -186,17 +170,58 @@ impl LogReader {
     where
         P: AsRef<Path>,
     {
-        let f = File::options().read(true).open(&path)?;
-        let r = LogReader::new(f)?;
-        Ok(r)
+        let mut f = File::options().read(true).open(&path)?;
+        let mut buf = BytesMut::zeroed(SIZE_OF_HEAD);
+        f.read_exact(&mut buf)?;
+        let head = buf.freeze();
+        assert_eq!(head.slice(0..4), &MAGIC[..]);
+        assert_eq!(head.slice(4..5).get_u8(), VERSION);
+        LogReader::new(f)
     }
 
     pub fn get(&mut self, ptr: LogPtr) -> Result<LogRecord> {
-        let mut buf = BytesMut::with_capacity(ptr.len as usize);
-        buf.resize(ptr.len as usize, 0);
-        self.log.seek(SeekFrom::Start(ptr.pos))?;
-        self.log.read_exact(&mut buf)?;
+        let mut buf = BytesMut::zeroed(ptr.len as usize);
+        self.log.read_exact_at(&mut buf, ptr.pos)?;
         Ok(buf.freeze().into())
+    }
+
+    pub fn restore(&mut self, bins: &mut LogBins) -> Result<()> {
+        // funky factoring, and should be an Iterator<LogHint> so the cask owns restore
+        // but this is easy right now!
+        // #[derive(Debug, Clone)]
+        // struct LogHint {
+        //     bin: u8,
+        //     key: Bytes,
+        //     ptr: LogPtr,
+        // }
+
+        // bug .. assumes no body!!
+        let mut pos: u64 = SIZE_OF_HEAD as u64;
+        let end: u64 = self.log.metadata()?.len();
+        self.log.seek(SeekFrom::Start(pos))?;
+
+        while pos < end {
+            // read prefix
+            let mut buf = BytesMut::zeroed(SIZE_OF_RECORD_PREFIX);
+            self.log.read_exact(&mut buf)?;
+            let mut prefix = buf.freeze();
+            let bin = prefix.get_u8() as usize;
+            let sizeof_k = prefix.get_u8();
+            let sizeof_v = prefix.get_u16();
+            // read key
+            let mut key = BytesMut::zeroed(sizeof_k as usize);
+            self.log.read_exact(&mut key)?;
+            // skip val
+            self.log.seek(SeekFrom::Current(sizeof_v as i64))?;
+            // bins[bin][key] = ptr
+            let len = (SIZE_OF_RECORD_PREFIX as u64) + (sizeof_k as u64) + (sizeof_v as u64);
+            let ptr = LogPtr { pos, len };
+            bins.put(bin, key.freeze(), ptr)?;
+            // next
+            pos += len
+        }
+
+        Ok(())
     }
 }
 
@@ -215,14 +240,14 @@ struct LogRecord {
 
 impl LogRecord {
     pub fn new(bin: usize, key: Bytes, val: Bytes) -> Result<Self> {
-        if bin > 127 {
-            error!("bin too large (max 127)")
+        if bin > MAX_BIN {
+            error!("bin too large (max {})", MAX_BIN)
         }
-        if key.len() > (u8::MAX as usize) {
-            error!("key too large (max 256b)")
+        if key.len() > MAX_KEY_SIZE {
+            error!("key too large (max {} bytes)", MAX_KEY_SIZE)
         }
-        if val.len() > (u16::MAX as usize) {
-            error!("val too large (max 64kb)")
+        if val.len() > MAX_VAL_SIZE {
+            error!("val too large (max {} bytes)", MAX_VAL_SIZE)
         }
         Ok(LogRecord {
             bin: bin as u8,
@@ -234,7 +259,7 @@ impl LogRecord {
 
 impl From<LogRecord> for Bytes {
     fn from(value: LogRecord) -> Self {
-        // calculate size
+        // calculate size (make first bit 0)
         let flag: u8 = 0b0111111u8 & value.bin;
         let k_size: usize = value.key.len();
         let v_size: usize = value.val.len();
@@ -251,10 +276,11 @@ impl From<LogRecord> for Bytes {
 
 impl From<Bytes> for LogRecord {
     fn from(value: Bytes) -> Self {
+        // read prefix
         let bin = *value.first().unwrap();
         let n = value.slice(1..2).get_u8() as usize;
         let m = value.slice(2..4).get_u16() as usize;
-        // body
+        // read key-value
         let i = 4;
         let j = i + n;
         let k = j + m;
@@ -331,6 +357,26 @@ mod test {
         assert_eq!(Some(b"val-0"[..].into()), cask.get(0, b"key-0"[..].into())?);
         assert_eq!(Some(b"val-42"[..].into()), cask.get(0, b"key-42"[..].into())?);
         assert_eq!(None, cask.get(0, b"key-100"[..].into())?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_restore() -> Result<()> {
+        let tmp_dir = tempfile::tempdir()?;
+        let tmp_pth = tmp_dir.path().join("mona.cask");
+        // setup
+        let mut cask = Cask::new(&tmp_pth)?;
+        let num_in_bin_0: usize = 11;
+        let num_in_bin_1: usize = 27;
+        put_many(&mut cask, 0, num_in_bin_0)?;
+        put_many(&mut cask, 1, num_in_bin_1)?;
+        assert_eq!(num_in_bin_0, cask.count(0), "bin 0 should have {} records", num_in_bin_0);
+        assert_eq!(num_in_bin_1, cask.count(1), "bin 1 should have {} records", num_in_bin_1);
+        cask.close();
+        // restore
+        let restored = Cask::open(&tmp_pth)?;
+        assert_eq!(num_in_bin_0, restored.count(0), "bin 0 should have {} records", num_in_bin_0);
+        assert_eq!(num_in_bin_1, restored.count(1), "bin 1 should have {} records", num_in_bin_1);
         Ok(())
     }
 }

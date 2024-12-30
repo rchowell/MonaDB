@@ -98,6 +98,10 @@ table_option
 . Column constraints are redundant, so constraints will only be modeled as table constraints.
 . The type of a column is a type definition like typescript, but I am starting simple and only allowing "|null" to model the "[NOT] NULL" column constraint.
 . Consider a "with properties" clause to the create table.
+* There are three types of tables:
+** K-Table - unique primary key, backed by a kv-store.
+** HS-Tables - hash and sort keys, backed by b-trees.
+** Other - unsorted collections, backed by ??
 
 [source]
 ----

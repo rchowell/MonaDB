@@ -15,7 +15,17 @@ pub struct Connection {
 }
 
 impl Connection {
-    /// Load the connection from a file.
+    /// Create a cask connection
+    pub fn new<P>(path: P) -> Result<Connection>
+    where
+        P: AsRef<Path>,
+    {
+        let cask = Cask::new(path)?;
+        let conn = Connection { cask: cask.into() };
+        Ok(conn)
+    }
+
+    /// Load a cask connection.
     pub fn open<P>(path: P) -> Result<Connection>
     where
         P: AsRef<Path>,

@@ -1,16 +1,32 @@
-== MonaDB
+= MonaDB
 
-What if SQLite were a xref:DESIGN.adoc[JSON Database]?
+An embedded document database with SQL-ish support.
 
 .Notes
-- Language inspiration: JavaScript, TypeScript, Lua, SQL, and Python.
-- What if Python were the reference language, so Python and SQL customers can use it effectively?
-- I want to make it possible to define types and operations, there should be a "trait" for each JSON type.
-- Database extensions are _very_ important.
+. monadb named after my cat, alludes to mongo (and monetdb), reads nice like duckdb.
+. Language inspiration: JavaScript, TypeScript, Lua, SQL, and Python.
+. What if Python were the reference language, so Python and SQL customers can use it effectively?
+. I want to make it possible to define types and operations, there should be a "trait" for each JSON type.
+. Database extensions are _very_ important.
 
 == Goal
 
-The goal is, that by Feb 1, I can host a website backed by MonaDB.
+By April 1 have a website powered by MonaDB.
+
+== Brainstorming
+
+- Website with playground and dead simple language documentation.
+- REPL
+- Insert semantics?
+    - If you insert an object into a "closed" table, the extra fields are ignored.
+    - If you insert an object into an "open" table, the extra fields are stored in a hidden object column.
+- Optimizations such as page compaction.
+
+== Advice
+
+* Take the extra time you saved not rewriting your parsing code and spend it improving the compile error messages your compiler shows users. Good error handling and reporting is more valuable to users than almost anything else you can put time into in the front end. - Bob Nystrom
+* Consider prefixing with _ to avoid conflicts with user tables.
+* Beam has link:https://github.com/apache/beam/tree/master/sdks/java/testing/tpcds/src/main/resources/schemas[TPC schemas as Avro JSON].
 
 == Backlog
 
@@ -37,11 +53,18 @@ _This section contains a list of features/ideas that are not yet implemented._
 * [ ] Split shell from core to remove deps.
 * [ ] [RESP protocol](https://redis.io/docs/latest/develop/reference/protocol-spec/)
 * [ ] Add memory cask.
-
-.Existential
+* [ ] Consider using the top-level function name as the alias name
+* [ ] What about top-level single values and subquery coercion?
+* [ ] Consider multiple backends (SQLite, Redis, Rho file, Rho memory).
+* [ ] Should there be similar mongo-like getOne, getMany, etc?
 * [ ] How do subqueries work (??) hint: scalar, row, test, comparison, containment, other.
 * [ ] How does string interpolation work (??) hint: f-strings
 * [ ] How do namespaces work (??).
+
+.Applications
+* [ ] Library like sqlite
+* [ ] Server like Redis
+* [ ] Tool like jq/awk/other
 
 .Enhancements
 * [ ] Testing framework, dbgen, performance and language comparison to jq and sqlite jsonb.
@@ -66,7 +89,8 @@ _This section contains various mini-goals to drive the project._
 * [x] Make "Catalog" the "Connection"
 * [x] Remove VM dep on MonaDB, use "Connection" directly.
 * [x] git precommit clippy hook
-* [ ] Drop sqlite dep.
+* [x] Drop sqlite dep.
+* [ ] complete the cask CRUD
 
 === Nov 2024
 

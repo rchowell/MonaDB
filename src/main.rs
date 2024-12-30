@@ -109,11 +109,15 @@ fn main() {
     // OPEN DATABASE 
     let mut mona = match args.len() {
         1 => {
-            MonaDB::memory().expect("Could not open monadb memory")
+            MonaDB::memory().expect("Could not open MonaDB memory")
         },
         2 => {
             let path: PathBuf = PathBuf::from(&args[1]);
-            MonaDB::open(&path).expect("Could not open monadb file")
+            if path.exists() {
+                MonaDB::open(&path).expect("Could not open MonaDB")
+            } else {
+                MonaDB::new(&path).expect("Could not create MonaDB")
+            }
         },
         _ => {
             eprintln!("Usage: {} <file>", args[0]);

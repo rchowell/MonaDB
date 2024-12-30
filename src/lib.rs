@@ -40,6 +40,12 @@ pub struct MonaDB {
 
 impl MonaDB {
 
+    pub fn new<P>(path: P) -> Result<MonaDB>
+    where P: AsRef<Path> {
+        let connection = Connection::new(path)?;
+        Ok(MonaDB { connection })
+    }
+
     pub fn open<P>(path: P) -> Result<MonaDB>
     where P: AsRef<Path> {
         let connection = Connection::open(path)?;

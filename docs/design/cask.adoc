@@ -12,8 +12,9 @@ The cask format is composed of a head, body, and tail.
 |===
 | Field | Offset | Size | Description
 
-| Magic      |     0 | 4 | MONA
-| Version    |     4 | 1 | A u8 version
+| magic      |     0 | 4 | MONA
+| version    |     4 | 1 | u8 version
+| body_size  |     5 | 8 | u64 size in bytes
 
 |===
 
@@ -29,11 +30,11 @@ The tail is the appendable active record set.
 |===
 | Field | Offset | Size | Description
 
-| Flag      |     0 | 1 | A u8 bit-flag
-| Size(Key)  |     1 | 1 | A u8 size in bytes (N)
-| Size(Val)  |     2 | 2 | A u16 size in bytes (M)
-| Key  |     4 | N | Record key bytes
-| Val  |   4+N | M | Record val bytes
+| bin       |     0 | 1 | u8 bit-flag
+| key_size  |     1 | 1 | u8 size in bytes (N)
+| val_size  |     2 | 2 | u16 size in bytes (M)
+| key       |     4 | N | record key bytes
+| val       |   4+N | M | record val bytes
 
 |===
 
@@ -43,28 +44,19 @@ The tail is the appendable active record set.
 - The key can have a max size of 256 bytes (u8).
 - The val can have a max size of 64 kilobytes (u16).
 
-== Synchronize
-
-The algorithm to synchronize (restore) the cask map is roughly,
-
-```python
-def restore(file) -> dict:
-    map = {}
-    while not end:
-        pos = file.pos()
-        // read prefix
-        k_size = file.read(2) as u16
-        v_size = file.read(8) as u64
-        key = file.read(k_size) as bytes
-        // skip value
-        file.seek(v_size)
-        // set pointer
-        map[key] = Pointer(pos, file.pos() - pos)
-    return map
-```
-
 == Notes
 
-* Not using bincode to reduces deps.
-* Consider making MAX_KEY_LENGTH configurable (u16).
-* Consider mkaing MAX_VAL_LENGTH configurable (u64).
+* not using bincode to reduces deps
+* consider making MAX_KEY_LENGTH configurable (u16)
+* consider mkaing MAX_VAL_LENGTH configurable (u64)
+
+== Items
+
+* [x] define head
+* [ ] define body
+* [x] define tail
+* [x] put
+* [x] get
+* [ ] del
+* [ ] cursor
+* [ ] restore
