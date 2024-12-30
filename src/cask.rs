@@ -6,12 +6,12 @@ use std::{fs::File, path::Path};
 use crate::{error, Result};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 
-const MAGIC: &[u8;4] = b"MONA";
+const MAGIC: &[u8; 4] = b"MONA";
 const VERSION: u8 = 1;
 const MAX_BIN: usize = 127;
 const MAX_KEY_SIZE: usize = u8::MAX as usize;
 const MAX_VAL_SIZE: usize = u16::MAX as usize;
-const SIZE_OF_HEAD: usize = 13; 
+const SIZE_OF_HEAD: usize = 13;
 const SIZE_OF_RECORD_PREFIX: usize = 4; // |u8|u8|u16|
 
 pub struct Cask {
@@ -68,6 +68,10 @@ impl Cask {
 
     pub fn del(&mut self, _key: Bytes) -> Result<bool> {
         Ok(false)
+    }
+
+    pub fn scan(&mut self, bin: usize) -> Result<Vec<Bytes>> {
+        self.log_r.scan(bin)
     }
 
     pub fn close(self) {
@@ -185,6 +189,38 @@ impl LogReader {
         Ok(buf.freeze().into())
     }
 
+    pub fn scan(&mut self, bin: usize) -> Result<Vec<Bytes>> {
+        let mut values: Vec<Bytes> = vec![];
+        // bug .. assumes no body!!
+        let mut pos: u64 = SIZE_OF_HEAD as u64;
+        let end: u64 = self.log.metadata()?.len();
+        self.log.seek(SeekFrom::Start(pos))?;
+
+        while pos < end {
+            // read prefix
+            let mut buf = BytesMut::zeroed(SIZE_OF_RECORD_PREFIX);
+            self.log.read_exact(&mut buf)?;
+            let mut prefix = buf.freeze();
+            let this_bin = prefix.get_u8() as usize;
+            let sizeof_k = prefix.get_u8();
+            let sizeof_v = prefix.get_u16();
+            if this_bin != bin {
+                // skip
+                self.log
+                    .seek(SeekFrom::Current(sizeof_k as i64 + sizeof_v as i64))?;
+            } else {
+                // read
+                self.log.seek(SeekFrom::Current(sizeof_k as i64))?;
+                let mut val = BytesMut::zeroed(sizeof_v as usize);
+                self.log.read_exact(&mut val)?;
+                values.push(val.freeze());
+            }
+            let len = (SIZE_OF_RECORD_PREFIX as u64) + (sizeof_k as u64) + (sizeof_v as u64);
+            pos += len
+        }
+        Ok(values)
+    }
+
     pub fn restore(&mut self, bins: &mut LogBins) -> Result<()> {
         // funky factoring, and should be an Iterator<LogHint> so the cask owns restore
         // but this is easy right now!
@@ -231,7 +267,7 @@ struct LogPtr {
     len: u64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 struct LogRecord {
     bin: u8,
     key: Bytes,
@@ -293,7 +329,7 @@ impl From<Bytes> for LogRecord {
 #[cfg(test)]
 mod test {
     use crate::{cask::Cask, Result};
-    use bytes::{BufMut, BytesMut};
+    use bytes::{BufMut, Bytes, BytesMut};
 
     fn cask() -> Result<Cask> {
         let tmp_dir = tempfile::tempdir()?;
@@ -348,14 +384,17 @@ mod test {
         let res = cask.get(0, k.into())?;
         assert_eq!(Some(v.into()), res, "expected Some(b\"world\")");
         Ok(())
-}
+    }
 
     #[test]
     fn test_get_one_of_many() -> Result<()> {
         let mut cask = cask()?;
         put_many(&mut cask, 0, 100)?;
         assert_eq!(Some(b"val-0"[..].into()), cask.get(0, b"key-0"[..].into())?);
-        assert_eq!(Some(b"val-42"[..].into()), cask.get(0, b"key-42"[..].into())?);
+        assert_eq!(
+            Some(b"val-42"[..].into()),
+            cask.get(0, b"key-42"[..].into())?
+        );
         assert_eq!(None, cask.get(0, b"key-100"[..].into())?);
         Ok(())
     }
@@ -370,13 +409,51 @@ mod test {
         let num_in_bin_1: usize = 27;
         put_many(&mut cask, 0, num_in_bin_0)?;
         put_many(&mut cask, 1, num_in_bin_1)?;
-        assert_eq!(num_in_bin_0, cask.count(0), "bin 0 should have {} records", num_in_bin_0);
-        assert_eq!(num_in_bin_1, cask.count(1), "bin 1 should have {} records", num_in_bin_1);
+        assert_eq!(
+            num_in_bin_0,
+            cask.count(0),
+            "bin 0 should have {} records",
+            num_in_bin_0
+        );
+        assert_eq!(
+            num_in_bin_1,
+            cask.count(1),
+            "bin 1 should have {} records",
+            num_in_bin_1
+        );
         cask.close();
         // restore
         let restored = Cask::open(&tmp_pth)?;
-        assert_eq!(num_in_bin_0, restored.count(0), "bin 0 should have {} records", num_in_bin_0);
-        assert_eq!(num_in_bin_1, restored.count(1), "bin 1 should have {} records", num_in_bin_1);
+        assert_eq!(
+            num_in_bin_0,
+            restored.count(0),
+            "bin 0 should have {} records",
+            num_in_bin_0
+        );
+        assert_eq!(
+            num_in_bin_1,
+            restored.count(1),
+            "bin 1 should have {} records",
+            num_in_bin_1
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_scan() -> Result<()> {
+        // setup
+        let mut cask = cask()?;
+        cask.put(0, Bytes::from_static(b"k1"), Bytes::from_static(b"v1"))?;
+        cask.put(0, Bytes::from_static(b"k2"), Bytes::from_static(b"v2"))?;
+        cask.put(0, Bytes::from_static(b"k3"), Bytes::from_static(b"v3"))?;
+        // scan
+        let result = cask.scan(0)?;
+        let expect = vec![
+            Bytes::from_static(b"v1"),
+            Bytes::from_static(b"v2"),
+            Bytes::from_static(b"v3"),
+        ];
+        assert_eq!(expect, result);
         Ok(())
     }
 }

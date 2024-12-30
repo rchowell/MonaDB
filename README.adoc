@@ -88,9 +88,9 @@ _This section contains various mini-goals to drive the project._
 
 * [x] Make "Catalog" the "Connection"
 * [x] Remove VM dep on MonaDB, use "Connection" directly.
-* [x] git precommit clippy hook
+* [x] Git precommit clippy hook
 * [x] Drop sqlite dep.
-* [ ] complete the cask CRUD
+* [ ] Complete the cask CRUD (just need delete!)
 
 === Nov 2024
 
@@ -98,7 +98,7 @@ _This section contains various mini-goals to drive the project._
 * [x] Make select operate as listcomp / compexp.
 * [x] Toggle debug output.
 * [x] Better error messages.
-* [x] dig into what sane implicit references might behave like
+* [x] Dig into what sane implicit references might behave like
 * [x] WHERE
 * [x] Render language documents to HTML.
 * [x] LIMIT/OFFSET
