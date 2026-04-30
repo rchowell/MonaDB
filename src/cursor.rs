@@ -6,12 +6,6 @@ pub struct Row {
     pub val: Value,
 }
 
-/// Cursor holds a prepared SQLite statement that can be stepped.
-/// 
-/// Usage:
-///   1. always rewind before iterating.
-///   2. always check next before curr.
-/// 
 pub struct Cursor {
     /// for now, hold a vector.
     rows: Vec<Row>,

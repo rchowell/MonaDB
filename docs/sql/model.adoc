@@ -1,0 +1,37 @@
+Transforms using simplified SQL verbs for familiarity.
+
+> mindset: "we mostly support the familiar SQL thing, but prefer this" ??
+
+.Operations
+|===
+| Clause | Action |
+
+| select | map
+| with   | map
+| from   | iterate
+| where  | filter
+| group  | reduce
+| order  | sort
+| limit  | limit_offset
+|===
+
+.Loop
+[source]
+----
+select sum, y
+   from points p
+   where  p.x > 10
+   group  sum(p.z) sum, p.y y
+   order  p.z
+   limit  50..100
+
+select sum, y
+   from   points p, locations l
+   with   p.x as x, l.y as y
+   where  x = y and x > 10
+   group  sum(p.z) as sum, p.y as y
+   order  z asc
+   limit  50..100
+
+-- don't forget union, intersect, except!
+----

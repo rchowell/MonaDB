@@ -26,12 +26,10 @@ copy_options
     "{"  "}"
 ----
 
-NOTE: PostgreSQL and DuckDB define a COPY statement; whereas others do not. SQLite has the .import command, MySQL has the LOAD DATA INFILE statement, and MongoDB has the mongoimport utility. MonaDB wants to be familiar to PostgreSQL and DuckDB users, so it supports a COPY statement but as a single form.
-
 == FAQ
 
 Q: How can I read data from a file?
-A: 
+A: COPY <file> TO <table>
 
 Q: How can I write data to a file?
 A: COPY <data> TO <file>

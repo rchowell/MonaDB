@@ -1,0 +1,124 @@
+# Embedded Database Design: LMDB as a Storage Layer
+
+## Overview
+
+This document describes an architecture for building an embedded, semi-structured database with DynamoDB-style access semantics, SQLite-grade operational simplicity, and a JSON-first type system. The approach separates concerns cleanly: LMDB owns durability, crash safety, and physical storage; a custom SQL layer owns parsing, planning, and execution; and a key encoding layer bridges the two. The target audience is a developer who specializes in SQL dialects, planners, and VMs and needs a concrete mental model of what LMDB provides and what must be built on top of it.
+
+---
+
+## What LMDB Actually Is
+
+LMDB (Lightning Memory-Mapped Database) is, at its core, a **memory-mapped B+ tree** that maps arbitrary byte keys (`[u8]`) to arbitrary byte values (`[u8]`), with full ACID transactions and multi-version concurrency control (MVCC). That is nearly the complete description of what it does — and that simplicity is precisely why it is the right foundation for this project.
+
+The physical database lives in a single file (`data.mdb`), accompanied by a transient lock file (`lock.mdb`) that can be ignored for operational purposes. Backup is `cp data.mdb`. There is no WAL to replay, no recovery log to manage, and no `PRAGMA` knobs to tune for durability. LMDB uses a **copy-on-write page strategy**: when a write transaction commits, LMDB writes new versions of all modified B+ tree pages and then atomically updates the tree's root pointer. Either the root pointer swings and the transaction is durable, or it does not. Crash recovery is therefore instantaneous and automatic.
+
+LMDB exposes three meaningful storage operations: `put(key, value)`, `get(key)`, and `delete(key)`, plus ordered iteration via cursors. It makes no assumptions about the format of your keys or values. Everything above the byte level — schema, type system, key structure, secondary indexes — is the responsibility of the layer above it, which is exactly what this architecture exploits.
+
+### The Concurrency Model
+
+LMDB's MVCC gives every read transaction a consistent snapshot of the database at the moment it was opened. Readers never block writers, and writers never block readers. There is only ever one concurrent writer, which for an embedded database is almost always acceptable. The one operational subtlety worth understanding is that LMDB cannot reclaim old page versions while any reader holds a snapshot referencing them. Long-lived read transactions will cause the database file to grow. For a write-once, read-many (WORM) workload — or any workload where read transactions are short — this is a non-issue.
+
+One configuration decision must be made at environment open time: the `map_size`, which declares the maximum size the database file may grow to. This is a **virtual address space reservation**, not a physical disk allocation, so on 64-bit systems it is safe and correct to set this value very generously (hundreds of gigabytes). It should be exposed as a user-configurable parameter with a large default.
+
+---
+
+## Key Encoding: The Physical Schema
+
+Because LMDB sorts keys **lexicographically over raw bytes**, the key encoding strategy is the most consequential design decision in the storage layer. The byte ordering of keys determines which records are physically adjacent in the B+ tree, and physical adjacency determines which access patterns are efficient. In this sense, key design in LMDB plays the same role that index design plays in a relational database: it is the physical schema.
+
+For a DynamoDB-style `(partition_key, sort_key)` model, the encoding must satisfy two properties. First, all items sharing a partition key must be **physically contiguous** in the B+ tree, so that a partition scan is a single contiguous range scan over adjacent leaf pages. Second, within a partition, items must be sorted by their sort key in a **semantically meaningful order** — meaning the lexicographic order of the encoded bytes must match the intended logical order of the sort key values.
+
+The second property is called **sort-order preservation**, and it requires care for most data types. Strings encoded as UTF-8 bytes happen to sort correctly under lexicographic order, assuming bytewise collation is acceptable. Unsigned integers must be encoded big-endian, because little-endian encoding reverses the byte significance and breaks lexicographic ordering. Signed integers require a sign-bit bias (XOR the high bit) so that negative values, whose high bit is 1 in two's complement, sort before positive values. Floating-point values require similar treatment: for positive floats, the IEEE 754 bit pattern is already sort-order-preserving under lexicographic comparison; for negative floats, the entire bit pattern must be inverted. Descending sort keys can be implemented by bitwise-inverting the encoded bytes for that key component, so that the lexicographic order is reversed.
+
+A concrete encoding for the `(partition_key, sort_key)` composite key looks like this:
+
+```rust
+// Key layout: [partition_key_len: 2 bytes BE] [partition_key bytes] [sort_key bytes]
+//
+// The length prefix is critical. Without it, a partition key that is a prefix
+// of another partition key would cause false matches during range scans.
+// For example, keys "foo" and "foobar" would be ambiguous without the length prefix.
+fn encode_key(partition_key: &[u8], sort_key: &[u8]) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(2 + partition_key.len() + sort_key.len());
+    // Big-endian so that the length prefix itself is sort-order-preserving
+    buf.extend_from_slice(&(partition_key.len() as u16).to_be_bytes());
+    buf.extend_from_slice(partition_key);
+    buf.extend_from_slice(sort_key);
+    buf
+}
+
+// A partition scan becomes a B+ tree range scan over a contiguous key slice.
+// The empty sort key is the lower bound; 0xFF bytes are greater than any
+// valid encoded sort key, forming an exclusive upper bound.
+fn partition_range(partition_key: &[u8]) -> (Vec<u8>, Vec<u8>) {
+    let start = encode_key(partition_key, &[]);
+    let end = encode_key(partition_key, &[0xFF; 8]);
+    (start, end)
+}
+```
+
+This pattern — encoding a composite logical key as a single, unambiguously delimited byte string — is the same strategy used by FoundationDB, TiKV, and DynamoDB's own internal storage. It is the idiomatic solution to this problem.
+
+---
+
+## Value Encoding: The JSON-First Type System
+
+LMDB stores whatever bytes you provide as a value. The value encoding is therefore entirely owned by the layer above, which is where the JSON-first type system lives. The core design constraint is that the value format must support the operations the VM needs to perform efficiently: field access, comparison, and projection, without necessarily deserializing the entire value.
+
+General-purpose binary JSON formats like MessagePack or BSON are a reasonable starting point for early development, but they require full deserialization to access a single field, which is expensive for wide documents. A more sophisticated approach is a custom binary layout where known fields (such as the primary key echoed back, or fields declared in a schema hint) are stored at fixed offsets in a header, followed by a variable-length payload for the dynamic semi-structured portion. This gives the VM fast access to hot fields without touching the full document. Since the SQL layer fully understands the type system, the value format only needs to be efficient for the VM's own operations — it does not need to be a general interchange format.
+
+---
+
+## Secondary Indexes
+
+When a query predicate references an attribute that is not the primary key or sort key, the planner needs a secondary index to avoid a full partition scan. In LMDB, secondary indexes are implemented as **additional named databases** within the same environment — that is, additional B+ trees within the same physical file. A secondary index maps an encoded indexed value (sort-order-preserving, for range queries on the indexed attribute) to the primary key of the record that owns it.
+
+The critical property that makes this tractable is that LMDB's write transactions are **multi-database atomic**. A single write transaction can atomically update the primary database and any number of secondary index databases in one commit. This means secondary index consistency is enforced at the storage layer, not by application logic, and there is no window during which the primary and its indexes can be out of sync.
+
+Named databases must be declared upfront via a `max_dbs` setting on the environment. This is intended for a small, fixed number of logical collections or index trees — not for thousands of dynamically created indexes. For a dynamic secondary index system, the index databases should be pre-allocated or managed with a fixed-size pool.
+
+---
+
+## Partitioning at Scale
+
+For datasets too large for a single LMDB environment, or for workloads that need to distribute write concurrency across multiple writers, the natural partitioning unit is the LMDB **environment** itself — that is, a separate `data.mdb` file per shard. Since LMDB environments are independent, multiple writers can proceed concurrently across shards. The routing of writes and reads to the correct shard based on partition key is a responsibility of the layer above the storage engine, exactly analogous to how DynamoDB routes requests to the correct partition node.
+
+For an embedded, single-process database, a single environment with the key prefix partitioning scheme described above is sufficient for most use cases. The multi-environment sharding strategy becomes relevant primarily when the dataset grows beyond what a single memory-mapped file can efficiently serve given available RAM.
+
+---
+
+## The Rust Interface: `heed`
+
+The `heed` crate is the recommended Rust interface to LMDB. It wraps the raw LMDB C bindings with a typed, safe API that allows you to declare key and value types for each named database, handles the FFI boundary safely, and surfaces LMDB's transaction model in an idiomatic Rust style. For the storage layer of this project, `heed` essentially disappears as a concern once the key encoding and value serialization strategies are established, freeing development focus for the SQL layer.
+
+```rust
+use heed::{EnvOpenOptions, Database};
+use heed::types::Bytes;
+
+// Open the environment once at startup. map_size is a virtual address
+// reservation — be generous. 1TB is reasonable on a 64-bit system.
+let env = EnvOpenOptions::new()
+    .map_size(1024_u64.pow(4))  // 1 TB virtual reservation
+    .max_dbs(32)                 // primary + secondary indexes
+    .open("mydb")?;
+
+// Typed database over raw bytes — our encoding layer handles types above this.
+let mut wtxn = env.write_txn()?;
+let primary: Database<Bytes, Bytes> = env.create_database(&mut wtxn, Some("primary"))?;
+let idx_email: Database<Bytes, Bytes> = env.create_database(&mut wtxn, Some("idx_email"))?;
+
+// Both the primary record and the secondary index entry land in one atomic commit.
+primary.put(&mut wtxn, &encode_key(b"users", b"user:00000001"), &encoded_value)?;
+idx_email.put(&mut wtxn, &encode_secondary(b"alice@example.com"), &encode_key(b"users", b"user:00000001"))?;
+wtxn.commit()?;
+
+// Reads are snapshot-isolated and concurrent. No locking, no blocking.
+let rtxn = env.read_txn()?;
+let value = primary.get(&rtxn, &encode_key(b"users", b"user:00000001"))?;
+```
+
+---
+
+## Summary
+
+LMDB provides exactly the right foundation for this project: a single-file, crash-safe, MVCC-transactional B+ tree with zero opinions about schema or data format. The key encoding layer translates the logical `(partition_key, sort_key)` model into sort-order-preserving byte strings that make partition scans efficient physical range scans. The value encoding layer is where the JSON-first type system lives, designed for fast field access by the VM. Secondary indexes are additional B+ trees within the same environment, maintained atomically with the primary data inside LMDB write transactions. The SQL parser, planner, and VM sit entirely above this storage interface, which is exactly the separation of concerns that lets each layer be developed and reasoned about independently.

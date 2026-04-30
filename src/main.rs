@@ -1,13 +1,15 @@
+use std::fs::File;
 use std::io::{BufRead, IsTerminal, Write};
 use std::env;
+use std::ops::Not;
 use std::path::PathBuf;
 
-use monadb::MonaDB;
+use monadb::{MonaDB, Result};
 use rustyline::{error::ReadlineError, history::DefaultHistory, validate::{ValidationContext, ValidationResult, Validator}, Completer, Config, EditMode, Editor, Helper, Highlighter, Hinter};
 
 use clap::{Parser, Subcommand};
 use termcolor::StandardStream;
-use termcolor::{Color, ColorChoice, ColorSpec, WriteColor};
+use termcolor::{Color, ColorChoice, ColorSpec,WriteColor};
 
 #[derive(Debug, Parser)]
 #[command(author, version, about, long_about = None, multicall = true)]
@@ -68,8 +70,9 @@ impl Default for LineReader {
             .edit_mode(EditMode::Vi)
             .build();
         let mut editor = Editor::<LineValidator, DefaultHistory>::with_config(config).unwrap();
-        // todo check if history file exists
-        editor.load_history(".monadb_history").unwrap();
+        let path: PathBuf = ".monadb_history".into();
+        _ = File::create_new(&path); // touch
+        editor.load_history(&path).unwrap();
         editor.set_helper(Some(LineValidator));
         LineReader { editor }
     }
@@ -95,8 +98,6 @@ impl Validator for LineValidator {
 
 fn main() {
 
-    let args: Vec<String> = env::args().collect();
-
     // TODO allow executing as a command `cat file.jsonl | mona -q 'select * from stdin'`
     let input = std::io::stdin();
     if !input.is_terminal() {
@@ -107,7 +108,8 @@ fn main() {
     }
 
     // OPEN DATABASE 
-    let mut mona = match args.len() {
+    let args: Vec<String> = env::args().collect();
+    let db = match args.len() {
         1 => {
             MonaDB::memory().expect("Could not open MonaDB memory")
         },
@@ -125,25 +127,23 @@ fn main() {
         },
     };
 
-    // REPL 
+    // INIT REPL 
+    let mut app = App::new(db);
     let mut line_reader = LineReader::default();
     let mut buffer = String::new();
-    let mut debug = false;
-
-    // STDOUT
-    let mut stdout = StandardStream::stdout(ColorChoice::Always);
 
     // MAIN LOOP
     loop {
         if line_reader.read_line(&mut buffer, ">> ").is_none() {
-            // EOF or interrupt
+            // EOF (or interrupt)
             break;
         }
         if buffer.is_empty() {
+            // WHITESPACE
             continue;
         }
         if buffer.starts_with(".") {
-            // PARSE COMMAND
+            // COMMAND
             let line = buffer.strip_prefix(".").unwrap();
             let args = shlex::split(line).unwrap();
             let command = match Commands::try_parse_from(&args) {
@@ -155,45 +155,70 @@ fn main() {
             };
             // EXECUTE COMMAND
             match command {
-                Command::Debug => {
-                    debug = !debug;
-                    println!("debug: {}", debug);
-                }
-                Command::Info => {
-                    mona.info();
-                }
-                Command::Exit => {
-                    break;
-                }
-            }
+                Command::Debug => app.debug(),
+                Command::Info => app.info(),
+                Command::Exit => break,
+            }.unwrap();
         } else {
             // STATEMENT
-            match mona.exec(&buffer, debug) {
-                Ok(mut rows) => {
-                    loop {
-                        match rows.next() {
-                            Ok(Some(row)) => println!("{:?}", row),
-                            Ok(None) => break,
-                            Err(e) => {
-                                // runtime error
-                                println!("{:?}", e);
-                                println!("error.");
-                            }
-                        }
-                    }
-                    // remove these additional lines?
-                    println!("ok.");
-                },
-                Err(e) => {
-                    stdout.set_color(ColorSpec::new().set_fg(Some(Color::Red))).unwrap();
-                    writeln!(stdout, "{}", e.pretty(&buffer)).unwrap();
-                    stdout.reset().unwrap();
-                    writeln!(stdout).unwrap();
-                }
-            }
+            app.exec(&buffer).unwrap();
         }
     }
 
     // CLEANUP
     line_reader.close();
+}
+
+struct App {
+    db: MonaDB,
+    debug: bool,
+    out: StandardStream,
+}
+
+impl App {
+
+    pub fn new(db: MonaDB) -> Self {
+        App { 
+            db,
+            debug: false,
+            out: StandardStream::stdout(ColorChoice::Always),
+        }
+    }
+
+    pub fn debug(&mut self) -> Result<()> {
+        self.debug = !self.debug;
+        println!("debug: {}", self.debug);
+        Ok(())
+    }
+
+    pub fn info(&mut self) -> Result<()> {
+        self.exec("select * from catalog;\n")
+    }
+
+    pub fn exec(&mut self, statement: &str) -> Result<()> {
+        match self.db.exec(statement, self.debug) {
+            Ok(mut rows) => {
+                loop {
+                    match rows.next() {
+                        Ok(Some(row)) => println!("{:?}", row),
+                        Ok(None) => break,
+                        Err(e) => {
+                            // runtime error
+                            println!("{:?}", e);
+                            println!("error.");
+                        }
+                    }
+                }
+                // remove these additional lines?
+                println!("ok.");
+            },
+            Err(e) => {
+                self.out.set_color(ColorSpec::new().set_fg(Some(Color::Red))).unwrap();
+                writeln!(self.out, "{}", e.pretty(statement)).unwrap();
+                self.out.reset().unwrap();
+                writeln!(self.out).unwrap();
+            }
+        };
+        Ok(())
+    }
 }

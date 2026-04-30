@@ -30,7 +30,7 @@ impl Error {
             result.push('\n');
             result.push_str("  │\n");
             // location
-            if let Some(line) = lines.get(line_number - 1) {
+            if let Some(line) = lines.get(line_number.saturating_sub(1)) {
                 result.push_str("  │ ");
                 result.push_str(line);
                 result.push('\n');

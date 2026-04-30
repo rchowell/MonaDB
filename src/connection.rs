@@ -1,17 +1,16 @@
 use core::str;
-use std::{
-    cell::RefCell, fmt::{self, Debug, Formatter}, path::Path
-};
+use std::{cell::RefCell, path::Path};
 
 use bytes::Bytes;
 
 use crate::{
-    cask::Cask, cursor::Cursor, error::Error, ir::Table, lexer::RqlLexer, parser::RqlParser, value::Value, Result
+    cask::Cask, cursor::Cursor, error::Error, ir::Table, lexer::RqlLexer, parser::RqlParser,
+    value::Value, Result,
 };
 
 /// Database Connection
 pub struct Connection {
-    cask: RefCell<Cask>
+    cask: RefCell<Cask>,
 }
 
 impl Connection {
@@ -78,7 +77,12 @@ impl Connection {
 
     /// Open a cursor to the given table.
     pub fn open_cursor(&mut self, _table: &str) -> Result<Cursor> {
-        todo!("cursor")
+        // let mut cask = self.cask.borrow_mut();
+        // let values = cask.scan(0)?;
+        // let rows = values.into_iter().map(|b| Row::)
+        // let cursor = Cursor::vec(values);
+        // Ok(cursor)
+        todo!("open_cursor")
     }
 
     /// Begin a (goofy) transaction (really just a batch of SQL statements).
@@ -89,17 +93,6 @@ impl Connection {
     /// Commit the current transaction.
     pub fn commit(&mut self) -> Result<()> {
         todo!("commit")
-    }
-}
-
-impl Debug for Connection {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln!(f, "\nCatalog")?;
-        writeln!(f, "-------\n")?;
-        // for table in self.tables.values() {
-        //     writeln!(f, "{}", table)?;
-        // }
-        Ok(())
     }
 }
 

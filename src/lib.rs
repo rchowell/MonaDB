@@ -57,10 +57,6 @@ impl MonaDB {
         Ok(MonaDB { connection })
     }
 
-    pub fn info(&self) {
-        println!("{:?}", self.connection);
-    }
-
     pub fn exec(&mut self, rql: &str, debug: bool) -> Result<Rows<'_>> {
         let program = self.prepare(rql)?;
         if debug {

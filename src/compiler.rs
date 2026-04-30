@@ -81,6 +81,7 @@ impl Compiler  {
 
     fn cc_select(&mut self, select: Select) -> Result<()> {
 
+        // track current scope
         let scope = self.vars.len();
         let counters = self.counters;
         let mut to_patch: Vec<Patch> = vec![];

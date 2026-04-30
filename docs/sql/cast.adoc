@@ -37,17 +37,17 @@ bool(o)     -- true (for all o not empty)
 .Numbers
 [source]
 ----
-num(false)  -- 0
-num(true)   -- 1
-num('1.9')  -- 1.9
-num('3')    -- 3
-num('3.14') -- 3.14
-
-int(false)  -- 0
-int(true)   -- 1
+int(false)      -- 0
+int(true)       -- 1
+int('1.9')      -- 1
+int('3')        -- 3
+int('3.14')     -- 3
 
 float(false)    -- 0.0
 float(true)     -- 1.0
+float('1.9')    -- 1.9
+float('3')      -- 3.0
+float('3.14')   -- 3.14
 ----
 
 == Syntax
