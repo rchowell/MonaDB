@@ -51,6 +51,8 @@ extern {
         "where"     => Token::Where,
         // types
         "t_bool"    => Token::TypeBool,
+        "t_int"     => Token::TypeInt,
+        "t_float"   => Token::TypeFloat,
         "t_number"  => Token::TypeNumber,
         "t_string"  => Token::TypeString,
         "t_object"  => Token::TypeObject,
@@ -89,11 +91,20 @@ Create: ir::Create = CreateTable;
 CreateTable: ir::Create = "create" "table" <TableDefinition> => ir::Create::Table(<>);
 
 TableDefinition: ir::Table = {
-    <TableName>                => ir::table_definition(<>, ir::t_any()),
-    <TableName> "(" <Type> ")" => ir::table_definition(<>),
+    <name:TableName>                                    => ir::table_definition(name, vec![]),
+    <name:TableName> "(" <cols:ColumnDefinitions> ")"   => ir::table_definition(name, cols),
 };
 
 TableName: String = "ident";
+
+ColumnDefinitions: Vec<ir::ColumnDefinition> = List<ColumnDefinition>;
+
+ColumnDefinition: ir::ColumnDefinition = <name:"ident"> <typ:ColumnType> => ir::column_definition(name, typ);
+
+ColumnType: ir::ColumnType = {
+    "t_int"    => ir::ColumnType::Int,
+    "t_string" => ir::ColumnType::String,
+};
 
 // SELECT STATEMENT
 //------------------------------
@@ -116,7 +127,7 @@ SelectItem: ir::Member = <Expr> "as" <"ident"> => ir::select_item(<>);
 SelectBlock: ir::Select =
     <From>
     <Where?>
-    <Fetch?> => ir::select_block(<>);
+    <Limit?> => ir::select_block(<>);
 
 // TODO from <expr>
 From: ir::Iter = {
@@ -131,10 +142,10 @@ FromSource: ir::Source = {
 
 Where: ir::Where = "where" <Expr>;
 
-Fetch: ir::Limit = {
-    "limit" <"number">                  => ir::fetch_take(<>),
-    "limit" <"number"> ".."             => ir::fetch_skip(<>),
-    "limit" <"number"> ".." <"number">  => ir::fetch_range(<>),
+Limit: ir::Limit = {
+    "limit" <"number">                  => ir::limit_take(<>),
+    "limit" <"number"> ".."             => ir::limit_skip(<>),
+    "limit" <"number"> ".." <"number">  => ir::limit_slice(<>),
 };
 
 // INSERT STATEMENT

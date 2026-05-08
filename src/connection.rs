@@ -3,6 +3,7 @@ use std::{cell::RefCell, path::Path};
 
 use bytes::Bytes;
 
+use crate::ir::{Create, Statement};
 use crate::{
     cask::Cask, cursor::Cursor, error::Error, ir::Table, lexer::RqlLexer, parser::RqlParser,
     value::Value, Result,
@@ -97,7 +98,6 @@ impl Connection {
 }
 
 fn parse_table(ddl: &str) -> Result<Table> {
-    use crate::ir::*;
     let rl = RqlLexer::new(ddl);
     let rp = RqlParser::new();
     let ddl = rp.parse(rl)?;
@@ -113,28 +113,25 @@ fn parse_table(ddl: &str) -> Result<Table> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::{TMember, TObject, Type};
+    use crate::ir::{ColumnDefinition, ColumnType};
 
-    const DDL: &str = "create table example ({ x: number, y: number|null });";
+    const DDL: &str = "create table example (x int, y string);";
 
     #[test]
     fn test_create_table() {
         let mut connection = Connection::memory().unwrap();
         let actual = Table {
             name: "foo".to_string(),
-            schema: Type::Object(TObject {
-                members: vec![
-                    TMember {
-                        name: "x".to_owned(),
-                        typ_: Box::new(Type::Number),
-                    },
-                    TMember {
-                        name: "y".to_owned(),
-                        typ_: Box::new(Type::Number),
-                    },
-                ],
-                open: false,
-            }),
+            columns: vec![
+                ColumnDefinition {
+                    name: "x".to_owned(),
+                    typ: ColumnType::Int,
+                },
+                ColumnDefinition {
+                    name: "y".to_owned(),
+                    typ: ColumnType::Int,
+                },
+            ],
         };
 
         // load the table
@@ -149,6 +146,6 @@ mod tests {
     fn test_ddl_roundtrip() {
         let tbl1 = parse_table(DDL).unwrap();
         let tbl2 = parse_table(&tbl1.to_string()).unwrap();
-        assert_eq!(tbl1, tbl2)
+        assert_eq!(tbl1, tbl2);
     }
 }

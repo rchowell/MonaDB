@@ -10,6 +10,7 @@ pub struct RqlLexer<'input> {
 }
 
 impl<'input> RqlLexer<'input> {
+    #[must_use] 
     pub fn new(input: &'input str) -> Self {
         Self {
             tokens: Token::lexer(input).spanned(),
@@ -116,6 +117,10 @@ pub enum Token {
     //-------------------------
     #[token("bool")]
     TypeBool,
+    #[token("int")]
+    TypeInt,
+    #[token("float")]
+    TypeFloat,
     #[token("number")]
     TypeNumber,
     #[token("string")]
@@ -149,6 +154,6 @@ pub enum Token {
 
 impl fmt::Display for Token {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }

@@ -30,13 +30,50 @@ pub struct Insert {
 #[derive(Debug, PartialEq, Clone)]
 pub struct Table {
     pub name: String,
-    pub schema: Type,
-    // pub options: TableOptions,
+    pub columns: Vec<ColumnDefinition>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct ColumnDefinition {
+    pub name: String,
+    pub typ: ColumnType,
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum ColumnType {
+    Int,
+    String,
 }
 
 impl Display for Table {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "create table {} ({});", self.name, self.schema)
+        if self.columns.is_empty() {
+            writeln!(f, "create table {};", self.name)
+        } else {
+            write!(f, "create table {} (", self.name)?;
+            for (i, c) in self.columns.iter().enumerate() {
+                if i > 0 {
+                    write!(f, ", ")?;
+                }
+                write!(f, "{c}")?;
+            }
+            writeln!(f, ");")
+        }
+    }
+}
+
+impl Display for ColumnDefinition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {}", self.name, self.typ)
+    }
+}
+
+impl Display for ColumnType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ColumnType::Int => write!(f, "int"),
+            ColumnType::String => write!(f, "string"),
+        }
     }
 }
 
@@ -238,8 +275,13 @@ pub struct Jpe {
 //------------------------------
 
 #[inline]
-pub fn table_definition(name: String, schema: Type) -> Table {
-    Table { name, schema }
+pub fn table_definition(name: String, columns: Vec<ColumnDefinition>) -> Table {
+    Table { name, columns }
+}
+
+#[inline]
+pub fn column_definition(name: String, typ: ColumnType) -> ColumnDefinition {
+    ColumnDefinition { name, typ }
 }
 
 #[inline]
@@ -296,17 +338,17 @@ pub fn from_source_path(identifier: String, segments: Vec<Segment>) -> Source {
 }
 
 #[inline]
-pub fn fetch_skip(offset: f64) -> Limit {
+pub fn limit_skip(offset: f64) -> Limit {
     Limit::Skip(offset as u64)
 }
 
 #[inline]
-pub fn fetch_take(limit: f64) -> Limit {
+pub fn limit_take(limit: f64) -> Limit {
     Limit::Take(limit as u64)
 }
 
 #[inline]
-pub fn fetch_range(offset: f64, limit: f64) -> Limit {
+pub fn limit_range(offset: f64, limit: f64) -> Limit {
     Limit::Slice(offset as u64, limit as u64)
 }
 
@@ -521,7 +563,7 @@ mod test {
         ];
         // Test each path with an alias
         for path in paths{
-            let input = format!("select * from {} as a;", path);
+            let input = format!("select * from {path} as a;");
             let _ = parse(&input);
         }
         // ok, no panics
@@ -536,6 +578,34 @@ mod test {
         ];
         for input in inputs {
             let _ = parse(input);
+        }
+    }
+
+    #[test]
+    fn parse_acceptance_create_table() {
+        let cases: &[(&str, &[(&str, ColumnType)])] = &[
+            ("create table points;",                &[]),
+            ("create table points (x int);",        &[("x", ColumnType::Int)]),
+            ("create table points (x int, y int);", &[("x", ColumnType::Int), ("y", ColumnType::Int)]),
+            ("create table users (id string);",     &[("id", ColumnType::String)]),
+        ];
+        for (input, expected_cols) in cases {
+            let stmt = parse(input);
+            let Statement::Create(Create::Table(table)) = stmt else {
+                panic!("expected create table for {input:?}");
+            };
+            assert_eq!(table.columns.len(), expected_cols.len(), "input: {input:?}");
+            for (actual, (name, typ)) in table.columns.iter().zip(expected_cols.iter()) {
+                assert_eq!(actual.name, *name, "input: {input:?}");
+                assert_eq!(actual.typ, *typ, "input: {input:?}");
+            }
+            // round-trip: Display → parse → equal IR
+            let rendered = table.to_string();
+            let stmt2 = parse(&rendered);
+            let Statement::Create(Create::Table(table2)) = stmt2 else {
+                panic!("expected create table for round-trip of {input:?}");
+            };
+            assert_eq!(table, table2, "round-trip mismatch for {input:?}");
         }
     }
 
