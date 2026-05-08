@@ -1,0 +1,136 @@
+suite: from-clause
+spec_ref: "§4.2"
+description: Iteration, aliasing, and lateral cross-product behavior of the from clause.
+
+# Creates the primary table used by most tests in this suite.
+setup:
+  - create table T;
+
+tests:
+  - id: from-empty-table
+    description: scanning an empty table produces no rows
+    steps:
+      - rql: select * from T;
+        result: []
+
+  - id: from-basic-scan
+    description: table scan returns all inserted rows
+    steps:
+      - rql: |
+          insert into T ({x: 1}, {x: 2}, {x: 3});
+      - rql: |
+          select * from T order T.x;
+        result:
+          - {x: 1}
+          - {x: 2}
+          - {x: 3}
+
+  - id: from-explicit-alias
+    description: explicit as alias is used to reference the row
+    steps:
+      - rql: |
+          insert into T ({x: 10});
+      - rql: |
+          select t.x from T as t;
+        result: [10]
+
+  - id: from-implicit-alias
+    description: omitting as uses the table name as alias
+    steps:
+      - rql: |
+          insert into T ({x: 42});
+      - rql: |
+          select T.x from T;
+        result: [42]
+
+  - id: from-select-star-spread
+    description: select * spreads bindings — alias key is not wrapped
+    steps:
+      - rql: |
+          insert into T ({x: 1, y: 2});
+      - rql: select * from T as t;
+        result:
+          - {x: 1, y: 2}
+
+  - id: from-select-dot-envelope
+    description: "select . returns the binding tuple as an envelope object"
+    steps:
+      - rql: |
+          insert into T ({x: 1});
+      - rql: select . from T as t;
+        result:
+          - {t: {x: 1}}
+
+  - id: from-multi-step-insert-count
+    description: rows inserted in one step are visible to a subsequent count
+    steps:
+      - rql: |
+          insert into T ({x: 1}, {x: 2}, {x: 3});
+      - rql: |
+          select count(*) from T group count(*) as n;
+        result:
+          - {n: 3}
+
+  - id: from-cross-product
+    description: two sources separated by comma form a lateral cross product
+    setup:
+      - create table S;
+      - insert into S ({b: 10}, {b: 20});
+    steps:
+      - rql: |
+          insert into T ({a: 1}, {a: 2});
+      - rql: |
+          select t.a, s.b
+          from T as t, S as s
+          order t.a, s.b;
+        result:
+          - {a: 1, b: 10}
+          - {a: 1, b: 20}
+          - {a: 2, b: 10}
+          - {a: 2, b: 20}
+
+  - id: from-lateral-path-source
+    description: a later source may reference a path on an earlier binding
+    steps:
+      - rql: |
+          insert into T ({items: [1, 2, 3]});
+      - rql: |
+          select t.items, item
+          from T as t, t.items as item
+          order item;
+        result:
+          - {items: [1, 2, 3], item: 1}
+          - {items: [1, 2, 3], item: 2}
+          - {items: [1, 2, 3], item: 3}
+
+  - id: from-subquery-source
+    description: a parenthesized subquery may serve as a source
+    steps:
+      - rql: |
+          insert into T ({x: 5}, {x: 10});
+      - rql: |
+          select sub.x
+          from (select t.x from T as t where t.x > 5) as sub;
+        result:
+          - {x: 10}
+
+  - id: from-where-filter
+    description: where clause filters rows from from
+    steps:
+      - rql: |
+          insert into T ({x: 1}, {x: 2}, {x: 3});
+      - rql: select t.x from T as t where t.x > 1 order t.x;
+        result: [2, 3]
+
+  # Negative tests
+  - id: from-unbound-table
+    description: referencing an undeclared table is a static error
+    steps:
+      - rql: select * from Ghost;
+        error: static
+
+  - id: from-unbound-alias
+    description: referencing an alias not in scope is a static error
+    steps:
+      - rql: select x.foo from T;
+        error: static

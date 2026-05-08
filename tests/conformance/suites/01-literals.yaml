@@ -1,0 +1,121 @@
+suite: literals
+spec_ref: "§3.1"
+description: Literal expressions — null, bool, number, string, array, object — evaluated via select with no from clause.
+
+tests:
+  - id: lit-null
+    description: null literal evaluates to null
+    steps:
+      - rql: select null;
+        result: [null]
+
+  - id: lit-true
+    description: true boolean literal
+    steps:
+      - rql: select true;
+        result: [true]
+
+  - id: lit-false
+    description: false boolean literal
+    steps:
+      - rql: select false;
+        result: [false]
+
+  - id: lit-integer
+    description: integer number literal
+    steps:
+      - rql: select 1;
+        result: [1]
+
+  - id: lit-float
+    description: floating-point number literal
+    steps:
+      - rql: select 1.5;
+        result: [1.5]
+
+  - id: lit-large-integer
+    description: integer at the edge of exact float representation (2^53)
+    steps:
+      - rql: select 9007199254740992;
+        result: [9007199254740992]
+
+  - id: lit-string-basic
+    description: single-quoted string literal
+    steps:
+      - rql: select 'hello';
+        result: ["hello"]
+
+  - id: lit-string-empty
+    description: empty string literal
+    steps:
+      - rql: select '';
+        result: [""]
+
+  - id: lit-string-escaped-quote
+    description: embedded single quote is escaped by doubling
+    steps:
+      - rql: "select 'it''s';"
+        result: ["it's"]
+
+  - id: lit-string-unicode
+    description: string with Unicode content
+    steps:
+      - rql: select 'café';
+        result: ["café"]
+
+  - id: lit-array-empty
+    description: empty array literal
+    steps:
+      - rql: "select [];"
+        result: [[]]
+
+  - id: lit-array-numbers
+    description: array literal of numbers
+    steps:
+      - rql: "select [1, 2, 3];"
+        result: [[1, 2, 3]]
+
+  - id: lit-array-mixed
+    description: array with mixed types
+    steps:
+      - rql: "select [1, 'a', null, true];"
+        result: [[1, "a", null, true]]
+
+  - id: lit-array-nested
+    description: nested array literal
+    steps:
+      - rql: "select [[1, 2], [3, 4]];"
+        result: [[[1, 2], [3, 4]]]
+
+  - id: lit-object-empty
+    description: empty object literal
+    steps:
+      - rql: "select {};"
+        result: [{}]
+
+  - id: lit-object-basic
+    description: object literal with two members
+    steps:
+      - rql: "select {x: 1, y: 2};"
+        result: [{x: 1, y: 2}]
+
+  - id: lit-object-string-key
+    description: object key as string literal
+    steps:
+      - rql: "select {'a-b': 1};"
+        result: [{"a-b": 1}]
+
+  - id: lit-object-nested
+    description: nested object and array in a literal
+    steps:
+      - rql: "select {items: [1, 2], meta: {n: 2}};"
+        result: [{items: [1, 2], meta: {n: 2}}]
+
+  # §1.2 — keyword case-insensitivity
+  - id: lex-keywords-case-insensitive
+    description: keywords are case-insensitive
+    steps:
+      - rql: SELECT null;
+        result: [null]
+      - rql: Select True;
+        result: [true]

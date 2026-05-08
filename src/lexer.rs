@@ -97,8 +97,8 @@ pub enum Token {
     Delete,
     #[token("drop")]
     Drop,
-    #[token("fetch")]
-    Fetch,
+    #[token("limit")]
+    Limit,
     #[token("from")]
     From,
     #[token("insert")]

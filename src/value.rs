@@ -65,6 +65,10 @@ impl Value {
         serde_json::to_vec(&self.0).unwrap()
     }
 
+    pub fn into_json(self) -> JsonValue {
+        self.0
+    }
+
     /// If the value is an object, return the members – otherwise, None.
     ///
     /// Consider an `into_members(self)` version of this.

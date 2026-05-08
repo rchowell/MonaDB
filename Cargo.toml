@@ -3,6 +3,13 @@ name = "monadb"
 version = "0.1.0"
 edition = "2021"
 
+[dev-dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+
+[lints.clippy]
+pedantic = "warn"
+
 [build-dependencies]
 lalrpop = "0.21.0"
 

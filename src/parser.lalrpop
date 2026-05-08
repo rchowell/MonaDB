@@ -42,7 +42,7 @@ extern {
         "create"    => Token::Create,
         "delete"    => Token::Delete,
         "drop"      => Token::Drop,
-        "fetch"     => Token::Fetch,
+        "limit"     => Token::Limit,
         "from"      => Token::From,
         "insert"    => Token::Insert,
         "into"      => Token::Into,
@@ -95,8 +95,6 @@ TableDefinition: ir::Table = {
 
 TableName: String = "ident";
 
-// TODO TableOptions
-
 // SELECT STATEMENT
 //------------------------------
 
@@ -133,10 +131,10 @@ FromSource: ir::Source = {
 
 Where: ir::Where = "where" <Expr>;
 
-Fetch: ir::Fetch = {
-    "fetch" <"number">                  => ir::fetch_take(<>),
-    "fetch" <"number"> ".."             => ir::fetch_skip(<>),
-    "fetch" <"number"> ".." <"number">  => ir::fetch_range(<>),
+Fetch: ir::Limit = {
+    "limit" <"number">                  => ir::fetch_take(<>),
+    "limit" <"number"> ".."             => ir::fetch_skip(<>),
+    "limit" <"number"> ".." <"number">  => ir::fetch_range(<>),
 };
 
 // INSERT STATEMENT

@@ -91,9 +91,9 @@ impl Compiler  {
         let mut cnt_take: Option<usize> = None;
         if let Some(fetch) = &select.fetch {
             match fetch {
-                Fetch::Skip(n) => cnt_skip = self.define_counter(*n).into(),
-                Fetch::Take(n) => cnt_take = self.define_counter(*n).into(),
-                Fetch::Range(n, m) => {
+                Limit::Skip(n) => cnt_skip = self.define_counter(*n).into(),
+                Limit::Take(n) => cnt_take = self.define_counter(*n).into(),
+                Limit::Slice(n, m) => {
                     cnt_skip = self.define_counter(*n).into();
                     cnt_take = self.define_counter(*m).into();
                 },

@@ -2,9 +2,6 @@ use std::{fmt::Display, vec};
 
 use crate::value::*;
 
-//------------------------------
-// Statements
-//------------------------------
 
 #[derive(Debug)]
 pub enum Statement {
@@ -55,7 +52,7 @@ pub struct Select {
     // group
     // having
     // order
-    pub fetch: Option<Fetch>,
+    pub fetch: Option<Limit>,
     pub select: Constructor,
 }
 
@@ -85,7 +82,7 @@ impl Default for Iter {
     fn default() -> Self {
         Iter {
             src: Source::Value(Value::null()),
-            var: "".to_string(),
+            var: String::new(),
         }
     }
 }
@@ -93,10 +90,10 @@ impl Default for Iter {
 pub type Where = Expr;
 
 #[derive(Debug)]
-pub enum Fetch {
+pub enum Limit {
     Skip(u64),
     Take(u64),
-    Range(u64, u64),
+    Slice(u64, u64),
 }
 
 //------------------------------
@@ -261,7 +258,7 @@ pub fn select(select: Constructor, block: Select) -> Select {
 }
 
 #[inline]
-pub fn select_block(from: Iter, where_: Option<Where>, fetch: Option<Fetch>) -> Select {
+pub fn select_block(from: Iter, where_: Option<Where>, fetch: Option<Limit>) -> Select {
     Select {
         from,
         where_,
@@ -299,18 +296,18 @@ pub fn from_source_path(identifier: String, segments: Vec<Segment>) -> Source {
 }
 
 #[inline]
-pub fn fetch_skip(offset: f64) -> Fetch {
-    Fetch::Skip(offset as u64)
+pub fn fetch_skip(offset: f64) -> Limit {
+    Limit::Skip(offset as u64)
 }
 
 #[inline]
-pub fn fetch_take(limit: f64) -> Fetch {
-    Fetch::Take(limit as u64)
+pub fn fetch_take(limit: f64) -> Limit {
+    Limit::Take(limit as u64)
 }
 
 #[inline]
-pub fn fetch_range(offset: f64, limit: f64) -> Fetch {
-    Fetch::Range(offset as u64, limit as u64)
+pub fn fetch_range(offset: f64, limit: f64) -> Limit {
+    Limit::Slice(offset as u64, limit as u64)
 }
 
 // TODO { x, y } => { x: x, y: y } shorthand

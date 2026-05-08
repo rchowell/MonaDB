@@ -1,0 +1,8 @@
+version: "1"
+suites:
+  - file: suites/01-literals.yaml
+    title: Literals
+    spec_ref: "§3.1"
+  - file: suites/09-from.yaml
+    title: from clause
+    spec_ref: "§4.2"
