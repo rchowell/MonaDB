@@ -4,8 +4,6 @@ A study guide. Read this before writing code. Companion to `storage-plan.md`.
 
 The goal of this document is to give you a complete mental model of how the storage layer works — physical layout, key encoding theory, MVCC, branching, cursor mechanics — so that the implementation phases land without surprises. Every design decision below is justified, and the trickier ones are demonstrated with byte-level examples.
 
----
-
 ## Table of contents
 
 1. [Why LMDB](#1-why-lmdb)
@@ -489,7 +487,7 @@ At program-compile time, the compiler classifies the program as read-only (only 
 
 ### 10.4 Implicit single-statement transactions
 
-Most RQL programs today are a single statement (one CREATE, one INSERT, one SELECT). Wrapping each statement in an automatic txn — `Init`-as-`begin`, `Exit`/`Return`-as-`commit` — is what the existing Vop set already implies. We preserve that. Explicit multi-statement txns (with a real `transaction;` ... `commit;` block) come later, gated on grammar work.
+Most SQL programs today are a single statement (one CREATE, one INSERT, one SELECT). Wrapping each statement in an automatic txn — `Init`-as-`begin`, `Exit`/`Return`-as-`commit` — is what the existing Vop set already implies. We preserve that. Explicit multi-statement txns (with a real `transaction;` ... `commit;` block) come later, gated on grammar work.
 
 ---
 
@@ -726,7 +724,7 @@ Correctness does not require it; performance eventually does.
 
 ### A.9 Surface
 
-DDL statements added to RQL when this lands:
+DDL statements added to SQL when this lands:
 
 ```
 create branch <name> from <branch_name | commit <id>>;

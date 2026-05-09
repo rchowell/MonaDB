@@ -27,7 +27,7 @@ Replace `src/cask.rs` with an LMDB-backed storage layer that:
 
 | Phase | Scope | What changes user-visibly |
 |-------|-------|---------------------------|
-| **1** | LMDB swap. All tables use surrogate `u64` row ids. New CREATE TABLE syntax accepted but PK column lists are *recorded but unused* at storage time (still surrogate). | RQL grammar replaces type-body with key-column-list. `create + insert + select` work end-to-end. Database is durable across restarts. |
+| **1** | LMDB swap. All tables use surrogate `u64` row ids. New CREATE TABLE syntax accepted but PK column lists are *recorded but unused* at storage time (still surrogate). | SQL grammar replaces type-body with key-column-list. `create + insert + select` work end-to-end. Database is durable across restarts. |
 | **2** | Typed PK extraction: declared PK columns are pulled from row JSON and encoded into the data key. Planner uses leading-column equalities/ranges in `WHERE` to build prefix-range scans. | `where x = 1 and y = 2` becomes a prefix scan; full table scan otherwise. |
 
 For the future branching milestone, see Appendix A.
@@ -115,7 +115,7 @@ Value tag byte: first byte is `0x00` for live rows. `0x01` is reserved (Appendix
 
 ---
 
-## RQL grammar
+## SQL grammar
 
 Tables are schemaless. The only thing that follows the table name is an optional list of typed key columns:
 
@@ -256,7 +256,7 @@ Real PK extraction and prefix-range planning.
 ## Verification
 
 1. **`tests/storage_phase1.rs`**: open temp `MonaDB`, create tables (with and without PK syntax), insert rows, scan via cursor; assert order and content. Reopen the same path, scan again, assert durability.
-2. **`tests/vm_e2e.rs`**: full RQL → VM → storage path: `create table foo (x int); insert into foo ({x: 1}); select * from foo;`.
+2. **`tests/vm_e2e.rs`**: full SQL → VM → storage path: `create table foo (x int); insert into foo ({x: 1}); select * from foo;`.
 3. **`tests/cursor_unit.rs`**: direct-against-storage tests for `StorageCursor` over canned `data` DB content (multi-table prefix isolation, empty table, deletes).
 4. `cargo test` green; existing parser/compiler/value tests adapted to the new CREATE TABLE syntax.
 5. `cargo run` REPL: `create table x; insert into x (1); insert into x (2); select * from x;` returns 2 rows.

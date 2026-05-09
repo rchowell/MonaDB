@@ -1,6 +1,6 @@
 # Grammar Extension Guide
 
-You are helping extend the MonaDB RQL grammar. The task is: $ARGUMENTS
+You are helping extend the MonaDB SQL grammar. The task is: $ARGUMENTS
 
 Work through the four layers below in order. Stop after step 4 — compiler and VM implementation is a separate follow-up task.
 

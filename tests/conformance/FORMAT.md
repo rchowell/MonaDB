@@ -1,4 +1,4 @@
-# RQL Conformance Test Suite — Format Specification
+# SQL Conformance Test Suite — Format Specification
 
 > Version 1. This document defines the authoritative schema for all files in `tests/conformance/`.
 
@@ -8,7 +8,7 @@
 
 Tests are organized into **suite files** — one per language-spec section. Suite files are YAML for readability: multiline queries use `|` block scalars, and result values use YAML flow mappings (`{x: 1}`) instead of escaped JSON.
 
-Each test is a sequence of **steps**. A step executes one RQL statement and optionally asserts its output (`result`) or expected error category (`error`). Steps without either field are fire-and-forget (executed, must succeed).
+Each test is a sequence of **steps**. A step executes one SQL statement and optionally asserts its output (`result`) or expected error category (`error`). Steps without either field are fire-and-forget (executed, must succeed).
 
 ```
 manifest.yaml
@@ -63,26 +63,26 @@ tests:
     teardown: []                     # test-local teardown (before suite teardown)
     tags: []                         # optional: "slow", "optional", "wip"
     steps:
-      - rql: select 1;               # the statement
+      - sql: select 1;               # the statement
         result: [1]                  # expected output rows (positive test)
-      - rql: select * from Ghost;
+      - sql: select * from Ghost;
         error: static                # expected error category (negative test)
-      - rql: insert into T ({x: 1}); # no result/error = fire-and-forget
+      - sql: insert into T ({x: 1}); # no result/error = fire-and-forget
 ```
 
 ---
 
 ## Step fields
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `rql` | yes | The RQL statement to execute |
-| `result` | one of | Ordered array of expected output values |
-| `error` | one of | Expected error category (see taxonomy) |
+| Field    | Required | Description                             |
+|----------|----------|-----------------------------------------|
+| `sql`    | yes      | The SQL statement to execute            |
+| `result` | one of   | Ordered array of expected output values |
+| `error`  | one of   | Expected error category (see taxonomy)  |
 
 `result` and `error` are mutually exclusive. Omitting both asserts only that the statement succeeds.
 
-**Result ordering.** `result` is an ordered sequence. For queries without `order`, use `order` in the RQL to pin the output order.
+**Result ordering.** `result` is an ordered sequence. For queries without `order`, use `order` in the SQL to pin the output order.
 
 **Numeric comparison.** MonaDB has one numeric type (IEEE-754 double). The harness compares numbers as `f64`, so `1` and `1.0` in expected values are treated identically.
 
@@ -90,14 +90,14 @@ tests:
 
 ## Error taxonomy
 
-| Category | Meaning |
-|----------|---------|
-| `syntax` | Parse or lex error |
-| `static` | Semantic error before execution: unbound name, duplicate key literal, aggregate in wrong position, etc. |
-| `runtime` | Error during execution: type mismatch, cast failure, division by zero |
-| `schema` | Schema violation: insert with wrong type, extra keys in closed schema |
-| `constraint` | Key uniqueness violation |
-| `storage` | Storage-layer error: exceeds size limits |
+| Category     | Meaning                                                                                                 |
+|--------------|---------------------------------------------------------------------------------------------------------|
+| `syntax`     | Parse or lex error                                                                                      |
+| `static`     | Semantic error before execution: unbound name, duplicate key literal, aggregate in wrong position, etc. |
+| `runtime`    | Error during execution: type mismatch, cast failure, division by zero                                   |
+| `schema`     | Schema violation: insert with wrong type, extra keys in closed schema                                   |
+| `constraint` | Key uniqueness violation                                                                                |
+| `storage`    | Storage-layer error: exceeds size limits                                                                |
 
 Conformance requires matching the **category**, not the error message.
 
@@ -105,23 +105,23 @@ Conformance requires matching the **category**, not the error message.
 
 ## YAML quoting conventions
 
-RQL statements may contain characters that YAML parses specially (`{`, `}`, `[`, `]`, `:`, `#`). Use these conventions:
+SQL statements may contain characters that YAML parses specially (`{`, `}`, `[`, `]`, `:`, `#`). Use these conventions:
 
 - **Simple statements** (no JSON-like syntax): unquoted is fine.
   ```yaml
-  rql: select null;
+  sql: select null;
   ```
 - **Statements with `{...}` or `[...]`**: use `|` (literal block scalar) or double-quote the value.
   ```yaml
-  rql: |
+  sql: |
     insert into T ({x: 1, y: 2});
   ```
   ```yaml
-  rql: "select {x: 1};"
+  sql: "select {x: 1};"
   ```
 - **Multiline statements**: always use `|`.
   ```yaml
-  rql: |
+  sql: |
     select t.x, t.y
     from T as t
     where t.x > 0

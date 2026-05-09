@@ -1,8 +1,9 @@
-use crate::error::err_unknown_routine;
+use crate::error::Error;
 use crate::ir::*;
-use crate::lexer::RqlLexer;
+use crate::lexer::SqlLexer;
 use crate::parser::RqlParser;
 use crate::value::Value;
+use crate::vm::TxnMode;
 use crate::{Program, Result, Vop};
 use std::vec;
 
@@ -14,7 +15,7 @@ macro_rules! unsupported {
     }}
 }
 
-/// Compiler translates RQL queries to Vops.
+/// Compiler translates SQL queries to Vops.
 pub struct Compiler {
     code: Program,
     vars: Vec<Var>,
@@ -38,15 +39,25 @@ impl Compiler  {
         }
     }
 
-    pub fn compile(mut self, rql: &str) -> Result<Program> {
+    pub fn compile(mut self, sql: &str) -> Result<Program> {
         self.emit_init();
-        match parse(rql)? {
+        match parse(sql)? {
             Statement::Create(create) => self.cc_create(create)?,
             Statement::Delete(delete) => self.cc_delete(delete),
             Statement::Drop(drop) => self.cc_drop(drop),
             Statement::Insert(insert) => self.cc_insert(insert)?,
             Statement::Select(select) => self.cc_select(select)?,
         };
+        // Patch the prelude `Init(_)` with the right txn mode based on what we emitted.
+        let mode = classify_mode(&self.code);
+        if let Some(Vop::Init(slot)) = self.code.first_mut() {
+            *slot = mode;
+        }
+        // A write program needs an explicit Commit before exiting; otherwise the
+        // WriteTxn is dropped and staged writes are aborted.
+        if matches!(mode, TxnMode::Write) {
+            self.code.push(Vop::Commit);
+        }
         self.emit_exit();
         Ok(self.code)
     }
@@ -229,7 +240,7 @@ impl Compiler  {
             ">=" => self.code.push(Vop::Ge),
             ">" => self.code.push(Vop::Gt),
             "!=" => self.code.push(Vop::Ne),
-            _ => return Err(err_unknown_routine(op.sym.as_str())),
+            _ => return Err(Error::UnknownFunction(op.sym.clone())),
         };
         Ok(())
     }
@@ -312,19 +323,19 @@ impl Compiler  {
     //------------------------------
 
     fn emit_clear(&mut self, table: String) {
-        self.code.push(Vop::Clear { table })
+        self.code.push(Vop::Clear { table });
     }
 
     fn emit_create_table(&mut self, table: Table) {
-        self.code.push(Vop::CreateTable { table })
+        self.code.push(Vop::CreateTable { table });
     }
 
     fn emit_drop(&mut self, table: String) {
-        self.code.push(Vop::Drop { table })
+        self.code.push(Vop::Drop { table });
     }
 
     fn emit_exit(&mut self) {
-        self.code.push(Vop::Exit)
+        self.code.push(Vop::Exit);
     }
 
     fn emit_cnt_set(&mut self, counter: usize, value: u64) {
@@ -340,19 +351,20 @@ impl Compiler  {
     }
 
     fn emit_if_not(&mut self, jmp: usize) {
-        self.code.push(Vop::IfNot(jmp))
+        self.code.push(Vop::IfNot(jmp));
     }
 
     fn emit_init(&mut self) {
-        self.code.push(Vop::Init)
+        // Mode is patched at end of `compile()` once we know what statements emitted.
+        self.code.push(Vop::Init(TxnMode::Read));
     }
 
     fn emit_insert(&mut self, table: String) {
-        self.code.push(Vop::Insert(table))
+        self.code.push(Vop::Insert(table));
     }
 
     fn emit_insert_batch(&mut self, table: String, n: usize) {
-        self.code.push(Vop::InsertBatch(table, n))
+        self.code.push(Vop::InsertBatch(table, n));
     }
 
     fn emit_jpe(&mut self) {
@@ -368,7 +380,7 @@ impl Compiler  {
     }
 
     fn emit_load(&mut self, idx: usize) {
-        self.code.push(Vop::Load(idx))
+        self.code.push(Vop::Load(idx));
     }
 
     fn emit_next(&mut self, cursor: usize, jmp: usize) {
@@ -392,7 +404,7 @@ impl Compiler  {
     }
 
     fn emit_push(&mut self, value: Value) {
-        self.code.push(Vop::Push(value))
+        self.code.push(Vop::Push(value));
     }
 
     fn emit_rewind(&mut self, cursor: usize, jmp: usize) {
@@ -405,10 +417,25 @@ impl Compiler  {
 }
 
 /// TODO why is this here?
-/// Parse the RQL query into the IR.
-fn parse(rql: &str) -> Result<Statement> {
-    let rl = RqlLexer::new(rql);
+/// Parse the SQL query into the IR.
+fn parse(sql: &str) -> Result<Statement> {
+    let rl = SqlLexer::new(sql);
     let rp = RqlParser::new();
     let ir = rp.parse(rl)?;
     Ok(ir)
+}
+
+/// Pick the txn mode for a compiled program: `Write` if it mutates anything, else `Read`.
+fn classify_mode(code: &[Vop]) -> TxnMode {
+    for op in code {
+        match op {
+            Vop::Insert(_)
+            | Vop::InsertBatch(_, _)
+            | Vop::CreateTable { .. }
+            | Vop::Drop { .. }
+            | Vop::Clear { .. } => return TxnMode::Write,
+            _ => {}
+        }
+    }
+    TxnMode::Read
 }

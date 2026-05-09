@@ -1,4 +1,4 @@
-// Conformance test harness for the RQL language spec.
+// Conformance test harness for the SQL language spec.
 //
 // Test data lives in tests/conformance/suites/*.yaml (see FORMAT.md for the schema).
 // Each suite function below is #[ignore] until Connection::memory() is implemented.
@@ -35,7 +35,7 @@ struct TestCase {
 
 #[derive(Deserialize)]
 struct Step {
-    rql: String,
+    sql: String,
     result: Option<Vec<serde_yaml::Value>>,
     error: Option<String>,
 }
@@ -93,7 +93,7 @@ fn run_step(db: &mut MonaDB, step: &Step, idx: usize) -> Result<(), String> {
     match (&step.result, &step.error) {
         (Some(expected_yaml), None) => {
             let mut rows = db
-                .exec(&step.rql, false)
+                .exec(&step.sql, false)
                 .map_err(|e| format!("step {idx}: unexpected error: {e:?}"))?;
             let mut actual: Vec<Json> = Vec::new();
             while let Some(v) = rows
@@ -116,7 +116,7 @@ fn run_step(db: &mut MonaDB, step: &Step, idx: usize) -> Result<(), String> {
         }
         (None, Some(expected_cat)) => {
             let result = db
-                .exec(&step.rql, false)
+                .exec(&step.sql, false)
                 .and_then(|mut rows| {
                     while rows.next()?.is_some() {}
                     Ok(())
@@ -140,7 +140,7 @@ fn run_step(db: &mut MonaDB, step: &Step, idx: usize) -> Result<(), String> {
         (None, None) => {
             // fire-and-forget: must succeed, output is not checked
             let mut rows = db
-                .exec(&step.rql, false)
+                .exec(&step.sql, false)
                 .map_err(|e| format!("step {idx}: unexpected error: {e:?}"))?;
             while rows
                 .next()
@@ -160,15 +160,15 @@ fn run_step(db: &mut MonaDB, step: &Step, idx: usize) -> Result<(), String> {
 fn error_category(err: &Error) -> &'static str {
     match err {
         Error::SyntaxError(_) => "syntax",
-        Error::UnknownTable(_) | Error::UnknownRoutine(_) | Error::Unsupported(_) => "static",
-        Error::IoError(_) => "storage",
+        Error::UnknownTable(_) | Error::UnknownFunction(_) | Error::Unsupported(_) => "static",
+        Error::IoError(_) | Error::Storage(_) => "storage",
         Error::InternalError(_) | Error::Unknown => "runtime",
     }
 }
 
 // ── JSON comparison ───────────────────────────────────────────────────────────
 //
-// Numbers are compared as f64 so that `1` (YAML integer) and `1.0` (RQL float)
+// Numbers are compared as f64 so that `1` (YAML integer) and `1.0` (SQL float)
 // are treated as equal — MonaDB has a single numeric type (IEEE-754 double).
 
 fn json_vecs_eq(a: &[Json], b: &[Json]) -> bool {

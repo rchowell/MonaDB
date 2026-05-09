@@ -1,11 +1,11 @@
 # MonaDB
 
-Embedded database with a custom SQL-like query language (RQL) compiled to stack-based bytecode.
+Embedded database with a custom SQL query language compiled to stack-based bytecode.
 
 ## Architecture
 
 ```
-RQL text → Lexer (logos) → Parser (lalrpop) → IR → Compiler → Vop bytecode → VM → Cask
+SQL text → Lexer (logos) → Parser (lalrpop) → IR → Compiler → Vop bytecode → VM → Cask
 ```
 
 ## Key Files

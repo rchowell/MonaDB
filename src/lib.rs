@@ -3,7 +3,7 @@ pub mod error;
 pub mod value;
 pub mod lexer;
 pub mod rows;
-pub mod cask;
+pub mod storage;
 
 // lalrpop module
 lalrpop_mod!(
@@ -13,62 +13,63 @@ lalrpop_mod!(
 );
 
 // internal modules
-mod connection;
 mod compiler;
-mod cursor;
 mod ir;
 mod vm;
 
 use std::path::Path;
-use std::result;
 
 use compiler::Compiler;
 use error::Error;
-use connection::Connection;
 use lalrpop_util::lalrpop_mod;
 use rows::Rows;
+use storage::Storage;
+use tempfile::TempDir;
 
 use crate::vm::*;
 
 /// A typedef of the result returned by many methods.
-pub type Result<T, E = Error> = result::Result<T, E>;
+pub type Result<T, E = Error> = std::result::Result<T, E>;
 
-/// Rho represents the database connection.
+/// The user-facing database handle. Holds an `Engine` and runs SQL programs.
 pub struct MonaDB {
-    connection: Connection,
+    /// The storage engine.
+    storage: Storage,
+    /// Held to keep an in-memory db alive for the lifetime of the handle. `Some`
+    /// only for `MonaDB::memory()`; `None` for file-backed instances.
+    _tmp: Option<TempDir>,
 }
 
 impl MonaDB {
-
-    pub fn new<P>(path: P) -> Result<MonaDB>
-    where P: AsRef<Path> {
-        let connection = Connection::new(path)?;
-        Ok(MonaDB { connection })
+    /// Open or create a database at `path`.
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<MonaDB> {
+        let engine = Storage::open(path)?;
+        Ok(MonaDB { storage: engine, _tmp: None })
     }
 
-    pub fn open<P>(path: P) -> Result<MonaDB>
-    where P: AsRef<Path> {
-        let connection = Connection::open(path)?;
-        Ok(MonaDB { connection })
-    }
-
+    /// Create an ephemeral database in a tempfile. Wipes when the handle drops.
     pub fn memory() -> Result<MonaDB> {
-        let connection = Connection::memory()?;
-        Ok(MonaDB { connection })
+        let tmp = TempDir::new()?;
+        let path = tmp.path().join("memory.mdb");
+        let engine = Storage::open(&path)?;
+        Ok(MonaDB {
+            storage: engine,
+            _tmp: Some(tmp),
+        })
     }
 
-    pub fn exec(&mut self, rql: &str, debug: bool) -> Result<Rows<'_>> {
-        let program = self.prepare(rql)?;
+    pub fn exec(&mut self, sql: &str, debug: bool) -> Result<Rows<'_>> {
+        let program = self.prepare(sql)?;
         if debug {
-            Self::debug(&program)
+            Self::debug(&program);
         }
-        let vm = VM::init(&mut self.connection, program);
+        let vm = VM::init(&self.storage, program);
         Ok(Rows::new(vm))
     }
 
-    fn prepare(&self, rql: &str) -> Result<Program> {
+    fn prepare(&self, sql: &str) -> Result<Program> {
         let compiler = Compiler::new();
-        compiler.compile(rql)
+        compiler.compile(sql)
     }
 
     fn debug(program: &Program) {
