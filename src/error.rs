@@ -5,12 +5,13 @@ use crate::lexer::Token;
 pub enum Error {
     IoError(String),
     InternalError(String),
+    Storage(String),
     SyntaxError(Hint),
     Unsupported(String),
     #[default]
     Unknown,
     UnknownTable(String),
-    UnknownRoutine(String),
+    UnknownFunction(String),
 }
 
 impl Error {
@@ -29,6 +30,7 @@ impl Error {
             result.push_str(&hint.message);
             result.push('\n');
             result.push_str("  │\n");
+
             // location
             if let Some(line) = lines.get(line_number.saturating_sub(1)) {
                 result.push_str("  │ ");
@@ -55,11 +57,6 @@ impl Error {
     
 }
 
-// TODO maybe remove me?
-pub fn err_unknown_routine(sym: &str) -> Error {
-    Error::UnknownRoutine(format!("unknown routine: {}", sym))
-}
-
 #[macro_export]
 macro_rules! error {
     ($($arg:tt)*) => {{
@@ -77,6 +74,12 @@ impl From<std::io::Error> for Error {
 impl From<serde_json::Error> for Error {
     fn from(e: serde_json::Error) -> Error {
         Error::IoError(e.to_string())
+    }
+}
+
+impl From<heed::Error> for Error {
+    fn from(e: heed::Error) -> Error {
+        Error::Storage(e.to_string())
     }
 }
 

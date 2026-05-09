@@ -69,7 +69,7 @@ extern {
     }
 }
 
-pub Rql = <Statement> ";";
+pub Sql = <Statement> ";";
 
 //------------------------------
 // STATEMENTS

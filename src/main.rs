@@ -1,7 +1,6 @@
 use std::fs::File;
 use std::io::{BufRead, IsTerminal, Write};
 use std::env;
-use std::ops::Not;
 use std::path::PathBuf;
 
 use monadb::{MonaDB, Result};
@@ -115,11 +114,7 @@ fn main() {
         },
         2 => {
             let path: PathBuf = PathBuf::from(&args[1]);
-            if path.exists() {
-                MonaDB::open(&path).expect("Could not open MonaDB")
-            } else {
-                MonaDB::new(&path).expect("Could not create MonaDB")
-            }
+            MonaDB::open(&path).expect("Could not open MonaDB")
         },
         _ => {
             eprintln!("Usage: {} <file>", args[0]);

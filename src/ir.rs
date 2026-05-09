@@ -348,7 +348,7 @@ pub fn limit_take(limit: f64) -> Limit {
 }
 
 #[inline]
-pub fn limit_range(offset: f64, limit: f64) -> Limit {
+pub fn limit_slice(offset: f64, limit: f64) -> Limit {
     Limit::Slice(offset as u64, limit as u64)
 }
 
@@ -500,14 +500,14 @@ pub fn expr_op(sym: &str, lhs: Expr, rhs: Expr) -> Expr {
 
 #[cfg(test)]
 mod test {
-    use crate::{lexer::RqlLexer, parser::RqlParser};
+    use crate::{lexer::SqlLexer, parser::SqlParser};
 
     use super::*;
 
     fn parse(input: &str) -> Statement {
-        let rl = RqlLexer::new(input);
-        let pp = RqlParser::new();
-        pp.parse(rl).unwrap()
+        let l = SqlLexer::new(input);
+        let p = SqlParser::new();
+        p.parse(l).unwrap()
     }
 
     #[test]

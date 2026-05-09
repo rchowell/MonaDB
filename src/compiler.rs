@@ -1,7 +1,7 @@
 use crate::error::Error;
 use crate::ir::*;
 use crate::lexer::SqlLexer;
-use crate::parser::RqlParser;
+use crate::parser::SqlParser;
 use crate::value::Value;
 use crate::vm::TxnMode;
 use crate::{Program, Result, Vop};
@@ -416,12 +416,11 @@ impl Compiler  {
     }
 }
 
-/// TODO why is this here?
 /// Parse the SQL query into the IR.
 fn parse(sql: &str) -> Result<Statement> {
-    let rl = SqlLexer::new(sql);
-    let rp = RqlParser::new();
-    let ir = rp.parse(rl)?;
+    let sl = SqlLexer::new(sql);
+    let sp = SqlParser::new();
+    let ir = sp.parse(sl)?;
     Ok(ir)
 }
 

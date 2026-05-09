@@ -1,9 +1,13 @@
-// public modules
 pub mod error;
 pub mod value;
 pub mod lexer;
-pub mod rows;
 pub mod storage;
+pub mod transaction;
+pub mod catalog;
+pub mod cursor;
+mod compiler;
+mod ir;
+mod vm;
 
 // lalrpop module
 lalrpop_mod!(
@@ -12,17 +16,11 @@ lalrpop_mod!(
     pub parser
 );
 
-// internal modules
-mod compiler;
-mod ir;
-mod vm;
-
 use std::path::Path;
 
 use compiler::Compiler;
 use error::Error;
 use lalrpop_util::lalrpop_mod;
-use rows::Rows;
 use storage::Storage;
 use tempfile::TempDir;
 

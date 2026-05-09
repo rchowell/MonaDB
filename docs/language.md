@@ -2,19 +2,23 @@
 
 > Status: draft, normative. This is the contract; the implementation is expected to converge on it.
 
-MonaDB is an embedded, LMDB-backed database for semi-structured data. Its query language (RQL) is a small set of stream operators over JSON-shaped values. This document defines the complete language. Everything not described here is out of scope.
+MonaDB is an embedded, LMDB-backed database for semi-structured data. Its query language is a small set of stream operators over JSON-shaped values. This document defines the complete language. Everything not described here is out of scope.
 
-Each operator and statement is documented in four blocks: **Description**, **Examples**, **Rules**, **Syntax** (mckeeman grammar).
+Each operator and statement is documented in four blocks:
 
----
+- **Description**
+- **Examples**
+- **Rules**
+- **Syntax**
 
 ## 1. Introduction
 
 ### 1.1 Binding-tuple model
 
-A query is a pipeline of clauses that transforms a stream of **binding tuples**. A binding tuple is a JSON object whose keys are names introduced by `from` or `with`, and whose values are the rows or expressions bound to those names.
+A query is a pipeline of clauses that transforms a stream of JSON objects
+whose names are introduced by a `from` or `with` clause, and whose values
+are the rows or expressions bound to those names.
 
-```
 | clause | action          |
 |--------|-----------------|
 | from   | iterate         |
@@ -23,23 +27,31 @@ A query is a pipeline of clauses that transforms a stream of **binding tuples**.
 | group  | reduce          |
 | order  | sort            |
 | limit  | slice           |
-| select | project (final) |
-```
+| select | project         |
 
-Every clause produces a stream of binding tuples; `select` is the final projection that turns each tuple into the output value. Two queries combined with `union`, `intersect`, or `except` are evaluated independently and combined as multisets.
+Every clause produces a stream of objects; `select` is the final
+projection that turns each tuple into the output value. Two queries combined
+with `union`, `intersect`, or `except` are evaluated independently and combined
+as multisets.
 
 ### 1.2 Lexical grammar
 
-**Description.** The lexer is whitespace-insensitive outside of string literals. Identifiers start with a letter or `_` and continue with letters, digits, or `_`. Keywords are reserved and case-insensitive. Statements are terminated by `;`. Line comments start with `--` and run to end of line.
+**Description.**
+
+The lexer is whitespace-insensitive outside of string literals. Identifiers
+start with a letter or `_` and continue with letters, digits, or `_`. Keywords
+are reserved and case-insensitive. Statements are terminated by `;`. Line
+comments start with `--` and run to end of line.
 
 **Examples.**
-```rql
+```sql
 -- this is a comment
 select 1 + 1;
 SELECT 1 + 1;          -- equivalent
 ```
 
 **Rules.**
+
 1. Keywords are reserved: `select`, `from`, `with`, `where`, `group`, `order`, `limit`, `union`, `intersect`, `except`, `as`, `asc`, `desc`, `and`, `or`, `not`, `cast`, `create`, `table`, `insert`, `into`, `update`, `set`, `delete`, `null`, `true`, `false`.
 2. Keywords are case-insensitive; identifiers are case-sensitive.
 3. String literals use single quotes; embedded single quotes are escaped by doubling: `'it''s'`.
@@ -82,10 +94,15 @@ null_lit
 
 ### 2.1 Scalar types
 
-**Description.** Four scalar types: `null`, `bool`, `number`, `string`. There is exactly one numeric type, IEEE-754 double-precision float. The names `int` and `float` exist only as cast helpers (§2.4) and as schema refinements (§5.1); they are not distinct runtime types.
+**Description.**
+
+Four scalar types: `null`, `bool`, `number`, `string`. There is exactly one
+numeric type, IEEE-754 double-precision float. The names `int` and `float` exist
+only as cast helpers (§2.4) and as schema refinements (§5.1); they are not
+distinct runtime types.
 
 **Examples.**
-```rql
+```sql
 null
 true
 false
@@ -113,7 +130,7 @@ t_scalar
 **Description.** Two composite types: `array` (ordered sequence of any values) and `object` (unordered map from string keys to any values). Object types may be **closed** (exact keys) or **open** (additional keys allowed).
 
 **Examples.**
-```rql
+```sql
 [1, 2, 3]
 { x: 1, y: 2 }
 { x: number, y: number }            -- closed object type
@@ -152,7 +169,7 @@ t_member
 **Description.** `any` is the top type; every value inhabits it. A type may be made nullable by union with `null`: `T | null`. By default, schema fields are non-null.
 
 **Examples.**
-```rql
+```sql
 any
 number | null
 { x: number, y: number | null }
@@ -178,7 +195,7 @@ type
 **Description.** Three equivalent forms convert values: `cast(v as T)`, `v::T`, and `T(v)`. Conversions are explicit; there is no implicit coercion between types except where this section names one.
 
 **Examples.**
-```rql
+```sql
 cast('3.14' as number)
 '3.14'::number
 number('3.14')
@@ -229,7 +246,7 @@ expr_list
 **Description.** A bare identifier in an expression resolves to a name in the current binding tuple. Names are introduced by `from` (§4.2), `with` (§4.3), and `group` (§4.5).
 
 **Examples.**
-```rql
+```sql
 select t from T as t;
 select x + 1 from T as t with t.x as x;
 ```
@@ -249,7 +266,7 @@ expr_var
 **Description.** Path expressions navigate into objects and arrays. Five segment forms are supported: `.name`, `[expr]`, `.*`, `[start:end]`, and `[start:end:step]`.
 
 **Examples.**
-```rql
+```sql
 t.user.name
 t['user']
 t.items[0]
@@ -289,7 +306,7 @@ expr_opt
 **Description.** Object constructors build objects from named members, shorthand bindings, and spreads.
 
 **Examples.**
-```rql
+```sql
 { x: 1, y: 2 }
 { x, y }                  -- shorthand: { x: x, y: y }
 { t.x }                   -- shorthand: { x: t.x }    (last path segment is the key)
@@ -349,7 +366,7 @@ member_key
 | 9          | `::`, `.`, `[]`                    | postfix         |
 
 **Examples.**
-```rql
+```sql
 a + b * c
 not (x = 1) and y > 0
 'hello' || ' ' || name
@@ -382,7 +399,7 @@ unop
 **Description.** Functions are invoked positionally. The built-in catalog is small and fixed for v1.
 
 **Examples.**
-```rql
+```sql
 upper(t.name)
 len(t.items)
 count(*)
@@ -441,7 +458,7 @@ The constructor takes one of four forms:
 - `item, item, ...` — emit an object whose members are the listed items.
 
 **Examples.**
-```rql
+```sql
 select * from T as t;                       -- T's rows, flattened
 select . from T as t;                       -- [{ t: <row> }, ...]
 select 1 + 1;                               -- one scalar; no from
@@ -489,7 +506,7 @@ query_body
 **Description.** `from` introduces bindings by iterating one or more sources. Multiple sources separated by commas form a **lateral cross product**: each subsequent source is evaluated in the context of the bindings produced by the preceding sources, and all combinations are emitted.
 
 **Examples.**
-```rql
+```sql
 select * from T as t;
 select * from T as t, S as s;             -- cross product
 select * from T as t, t.children as c;    -- lateral: c sees t
@@ -526,7 +543,7 @@ from_alias_opt
 **Description.** `with` rewrites the binding tuple. Its constructor takes the same forms as `select` (§4.1), but instead of producing the output it produces the new bindings used by clauses to its right (`where`, `group`, `order`, `limit`, `select`).
 
 **Examples.**
-```rql
+```sql
 select x + y from T as t with t.x as x, t.y as y;
 select * from T as t with { ...t, total: t.a + t.b };
 select . from T as t with *;              -- rebinds to the flat spread of t
@@ -550,7 +567,7 @@ with_clause_opt
 **Description.** `where` filters the binding-tuple stream by a boolean predicate. Tuples for which the predicate is not exactly `true` are dropped.
 
 **Examples.**
-```rql
+```sql
 select * from T as t where t.x > 0;
 select * from T as t where t.name = 'alice' and t.age > 18;
 ```
@@ -571,7 +588,7 @@ where_clause_opt
 **Description.** `group` reduces the stream into one tuple per distinct combination of group keys. Each item in the group clause is either a **key** (any non-aggregate expression) or an **aggregate** (a call to `count`/`sum`/`min`/`max`/`avg`). After `group`, the binding tuple has one key per item.
 
 **Examples.**
-```rql
+```sql
 select * from T as t group t.region as region, sum(t.amount) as total;
 select region, total from T as t
     group t.region as region, sum(t.amount) as total
@@ -605,7 +622,7 @@ group_item
 **Description.** `order` sorts the binding-tuple stream by one or more keys.
 
 **Examples.**
-```rql
+```sql
 select * from T as t order t.x;
 select * from T as t order t.x desc;
 select * from T as t order t.x, t.y desc;
@@ -638,7 +655,7 @@ order_item
 **Description.** `limit` slices the stream by row position using a single range expression. The range follows Python-style half-open conventions.
 
 **Examples.**
-```rql
+```sql
 select * from T as t limit 10;          -- first 10 rows
 select * from T as t limit 0..10;       -- equivalent
 select * from T as t limit 50..100;     -- skip 50, take 50
@@ -678,7 +695,7 @@ int_opt
 **Description.** Two queries may be combined as multisets with `union` (concatenate and deduplicate), `intersect`, or `except`. `union all` preserves duplicates.
 
 **Examples.**
-```rql
+```sql
 select * from T union select * from S;
 select * from T union all select * from S;
 select * from T intersect select * from S;
@@ -716,7 +733,7 @@ Clauses execute in this order regardless of source order: `from` → `with` → 
 **Description.** `create table` declares a table. The schema may be omitted (schema-less, accepts any object), declared inline, or declared open. Table options specify the partition key and sort key for the underlying storage.
 
 **Examples.**
-```rql
+```sql
 -- schema-less
 create table points;
 
@@ -786,7 +803,7 @@ table_option
 **Description.** `insert` adds one or more values to a table. Sources are an explicit list of expressions or a query.
 
 **Examples.**
-```rql
+```sql
 insert into points ({ x: 1, y: 2 });
 
 insert into points (
@@ -814,7 +831,7 @@ insert_stmt
 **Description.** `update` rewrites every binding tuple in a table that matches `where` by replacing it with the value of an expression. The expression typically uses spread to retain unchanged fields.
 
 **Examples.**
-```rql
+```sql
 update points as p set { ...p, x: p.x + 1 };
 
 update users as u
@@ -839,7 +856,7 @@ update_stmt
 **Description.** `delete` removes binding tuples from a table that match `where`.
 
 **Examples.**
-```rql
+```sql
 delete from points where points.x < 0;
 delete from users as u where u.banned = true;
 delete from events;                       -- delete all rows

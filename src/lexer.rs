@@ -5,11 +5,11 @@ use crate::error::Error;
 
 pub type Spanned<Tok, Loc, Error> = Result<(Loc, Tok, Loc), Error>;
 
-pub struct RqlLexer<'input> {
+pub struct SqlLexer<'input> {
     tokens: SpannedIter<'input, Token>,
 }
 
-impl<'input> RqlLexer<'input> {
+impl<'input> SqlLexer<'input> {
     #[must_use] 
     pub fn new(input: &'input str) -> Self {
         Self {
@@ -18,7 +18,7 @@ impl<'input> RqlLexer<'input> {
     }
 }
 
-impl Iterator for RqlLexer<'_> {
+impl Iterator for SqlLexer<'_> {
     type Item = Spanned<Token, usize, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -35,7 +35,6 @@ impl Iterator for RqlLexer<'_> {
 pub enum Token {
     //-------------------------
     // Symbols
-    // TODO ascii ordering
     //-------------------------
     #[token("*")]
     Ast,
