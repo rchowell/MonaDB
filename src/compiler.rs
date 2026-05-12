@@ -1,9 +1,7 @@
 use crate::error::Error;
 use crate::ir::*;
-use crate::lexer::SqlLexer;
-use crate::parser::SqlParser;
+use crate::transaction::TransactionMode;
 use crate::value::Value;
-use crate::vm::TxnMode;
 use crate::{Program, Result, Vop};
 use std::vec;
 
@@ -20,6 +18,7 @@ pub struct Compiler {
     code: Program,
     vars: Vec<Var>,
     counters: usize,
+    txn: Option<TransactionMode>,
 }
 
 /// Variable bindings where [depth] represents stack position.
@@ -30,35 +29,42 @@ pub struct Var {
 /// Track patches (instruction, offset).
 type Patch = (usize, usize);
 
-impl Compiler  {
+impl Compiler {
     pub fn new() -> Compiler {
         Compiler {
             code: vec![],
             vars: vec![],
             counters: 0,
+            txn: None,
         }
     }
 
-    pub fn compile(mut self, sql: &str) -> Result<Program> {
-        self.emit_init();
-        match parse(sql)? {
-            Statement::Create(create) => self.cc_create(create)?,
-            Statement::Delete(delete) => self.cc_delete(delete),
-            Statement::Drop(drop) => self.cc_drop(drop),
-            Statement::Insert(insert) => self.cc_insert(insert)?,
-            Statement::Select(select) => self.cc_select(select)?,
-        };
-        // Patch the prelude `Init(_)` with the right txn mode based on what we emitted.
-        let mode = classify_mode(&self.code);
-        if let Some(Vop::Init(slot)) = self.code.first_mut() {
-            *slot = mode;
+    pub fn compile(mut self, statement: Statement) -> Result<Program> {
+        // addr 0: Init          -> jumps to addr N
+        self.emit_init(0);
+
+        // addr 1: [body start]
+        // ...
+        // addr M:      Halt            -> end of body
+        // TODO: re-enabled
+        // match statement {
+        //     Statement::Create(create) => self.cc_create(create)?,
+        //     Statement::Delete(delete) => self.cc_delete(delete)?,
+        //     Statement::Drop(drop) => self.cc_drop(drop),
+        //     Statement::Insert(insert) => self.cc_insert(insert)?,
+        //     Statement::Select(select) => self.cc_select(select)?,
+        // };
+        self.emit_halt();
+
+        // 
+        // addr N:      Transaction     -> opens the transaction, falls through
+        // addr N+1:    Jump 1          -> jumps back to body start
+        if let Some(txn) = self.txn {
+            self.emit_transaction(txn);
+            self.patch(0, self.pc())?;
+            self.emit_jump(1);
         }
-        // A write program needs an explicit Commit before exiting; otherwise the
-        // WriteTxn is dropped and staged writes are aborted.
-        if matches!(mode, TxnMode::Write) {
-            self.code.push(Vop::Commit);
-        }
-        self.emit_exit();
+
         Ok(self.code)
     }
 
@@ -73,8 +79,8 @@ impl Compiler  {
         self.emit_drop(table);
     }
 
-    fn cc_delete(&mut self, table: String) {
-        self.emit_clear(table);
+    fn cc_delete(&mut self, table: String) -> Result<()> {
+        unsupported!("delete")
     }
 
     fn cc_insert(&mut self, insert: Insert) -> Result<()> {
@@ -85,13 +91,12 @@ impl Compiler  {
         match n {
             0 => unsupported!("insert with no values"),
             1 => self.emit_insert(insert.target),
-            n => self.emit_insert_batch(insert.target, n),
+            _ => unsupported!("insert with multiple values"),
         }
         Ok(())
     }
 
     fn cc_select(&mut self, select: Select) -> Result<()> {
-
         // track current scope
         let scope = self.vars.len();
         let counters = self.counters;
@@ -100,14 +105,14 @@ impl Compiler  {
         // initialize counters before the loop
         let mut cnt_skip: Option<usize> = None;
         let mut cnt_take: Option<usize> = None;
-        if let Some(fetch) = &select.fetch {
-            match fetch {
+        if let Some(limit) = &select.limit {
+            match limit {
                 Limit::Skip(n) => cnt_skip = self.define_counter(*n).into(),
                 Limit::Take(n) => cnt_take = self.define_counter(*n).into(),
                 Limit::Slice(n, m) => {
                     cnt_skip = self.define_counter(*n).into();
                     cnt_take = self.define_counter(*m).into();
-                },
+                }
             }
         }
 
@@ -198,13 +203,15 @@ impl Compiler  {
 
     /// Patch the control-flow instruction at code[pc] to jump to dst.
     fn patch(&mut self, pc: usize, dst: usize) -> Result<()> {
+        // TODO: actual error handling
         match self.code.get_mut(pc).unwrap() {
-            Vop::CntIfPos(_, jmp) => *jmp = dst,
-            Vop::CntIfZero(_, jmp) => *jmp = dst,
-            Vop::If(jmp) => *jmp = dst,
-            Vop::IfNot(jmp) => *jmp = dst,
-            Vop::Next(_, jmp) => *jmp = dst,
-            Vop::Rewind(_, jmp) => *jmp = dst,
+            Vop::Init { jmp }
+            | Vop::CntIfPos(_, jmp)
+            | Vop::CntIfZero(_, jmp)
+            | Vop::If(jmp)
+            | Vop::IfNot(jmp)
+            | Vop::Next(_, jmp)
+            | Vop::Rewind(_, jmp) => *jmp = dst,
             _ => unsupported!("cannot patch instruction at pc[{}]", pc),
         }
         Ok(())
@@ -322,20 +329,12 @@ impl Compiler  {
     // INSTRUCTIONS
     //------------------------------
 
-    fn emit_clear(&mut self, table: String) {
-        self.code.push(Vop::Clear { table });
-    }
-
     fn emit_create_table(&mut self, table: Table) {
         self.code.push(Vop::CreateTable { table });
     }
 
     fn emit_drop(&mut self, table: String) {
         self.code.push(Vop::Drop { table });
-    }
-
-    fn emit_exit(&mut self) {
-        self.code.push(Vop::Exit);
     }
 
     fn emit_cnt_set(&mut self, counter: usize, value: u64) {
@@ -350,21 +349,20 @@ impl Compiler  {
         self.code.push(Vop::CntIfZero(counter, jmp));
     }
 
+    fn emit_halt(&mut self) {
+        self.code.push(Vop::Halt);
+    }
+
     fn emit_if_not(&mut self, jmp: usize) {
         self.code.push(Vop::IfNot(jmp));
     }
 
-    fn emit_init(&mut self) {
-        // Mode is patched at end of `compile()` once we know what statements emitted.
-        self.code.push(Vop::Init(TxnMode::Read));
+    fn emit_init(&mut self, jmp: usize) {
+        self.code.push(Vop::Init { jmp });
     }
 
     fn emit_insert(&mut self, table: String) {
         self.code.push(Vop::Insert(table));
-    }
-
-    fn emit_insert_batch(&mut self, table: String, n: usize) {
-        self.code.push(Vop::InsertBatch(table, n));
     }
 
     fn emit_jpe(&mut self) {
@@ -381,6 +379,10 @@ impl Compiler  {
 
     fn emit_load(&mut self, idx: usize) {
         self.code.push(Vop::Load(idx));
+    }
+
+    fn emit_jump(&mut self, jmp: usize) {
+        self.code.push(Vop::Jump { jmp });
     }
 
     fn emit_next(&mut self, cursor: usize, jmp: usize) {
@@ -414,27 +416,8 @@ impl Compiler  {
     fn emit_return(&mut self, tofs: usize) {
         self.code.push(Vop::Return(tofs));
     }
-}
 
-/// Parse the SQL query into the IR.
-fn parse(sql: &str) -> Result<Statement> {
-    let sl = SqlLexer::new(sql);
-    let sp = SqlParser::new();
-    let ir = sp.parse(sl)?;
-    Ok(ir)
-}
-
-/// Pick the txn mode for a compiled program: `Write` if it mutates anything, else `Read`.
-fn classify_mode(code: &[Vop]) -> TxnMode {
-    for op in code {
-        match op {
-            Vop::Insert(_)
-            | Vop::InsertBatch(_, _)
-            | Vop::CreateTable { .. }
-            | Vop::Drop { .. }
-            | Vop::Clear { .. } => return TxnMode::Write,
-            _ => {}
-        }
+    fn emit_transaction(&mut self, txn: TransactionMode) {
+        self.code.push(Vop::Transaction { txn });
     }
-    TxnMode::Read
 }

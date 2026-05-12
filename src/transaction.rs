@@ -1,66 +1,61 @@
-use heed::{RoTxn, RwTxn, WithTls};
+use heed::{RoTxn, RwTxn, WithoutTls};
 
-use crate::Result;
+use crate::error::{Result, Error};
 
-use crate::cursor::Cursor;
-use crate::storage::Env;
-
-/// A read-only transaction handle,
-pub struct ReadTxn<'env> {
-    /// The heed environment handle.
-    env: &'env Env,
-    /// The heed read transaction handle.
-    txn: RoTxn<'env, WithTls>,
+/// Transaction mode used as a flag during compilation. 
+#[derive(Debug, Clone, Copy)]
+pub enum TransactionMode {
+    Ro,
+    Rw,
 }
 
-impl<'env> ReadTxn<'env> {
-    /// Opens a new read transaction handle, released on drop.
-    pub fn open(env: &'env Env) -> Result<Self> {
-        let txn = env.heed.read_txn()?;
-        Ok(Self { env, txn })
-    }
-
-    /// Opens a cursor over the given table.
-    pub fn cursor(&self, table: u32) -> Result<Cursor<'_>> {
-        Cursor::open(self.env, &self.txn, table)
-    }
+/// Transaction handle wrapping LMDB transactions, tied to storage lifetime.
+pub enum Transaction<'s> {
+    Ro(RoTxn<'s, WithoutTls>),
+    Rw(RwTxn<'s>),
 }
 
-/// A read-write transaction handle.
-pub struct WriteTxn<'env> {
-    /// The heed environment handle.
-    env: &'env Env,
-    /// The heed write transaction handle.
-    txn: RwTxn<'env>,
-}
-
-impl<'env> WriteTxn<'env> {
-    /// Opens a new write transaction handle, released on drop.
-    pub fn open(env: &'env Env) -> Result<Self> {
-        let txn = env.heed.write_txn()?;
-        Ok(Self { env, txn })
+impl<'s> Transaction<'s> {
+    /// Borrow as a read txn; write transactions can deref as read-only.
+    pub fn as_ro(&self) -> &RoTxn<'s> {
+        match self {
+            Transaction::Ro(t) => t,
+            Transaction::Rw(t) => t,
+        }
     }
 
-    /// Insert a row. Phase 1: surrogate-keyed only — the caller passes the row's
-    /// JSON value and the storage layer assigns a fresh `u64` row id.
-    pub fn insert(&mut self, key: Vec<u8>, value: Vec<u8>) -> Result<()> {
-        self.env.data.put(&mut self.txn, &key, &value)?;
-        Ok(())
+    /// Borrow mutably as a write txn; fails if read-only.
+    pub fn as_rw(&mut self) -> Result<&mut RwTxn<'s>, Error> {
+        match self {
+            Transaction::Rw(t) => Ok(t),
+            Transaction::Ro(_) => panic!("read-only"),
+        }
     }
 
-    /// Commits the transaction.
-    pub fn commit(self) -> Result<()> {
-        self.txn.commit()?;
-        Ok(())
+    /// Commit the transaction, releasing any underlying resources.
+    pub fn commit(self) -> Result<(), heed::Error> {
+        match self {
+            Transaction::Ro(t) => t.commit(),
+            Transaction::Rw(t) => t.commit(),
+        }
     }
 
-    /// Discard staged writes and abandon the heed transaction.
+    /// Abort the transaction; drop is sufficient too.
     pub fn abort(self) {
-        drop(self);
+        drop(self)
     }
+} 
 
-    /// Open a cursor that reads through the *committed* state (staged writes are invisible).
-    pub fn cursor(&self, table: u32) -> Result<Cursor<'_>> {
-        Cursor::open(self.env, &self.txn, table)
+/// Wraps a read-only LMDB transaction.
+impl<'s> From<RoTxn<'s, WithoutTls>> for Transaction<'s> {
+    fn from(txn: RoTxn<'s, WithoutTls>) -> Self {
+        Self::Ro(txn)
+    }
+}
+
+/// Wraps a read-write LMDB transaction
+impl<'s> From<RwTxn<'s>> for Transaction<'s> {
+    fn from(txn: RwTxn<'s>) -> Self {
+        Self::Rw(txn)
     }
 }

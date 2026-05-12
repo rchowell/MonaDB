@@ -1,6 +1,10 @@
 use lalrpop_util::ParseError;
 use crate::lexer::Token;
 
+/// Top-level result type.
+pub type Result<T, E = Error> = std::result::Result<T, E>;
+
+/// Top-level error type.
 #[derive(Default, Debug, Clone, PartialEq)]
 pub enum Error {
     IoError(String),
@@ -8,6 +12,7 @@ pub enum Error {
     Storage(String),
     SyntaxError(Hint),
     Unsupported(String),
+    Transaction(String),
     #[default]
     Unknown,
     UnknownTable(String),

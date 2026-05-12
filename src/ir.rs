@@ -89,7 +89,7 @@ pub struct Select {
     // group
     // having
     // order
-    pub fetch: Option<Limit>,
+    pub limit: Option<Limit>,
     pub select: Constructor,
 }
 
@@ -294,17 +294,17 @@ pub fn select(select: Constructor, block: Select) -> Select {
     Select {
         from: block.from,
         where_: block.where_,
-        fetch: block.fetch,
+        limit: block.limit,
         select,
     }
 }
 
 #[inline]
-pub fn select_block(from: Iter, where_: Option<Where>, fetch: Option<Limit>) -> Select {
+pub fn select_block(from: Iter, where_: Option<Where>, limit: Option<Limit>) -> Select {
     Select {
         from,
         where_,
-        fetch,
+        limit,
         select: Constructor::None,
     }
 }
@@ -610,11 +610,11 @@ mod test {
     }
 
     #[test]
-    pub fn parse_acceptance_fetch() {
+    pub fn parse_acceptance_limit() {
         let inputs = vec![
-            "select * from T fetch 20;",
-            "select * from T fetch 10..;",
-            "select * from T fetch 10..20;",
+            "select * from T limit 20;",
+            "select * from T limit 10..;",
+            "select * from T limit 10..20;",
         ];
         for input in inputs {
             let _ = parse(input);

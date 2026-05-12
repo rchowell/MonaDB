@@ -1,41 +1,27 @@
 use std::vec;
 
-use crate::error::Error;
-use crate::ir::{ColumnType as IrColumnType, Table};
-use crate::storage::{ColumnSchema, ColumnType as StorageColumnType, Cursor, Storage, ReadTxn, WriteTxn};
+use crate::ir::Table;
+use crate::storage::Storage;
+use crate::transaction::{Transaction, TransactionMode};
 use crate::value::Value;
-use crate::{unsupported, Result};
+use crate::{Result, unsupported};
 
 /// Program is a sequence of virtual machine instructions.
 pub type Program = Vec<Vop>;
 
-/// Whether a program needs a read or write transaction. Patched onto `Vop::Init`
-/// by the compiler after walking the emitted code.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TxnMode {
-    Read,
-    Write,
-}
-
 /// Vop is a virtual machine instruction code.
 #[derive(Debug, Clone)]
 pub enum Vop {
-    /// Open a fresh transaction in the given mode.
-    Init(TxnMode),
-    /// Delete all rows of the table.
-    Clear { table: String },
-    /// Commit an open transaction.
-    Commit,
+    /// Initialize the virtual machine, then jump to jmp.
+    Init { jmp: usize },
     /// Consider replacing with an `Insert` instruction on the catalog table.
     CreateTable { table: Table },
     /// Consider replacing with a `Delete` instruction on the catalog table.
     Drop { table: String },
-    /// Insert 1 value into the table.
+    /// Insert a value into the table.
     Insert(String),
-    /// Insert n values into the table.
-    InsertBatch(String, usize),
-    /// Jump to the instruction, pc = p0.
-    Jump(usize),
+    /// Jump to the instruction at jmp.
+    Jump { jmp: usize },
     /// JSON Path Index
     Jpi(usize),
     /// JSON Path Key
@@ -48,84 +34,90 @@ pub enum Vop {
     Next(usize, usize),
     /// Opens a table for reading with the cursor positioned at the first row.
     Open(String),
+    /// Create a new object on the stack.
     Obj,
+    /// Assign a value to an object member.
     ObjAssign(String),
+    /// Spread a value into an object.
     ObjSpread,
+    /// Set a counter to a value.
     CntSet(usize, u64),
+    /// If the counter is greater than 0, decrement it and jump to p1.
     CntIfPos(usize, usize),
+    /// If the counter is 0, jump to p1.
     CntIfZero(usize, usize),
+    /// Add two values on the stack.
     Add,
+    /// Subtract two values on the stack.
     Sub,
+    /// Multiply two values on the stack.
     Mul,
+    /// Divide two values on the stack.
     Div,
+    /// Remainder of two values on the stack.
     Rem,
+    /// Less than two values on the stack.
     Lt,
+    /// Less than or equal to two values on the stack.
     Le,
+    /// Greater than two values on the stack.
     Gt,
+    /// Greater than or equal to two values on the stack.
     Ge,
+    /// Equal to two values on the stack.
     Eq,
+    /// Not equal to two values on the stack.
     Ne,
+    /// If the value on the stack is true, jump to p1.
     If(usize),
+    /// If the value on the stack is false, jump to p1.
     IfNot(usize),
+    /// Pop the top value from the stack.
     Pop,
+    /// Push a value onto the stack.
     Push(Value),
+    /// Rewind the cursor to its initial position.
     Rewind(usize, usize),
+    /// Return a value from the stack.
     Return(usize),
-    /// Begin a transaction. No-op in Phase 1 (single-statement implicit txns).
-    Transaction,
-    Exit,
+    /// Open a transaction
+    Transaction { txn: TransactionMode },
+    /// Halt the virtual machine.
+    Halt,
 }
 
-/// Active transaction held by a running VM. `None` between `Init` and program start,
-/// and after `Commit` consumes it.
-enum TxnHandle<'a> {
-    None,
-    Read(ReadTxn<'a>),
-    Write(WriteTxn<'a>),
-}
-
-impl<'a> TxnHandle<'a> {
-    fn open_cursor(&self, table: &str) -> Result<Cursor<'_>> {
-        match self {
-            TxnHandle::None => Err(Error::InternalError(
-                "vm: open_cursor before Init".to_string(),
-            )),
-            TxnHandle::Read(t) => t.open_cursor(table),
-            TxnHandle::Write(t) => t.open_cursor(table),
-        }
-    }
-
-    fn write_mut(&mut self) -> Result<&mut WriteTxn<'a>> {
-        match self {
-            TxnHandle::Write(t) => Ok(t),
-            _ => Err(Error::InternalError(
-                "vm: write opcode needs an active write txn".to_string(),
-            )),
-        }
-    }
-}
+// TODO: Uncomment this when ready
+// /// This ensures that every variant is <= 4 bytes.
+// const _: () = assert!(std::mem::size_of::<Vop>() <= 4);
 
 /// VM holds the state of the virtual machine.
-pub struct VM<'a> {
-    engine: &'a Storage,
-    txn: TxnHandle<'a>,
+pub struct VM<'s> {
+    /// The storage environment reference.
+    storage: &'s Storage,
+    /// The program counter.
     pc: usize,
+    /// The program.
     program: Program,
+    /// The stack.
     stack: Vec<Value>,
-    cursors: Vec<Cursor<'a>>,
-    counters: Vec<u64>,
+    /// The open transaction handle, if any.
+    txn: Option<Transaction<'s>>,
+    // /// The cursors.
+    // cursors: Vec<Cursor<'s>>,
+    // /// The counters.
+    // counters: Vec<u64>,
 }
 
-impl<'a> VM<'a> {
-    pub fn init(engine: &'a Storage, program: Program) -> VM<'a> {
+impl<'s> VM<'s> {
+    pub fn init(storage: &'s Storage, program: Program) -> VM<'s> {
         VM {
-            engine,
-            txn: TxnHandle::None,
+            storage,
             pc: 0,
             program,
             stack: vec![],
-            cursors: vec![],
-            counters: vec![0; 10],
+            txn: None,
+            // cursors: vec![],
+            // counters: vec![0; 10],
         }
     }
 
@@ -154,55 +146,26 @@ impl<'a> VM<'a> {
         self.stack.last_mut().unwrap()
     }
 
-    /// The VM loop.
     #[allow(clippy::too_many_lines)]
     pub fn next(&mut self) -> Result<Option<Value>> {
         loop {
+            // TODO: make vop 'Copy' then deref
             let op = self.program[self.pc].clone();
             self.pc += 1;
             match &op {
-                Vop::Init(mode) => {
-                    // SAFETY (lifetimes): Cursor<'a> borrows from the txn, which borrows
-                    // from Engine via Arc<EngineInner>. Engine outlives the VM via the
-                    // 'a bound on VM<'a>; the txn lives inside `self.txn` for the rest
-                    // of the program. See storage/reference §10.2.
-                    let engine: &'a Storage = self.engine;
-                    self.txn = match mode {
-                        TxnMode::Read => TxnHandle::Read(engine.begin_read()?),
-                        TxnMode::Write => TxnHandle::Write(engine.begin_write()?),
-                    };
-                }
-                Vop::Clear { table } => {
-                    unsupported!("clear table {table:?} (Phase 1: not yet wired through storage)");
+                Vop::Init { jmp } => {
+                    self.pc = *jmp;
                 }
                 Vop::CreateTable { table } => {
-                    let columns = table_to_columns(table);
-                    self.txn.write_mut()?.create_table(&table.name, columns)?;
+                    unsupported!("create table")
                 }
-                Vop::Commit => {
-                    // Cursors borrow from the txn — drop them before consuming it.
-                    self.cursors.clear();
-                    let taken = std::mem::replace(&mut self.txn, TxnHandle::None);
-                    match taken {
-                        TxnHandle::Write(t) => t.commit()?,
-                        TxnHandle::Read(_) | TxnHandle::None => {
-                            // Read txns drop on Commit; nothing to flush.
-                        }
-                    }
-                }
+
                 Vop::Drop { table } => {
                     unsupported!("drop table {table:?} (Phase 1: not yet wired through storage)");
                 }
                 Vop::Insert(table) => {
                     let value = self.pop();
-                    self.txn.write_mut()?.put_row(table, value)?;
-                }
-                Vop::InsertBatch(table, n) => {
-                    let values = self.take(*n);
-                    let txn = self.txn.write_mut()?;
-                    for value in values {
-                        txn.put_row(table, value)?;
-                    }
+                    todo!()
                 }
                 Vop::Jpe => {
                     let e = self.pop();
@@ -221,9 +184,9 @@ impl<'a> VM<'a> {
                     self.push(v);
                 }
                 Vop::Load(cursor) => {
-                    let row = self.cursors[*cursor].curr();
-                    let val = row.val.clone();
-                    self.push(val);
+                    // let row = self.cursors[*cursor].curr();
+                    // let val = row.val.clone();
+                    // self.push(val);
                 }
                 Vop::Obj => {
                     self.stack.push(Value::object());
@@ -245,17 +208,22 @@ impl<'a> VM<'a> {
                     self.push(v.clone());
                 }
                 Vop::Return(tofs) => {
-                    let v = self.pop();
-                    self.drop(*tofs);
-                    return Ok(Some(v));
+                    // let v = self.pop();
+                    // self.drop(*tofs);
+                    // return Ok(Some(v));
+                    todo!()
                 }
-                Vop::Jump(jmp) => {
+                Vop::Jump { jmp } => {
                     self.pc = *jmp;
                 }
-                Vop::Transaction => {
-                    // Phase 1: implicit single-statement transactions; no-op.
+                Vop::Transaction { txn } => {
+                    let txn = match txn {
+                        TransactionMode::Ro => self.storage.read(),
+                        TransactionMode::Rw => self.storage.write(),
+                    }?;
+                    self.txn = Some(txn);
                 }
-                Vop::Exit => {
+                Vop::Halt => {
                     return Ok(None);
                 }
                 Vop::Add => {
@@ -324,41 +292,35 @@ impl<'a> VM<'a> {
                     }
                 }
                 Vop::Open(table) => {
-                    // SAFETY (lifetimes): Cursor<'a> borrows the txn held inside `self`.
-                    // The borrow-checker can't see through the TxnHandle indirection, so
-                    // we transmute the shorter lifetime returned by open_cursor up to 'a.
-                    // This is sound because (a) the txn lives inside `self.txn` until
-                    // Commit consumes it, and (b) we drop all cursors when the txn is
-                    // taken (via Vop::Commit), so no cursor outlives its txn.
-                    let cursor = self.txn.open_cursor(table)?;
-                    let cursor: Cursor<'a> = unsafe { std::mem::transmute(cursor) };
-                    self.cursors.push(cursor);
+                    // let cursor = self.txn.open_cursor(table)?;
+                    // let cursor: Cursor<'a> = unsafe { std::mem::transmute(cursor) };
+                    // self.cursors.push(cursor);
                 }
                 Vop::Next(cursor, jmp) => {
-                    if self.cursors[*cursor].next()? {
-                        self.pc = *jmp;
-                    }
+                    // if self.cursors[*cursor].next()? {
+                    //     self.pc = *jmp;
+                    // }
                 }
                 Vop::Rewind(cursor, jmp) => {
-                    if !self.cursors[*cursor].rewind()? {
-                        self.pc = *jmp;
-                    }
+                    // if !self.cursors[*cursor].rewind()? {
+                    //     self.pc = *jmp;
+                    // }
                 }
                 Vop::CntSet(c, v) => {
-                    self.counters[*c] = *v;
+                    // self.counters[*c] = *v;
                 }
                 Vop::CntIfPos(c, jmp) => {
-                    if self.counters[*c] > 0 {
-                        self.counters[*c] -= 1;
-                        self.pc = *jmp;
-                    }
+                    // if self.counters[*c] > 0 {
+                    //     self.counters[*c] -= 1;
+                    //     self.pc = *jmp;
+                    // }
                 }
                 Vop::CntIfZero(c, jmp) => {
-                    if self.counters[*c] == 0 {
-                        self.pc = *jmp;
-                    } else {
-                        self.counters[*c] -= 1;
-                    }
+                    // if self.counters[*c] == 0 {
+                    //     self.pc = *jmp;
+                    // } else {
+                    //     self.counters[*c] -= 1;
+                    // }
                 }
             }
         }
@@ -378,18 +340,4 @@ impl<'vm> Rows<'vm> {
     pub fn next(&mut self) -> Result<Option<Value>> {
         self.vm.next()
     }
-}
-
-fn table_to_columns(table: &Table) -> Vec<ColumnSchema> {
-    table
-        .columns
-        .iter()
-        .map(|c| ColumnSchema {
-            name: c.name.clone(),
-            typ: match c.typ {
-                IrColumnType::Int => StorageColumnType::Int,
-                IrColumnType::String => StorageColumnType::String,
-            },
-        })
-        .collect()
 }

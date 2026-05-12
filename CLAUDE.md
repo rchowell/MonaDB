@@ -5,23 +5,19 @@ Embedded database with a custom SQL query language compiled to stack-based bytec
 ## Architecture
 
 ```
-SQL text → Lexer (logos) → Parser (lalrpop) → IR → Compiler → Vop bytecode → VM → Cask
+SQL text → Lexer (logos) → Parser (lalrpop) → IR → Compiler → Vop bytecode → VM → LMDB
 ```
 
 ## Key Files
 
-| File | Role |
-|------|------|
-| `src/lexer.rs` | Token definitions — logos DFA lexer, produces spanned token stream |
-| `src/parser.lalrpop` | Grammar — LALRPOP LR(1) parser, calls action functions in `ir.rs` |
-| `src/ir.rs` | AST/IR types + parser action functions (called from grammar rules) |
-| `src/compiler.rs` | IR → Vop bytecode (`cc_*` methods, `emit_*` helpers) |
-| `src/vm.rs` | Stack-based bytecode interpreter — `next()` loop over `Vop` |
-| `src/value.rs` | JSON value wrapper; operator overloads for arithmetic/comparison |
-| `src/cask.rs` | Log-structured persistent key-value store |
-| `src/error.rs` | Error enum + `error!` / `unsupported!` macros |
-| `src/connection.rs` | Table metadata and cursor management |
-| `src/rows.rs` | Query result iterator |
+| File                 | Role                                                               |
+|----------------------|--------------------------------------------------------------------|
+| `src/lexer.rs`       | Token definitions — logos DFA lexer, produces spanned token stream |
+| `src/parser.lalrpop` | Grammar — LALRPOP LR(1) parser, calls action functions in `ir.rs`  |
+| `src/ir.rs`          | AST/IR types + parser action functions (called from grammar rules) |
+| `src/compiler.rs`    | IR → Vop bytecode (`cc_*` methods, `emit_*` helpers)               |
+| `src/vm.rs`          | Stack-based bytecode interpreter — `next()` loop over `Vop`        |
+| `src/error.rs`       | Error enum + `error!` / `unsupported!` macros                      |
 
 ## Build & Test
 
@@ -29,6 +25,18 @@ SQL text → Lexer (logos) → Parser (lalrpop) → IR → Compiler → Vop byte
 cargo build   # regenerates src/parser.rs from src/parser.lalrpop via build.rs
 cargo test
 cargo run     # starts the REPL
+```
+
+## Task Management
+
+Use the 'bd' command for task management of work items.
+
+```bash
+bd ready              # Find available work
+bd show <id>          # View issue details
+bd update <id> --status in_progress  # Claim work
+bd close <id>         # Complete work
+bd sync               # Sync with git
 ```
 
 ## Conventions
@@ -66,4 +74,4 @@ cargo run     # starts the REPL
 
 ## Grammar Extension
 
-Use `/grammar` for a step-by-step guide to adding new grammar constructs.
+Use the `/grammar` skill for a step-by-step guide to adding new grammar constructs.

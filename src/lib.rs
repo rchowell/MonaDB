@@ -1,11 +1,11 @@
 pub mod error;
-pub mod value;
-pub mod lexer;
-pub mod storage;
-pub mod transaction;
-pub mod catalog;
-pub mod cursor;
+
+mod catalog;
 mod compiler;
+mod value;
+mod lexer;
+mod storage;
+mod transaction;
 mod ir;
 mod vm;
 
@@ -19,45 +19,32 @@ lalrpop_mod!(
 use std::path::Path;
 
 use compiler::Compiler;
-use error::Error;
+use error::Result;
 use lalrpop_util::lalrpop_mod;
 use storage::Storage;
-use tempfile::TempDir;
 
-use crate::vm::*;
-
-/// A typedef of the result returned by many methods.
-pub type Result<T, E = Error> = std::result::Result<T, E>;
+use crate::{catalog::Catalog, ir::Statement, lexer::SqlLexer, parser::SqlParser, vm::*};
 
 /// The user-facing database handle. Holds an `Engine` and runs SQL programs.
 pub struct MonaDB {
+    /// The single catalog interface.
+    catalog: Catalog,
     /// The storage engine.
     storage: Storage,
-    /// Held to keep an in-memory db alive for the lifetime of the handle. `Some`
-    /// only for `MonaDB::memory()`; `None` for file-backed instances.
-    _tmp: Option<TempDir>,
 }
 
 impl MonaDB {
-    /// Open or create a database at `path`.
+    /// Open or create a database at the given path.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<MonaDB> {
-        let engine = Storage::open(path)?;
-        Ok(MonaDB { storage: engine, _tmp: None })
+        let storage = Storage::open(path)?;
+        let catalog = Catalog::load(storage.clone())?;
+        Ok(MonaDB { catalog, storage })
     }
 
-    /// Create an ephemeral database in a tempfile. Wipes when the handle drops.
-    pub fn memory() -> Result<MonaDB> {
-        let tmp = TempDir::new()?;
-        let path = tmp.path().join("memory.mdb");
-        let engine = Storage::open(&path)?;
-        Ok(MonaDB {
-            storage: engine,
-            _tmp: Some(tmp),
-        })
-    }
-
+    /// Execute the given sql statement(s).
     pub fn exec(&mut self, sql: &str, debug: bool) -> Result<Rows<'_>> {
-        let program = self.prepare(sql)?;
+        let statement = self.parse(sql)?;
+        let program = self.compile(statement)?;
         if debug {
             Self::debug(&program);
         }
@@ -65,20 +52,40 @@ impl MonaDB {
         Ok(Rows::new(vm))
     }
 
-    fn prepare(&self, sql: &str) -> Result<Program> {
-        let compiler = Compiler::new();
-        compiler.compile(sql)
+    fn parse(&self, sql: &str) -> Result<Statement> {
+        let l = SqlLexer::new(sql);
+        let p = SqlParser::new();
+        Ok(p.parse(l)?)
+    }
+
+    fn compile(&self, statement: Statement) -> Result<Program> {
+        let c = Compiler::new();
+        c.compile(statement)
     }
 
     fn debug(program: &Program) {
         println!();
-        println!("┌──────┬──────┬──────┐");
-        println!("│ addr │ code │ args │");
-        println!("├──────┼──────┼──────┤");
+        println!("addr\toperation");
+        println!("----\t---------");
         for (addr, op) in program.iter().enumerate() {
-            println!("│  {:03} │ {:?}", addr, op);
+            println!("{addr:04}\t{op:?}");
         }
-        println!("└──────┘");
         println!();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_select_bytecode() {
+        let dir = TempDir::new().unwrap();
+        let db_path = dir.path().join("test.db");
+        let mut db = MonaDB::open(&db_path).unwrap();
+
+        db.exec("create table t (id int);", false).unwrap();
+        let _ = db.exec("select * from t;", true);
     }
 }
