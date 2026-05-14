@@ -45,9 +45,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 02: ALLOCATE THE NEW LMDB BTREE (IDEMPOTENT)
     let _: Cursor = env.create_database(&mut txn, Some("foo"))?;
     //
-    // 03: OPEN CURSOR c=0, table='_tables'
-    let c0 = env.open_database(&txn, Some("_tables"))?;
-    let c0: Cursor = c0.expect("Missing system table: '_tables'");
+    // 03: OPEN CURSOR c=0, table='catalog'
+    let c0 = env.open_database(&txn, Some("catalog"))?;
+    let c0: Cursor = c0.expect("Missing system table: 'catalog'");
     //
     // 04: CREATE THE KEY
     let key = match c0.last(&txn)? {
@@ -59,7 +59,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let val = json!({
         "oid": key,
         "name": "foo",
-        "keys": [],
+        "type": "table",
+        "sql": "create table foo;",
     });
     //
     // 06: INSERT (KEY, VALUE)

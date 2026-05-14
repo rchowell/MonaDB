@@ -88,23 +88,18 @@ Statement: ir::Statement = {
 
 Create: ir::Create = CreateTable;
 
-CreateTable: ir::Create = "create" "table" <TableDefinition> => ir::Create::Table(<>);
+CreateTable: ir::Create = "create" "table" <TableDefinition> => ir::create_table(<>);
 
-TableDefinition: ir::Table = {
-    <name:TableName>                                    => ir::table_definition(name, vec![]),
-    <name:TableName> "(" <cols:ColumnDefinitions> ")"   => ir::table_definition(name, cols),
+TableDefinition: ir::TableDefinition = {
+    <name:TableName>                                => ir::table_definition(name, vec![]),
+    <name:TableName> "(" <members:TableMembers> ")" => ir::table_definition(name, members),
 };
 
 TableName: String = "ident";
 
-ColumnDefinitions: Vec<ir::ColumnDefinition> = List<ColumnDefinition>;
+TableMembers: Vec<ir::TableMember> = List<TableMember>;
 
-ColumnDefinition: ir::ColumnDefinition = <name:"ident"> <typ:ColumnType> => ir::column_definition(name, typ);
-
-ColumnType: ir::ColumnType = {
-    "t_int"    => ir::ColumnType::Int,
-    "t_string" => ir::ColumnType::String,
-};
+TableMember: ir::TableMember = <name:"ident"> <ty:Type> => ir::table_member(name, ty);
 
 // SELECT STATEMENT
 //------------------------------
@@ -160,14 +155,10 @@ InsertSource: Vec<ir::Expr> = List<Expr>;
 // DELETE STATEMENT
 //------------------------------
 
-// TODO delete statement
-
 Delete: String = "delete" "from" <"ident">;
 
 // DROP STATEMENT
 //------------------------------
-
-// TODO drop statement
 
 Drop: String = "drop" "table" <"ident">;
 
@@ -188,23 +179,20 @@ TAny: ir::Type = {
 
 TScalar: ir::Type = {
     "t_bool"    => ir::t_bool(),
+    "t_int"     => ir::t_int(),
+    "t_float"   => ir::t_float(),
     "t_number"  => ir::t_number(),
     "t_string"  => ir::t_string(),
 };
 
-// TODO open object type
 TObject: ir::Type = {
-    "t_object"          => ir::t_object(vec![], true),
-    "{" <TMembers> "}"  => ir::t_object(<>, false),
+    "t_object"          => ir::t_object(vec![]),
+    "{" <TMembers> "}"  => ir::t_object(<>),
 };
 
 TMembers: Vec<ir::TMember> = List<TMember>;
 
-// TODO remove nullability ??
-TMember: ir::TMember = {
-    <"ident"> ":" <Type>            => ir::t_member(<>, false),
-    <"ident"> ":" <Type> "|" "null" => ir::t_member(<>, true),
-};
+TMember: ir::TMember = <"ident"> ":" <Type> => ir::t_member(<>);
 
 TArray: ir::Type = {
     "t_array"   => ir::t_array(),

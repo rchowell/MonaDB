@@ -1,4 +1,5 @@
-use crate::transaction::{Transaction, TransactionMode};
+use crate::cursor::Cursor;
+use crate::transaction::Transaction;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -55,8 +56,14 @@ impl Storage {
 
     /// Creates a new b-tree and returns a handle.
     pub fn create_btree(&self, txn: &mut Transaction<'_>, name: &str) -> Result<BTree> {
-        let mut wtxn = txn.as_rw()?;
-        let btree = self.env.create_database(&mut wtxn, Some(name))?;
+        let wtxn = txn.as_rw()?;
+        let btree = self.env.create_database(wtxn, Some(name))?;
         Ok(btree)
+    }
+
+    pub fn open_cursor(&self, txn: &mut Transaction<'_>, name: &str) -> Result<Cursor> {
+        let rtxn = txn.as_ro();
+        let cursor = self.env.open_database(rtxn, Some(name))?.unwrap();
+        Ok(cursor)
     }
 }

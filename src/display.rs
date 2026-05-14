@@ -161,18 +161,13 @@ impl From<String> for Block {
 
 impl ToSql for Statement {
     fn block(&self) -> Block {
-        let mut t = text("");
         match self {
-            Statement::Create(c) => {
-                t = t + c.block();
-            }
+            Statement::Create(c) => c.block(),
             Statement::Delete(_) => unimplemented!("DELETE formatting"),
             Statement::Drop(_) => unimplemented!("DROP formatting"),
             Statement::Insert(_) => unimplemented!("INSERT formatting"),
             Statement::Select(_) => unimplemented!("SELECT formatting"),
         }
-        t = t + text(";");
-        t
     }
 }
 
@@ -184,7 +179,7 @@ impl ToSql for Create {
                 t = t + td.block();
             }
         }
-        t
+        t + text(";")
     }
 }
 

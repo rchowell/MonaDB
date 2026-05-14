@@ -1,3 +1,5 @@
+use serde_json::json;
+
 use crate::error::Error;
 use crate::ir::*;
 use crate::transaction::TransactionMode;
@@ -19,6 +21,7 @@ pub struct Compiler {
     vars: Vec<Var>,
     counters: usize,
     txn: Option<TransactionMode>,
+    csr: usize,
 }
 
 /// Variable bindings where [depth] represents stack position.
@@ -29,6 +32,7 @@ pub struct Var {
 /// Track patches (instruction, offset).
 type Patch = (usize, usize);
 
+#[allow(dead_code, unused)]
 impl Compiler {
     pub fn new() -> Compiler {
         Compiler {
@@ -36,27 +40,34 @@ impl Compiler {
             vars: vec![],
             counters: 0,
             txn: None,
+            csr: 0,
         }
     }
 
     pub fn compile(mut self, statement: Statement) -> Result<Program> {
+        // Setup Block
+        //
         // addr 0: Init          -> jumps to addr N
         self.emit_init(0);
 
+        // Body Block
+        //
         // addr 1: [body start]
         // ...
         // addr M:      Halt            -> end of body
-        // TODO: re-enabled
-        // match statement {
-        //     Statement::Create(create) => self.cc_create(create)?,
-        //     Statement::Delete(delete) => self.cc_delete(delete)?,
-        //     Statement::Drop(drop) => self.cc_drop(drop),
-        //     Statement::Insert(insert) => self.cc_insert(insert)?,
-        //     Statement::Select(select) => self.cc_select(select)?,
-        // };
+        #[allow(clippy::single_match_else)]
+        match statement {
+            Statement::Create(create) => self.cc_create(create),
+            // Statement::Delete(delete) => self.cc_delete(delete)?,
+            // Statement::Drop(drop) => self.cc_drop(drop),
+            // Statement::Insert(insert) => self.cc_insert(insert)?,
+            // Statement::Select(select) => self.cc_select(select)?,
+            _ => unsupported!("statement not supported: {:?}", statement),
+        };
         self.emit_halt();
 
-        // 
+        // Transaction Block
+        //
         // addr N:      Transaction     -> opens the transaction, falls through
         // addr N+1:    Jump 1          -> jumps back to body start
         if let Some(txn) = self.txn {
@@ -68,11 +79,49 @@ impl Compiler {
         Ok(self.code)
     }
 
-    fn cc_create(&mut self, create: Create) -> Result<()> {
-        match create {
-            Create::Table(table) => self.emit_create_table(table),
-        }
-        Ok(())
+    fn cc_create(&mut self, create: Create) {
+        self.txn = Some(TransactionMode::Rw);
+
+        // Open the system 'catalog' table
+        let csr = self.next_cursor();
+        let tbl = "catalog".to_string();
+        self.emit_open(csr, tbl);
+
+        // Determine the next oid before creating the btree.
+        self.emit_new_oid(csr);
+        self.emit_new_btree();
+
+        // Create the record for insertion, NewBtree only peeks the stack, oid is on top.
+        //
+        // No need to do any key encoding work, already on the stack. Just need to push
+        // the value. The insert will encode both the key and value for now. In the near
+        // future (to support multiple keys) we will need the appropriate shred instructions
+        // and likely an EncodeKey(n) and EncodeVal instructions prior to insert. We do
+        // not need this yet since we only have single oid keys and just encode within the
+        // insert operation handler.
+        //
+        // Simplified where 'oid' is already top of stack from the NewOid instruction.
+        //
+        // addr 0:  Push    { val }     -> push unencoded value {}
+        // addr 1:  Insert  { csr }     -> val=encode(pop()); key=encode(pop()); cursor.put(key, val)
+        //
+        // Later I'll change it to be more like:
+        //
+        // - value is top of stack
+        // - extract key 0..N pushing all to stack
+        // - encode key(N), pop N and key encode
+        // - encode val, pop and value encode
+        // - stack is now encoded [value, key]
+        // - insert does val=pop(), key=pop(), insert(key, val).
+        //
+        let Create::Table(tbl) = &create;
+        let val = json!({
+            "name": tbl.name,
+            "type": "table",
+            "sql": create.sql(),
+        });
+        self.emit_push(val);
+        self.emit_insert(csr);
     }
 
     fn cc_drop(&mut self, table: String) {
@@ -84,16 +133,17 @@ impl Compiler {
     }
 
     fn cc_insert(&mut self, insert: Insert) -> Result<()> {
-        let n = insert.source.len();
-        for v in insert.source {
-            self.cc_expr(v)?;
-        }
-        match n {
-            0 => unsupported!("insert with no values"),
-            1 => self.emit_insert(insert.target),
-            _ => unsupported!("insert with multiple values"),
-        }
-        Ok(())
+        // let n = insert.source.len();
+        // for v in insert.source {
+        //     self.cc_expr(v)?;
+        // }
+        // match n {
+        //     0 => unsupported!("insert with no values"),
+        //     1 => self.emit_insert(insert.target),
+        //     _ => unsupported!("insert with multiple values"),
+        // }
+        // Ok(())
+        unsupported!("insert")
     }
 
     fn cc_select(&mut self, select: Select) -> Result<()> {
@@ -196,7 +246,7 @@ impl Compiler {
         };
         // define the iteration variable
         self.define(iter.var);
-        self.emit_open(table);
+        self.emit_open(0, "catalog".to_string());
         self.emit_rewind(0, 0); // <- patch to n+1
         Ok(self.pc())
     }
@@ -312,6 +362,13 @@ impl Compiler {
         self.code.len() - 1
     }
 
+    /// Returns the next available cursor index
+    fn next_cursor(&mut self) -> usize {
+        let c = self.csr;
+        self.csr += 1;
+        c
+    }
+
     /// Define a variable in the current scope.
     fn define(&mut self, name: String) {
         self.vars.push(Var { name });
@@ -328,10 +385,6 @@ impl Compiler {
     //------------------------------
     // INSTRUCTIONS
     //------------------------------
-
-    fn emit_create_table(&mut self, table: Table) {
-        self.code.push(Vop::CreateTable { table });
-    }
 
     fn emit_drop(&mut self, table: String) {
         self.code.push(Vop::Drop { table });
@@ -361,8 +414,8 @@ impl Compiler {
         self.code.push(Vop::Init { jmp });
     }
 
-    fn emit_insert(&mut self, table: String) {
-        self.code.push(Vop::Insert(table));
+    fn emit_insert(&mut self, csr: usize) {
+        self.code.push(Vop::Insert { csr });
     }
 
     fn emit_jpe(&mut self) {
@@ -385,8 +438,18 @@ impl Compiler {
         self.code.push(Vop::Jump { jmp });
     }
 
-    fn emit_next(&mut self, cursor: usize, jmp: usize) {
-        self.code.push(Vop::Next(cursor, jmp));
+    fn emit_next(&mut self, csr: usize, jmp: usize) {
+        self.code.push(Vop::Next(csr, jmp));
+    }
+
+    fn emit_new_oid(&mut self, csr: usize) -> usize {
+        self.code.push(Vop::NewOid { csr });
+        self.code.len()
+    }
+
+    fn emit_new_btree(&mut self) -> usize {
+        self.code.push(Vop::NewBtree);
+        self.code.len()
     }
 
     fn emit_obj(&mut self) {
@@ -401,16 +464,17 @@ impl Compiler {
         self.code.push(Vop::ObjSpread);
     }
 
-    fn emit_open(&mut self, table: String) {
-        self.code.push(Vop::Open(table));
+    fn emit_open(&mut self, csr: usize, tbl: String) -> usize {
+        self.code.push(Vop::Open { csr, tbl });
+        self.code.len()
     }
 
-    fn emit_push(&mut self, value: Value) {
-        self.code.push(Vop::Push(value));
+    fn emit_push<V: Into<Value>>(&mut self, val: V) {
+        self.code.push(Vop::Push { val: val.into() });
     }
 
-    fn emit_rewind(&mut self, cursor: usize, jmp: usize) {
-        self.code.push(Vop::Rewind(cursor, jmp));
+    fn emit_rewind(&mut self, csr: usize, jmp: usize) {
+        self.code.push(Vop::Rewind(csr, jmp));
     }
 
     fn emit_return(&mut self, tofs: usize) {

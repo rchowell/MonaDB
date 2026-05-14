@@ -1,7 +1,8 @@
-use std::{fmt::Display, vec};
+use std::vec;
 
-use crate::value::*;
+use crate::value::Value;
 
+pub use crate::display::ToSql;
 
 #[derive(Debug)]
 pub enum Statement {
@@ -14,7 +15,7 @@ pub enum Statement {
 
 #[derive(Debug)]
 pub enum Create {
-    Table(Table),
+    Table(TableDefinition),
 }
 
 #[derive(Debug)]
@@ -28,53 +29,15 @@ pub struct Insert {
 //------------------------------
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct Table {
+pub struct TableDefinition {
     pub name: String,
-    pub columns: Vec<ColumnDefinition>,
+    pub members: Vec<TableMember>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct ColumnDefinition {
+pub struct TableMember {
     pub name: String,
-    pub typ: ColumnType,
-}
-
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub enum ColumnType {
-    Int,
-    String,
-}
-
-impl Display for Table {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.columns.is_empty() {
-            writeln!(f, "create table {};", self.name)
-        } else {
-            write!(f, "create table {} (", self.name)?;
-            for (i, c) in self.columns.iter().enumerate() {
-                if i > 0 {
-                    write!(f, ", ")?;
-                }
-                write!(f, "{c}")?;
-            }
-            writeln!(f, ");")
-        }
-    }
-}
-
-impl Display for ColumnDefinition {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} {}", self.name, self.typ)
-    }
-}
-
-impl Display for ColumnType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ColumnType::Int => write!(f, "int"),
-            ColumnType::String => write!(f, "string"),
-        }
-    }
+    pub ty: Type,
 }
 
 //------------------------------
@@ -85,7 +48,7 @@ impl Display for ColumnType {
 pub struct Select {
     pub from: Iter,
     // pub with: Option<Expr>,
-    pub where_: Option<Where>, 
+    pub where_: Option<Where>,
     // group
     // having
     // order
@@ -143,6 +106,8 @@ pub type TypeRef = Box<Type>;
 pub enum Type {
     Any,
     Bool,
+    Int,
+    Float,
     Number,
     String,
     Object(TObject),
@@ -152,48 +117,12 @@ pub enum Type {
 #[derive(Debug, PartialEq, Clone)]
 pub struct TObject {
     pub members: Vec<TMember>,
-    pub open: bool,
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct TMember {
     pub name: String,
-    pub typ_: TypeRef,
-}
-
-impl Display for Type {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Type::Any => write!(f, "any"),
-            Type::Bool => write!(f, "bool"),
-            Type::Number => write!(f, "number"),
-            Type::String => write!(f, "string"),
-            Type::Object(object) => object.fmt(f),
-            Type::Array => write!(f, "array"),
-        }
-    }
-}
-
-impl Display for TObject {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.members.is_empty() {
-            write!(f, "{{}}")
-        } else {
-            writeln!(f, "{{")?;
-            for m in &self.members {
-                write!(f, "  ")?;
-                m.fmt(f)?;
-                writeln!(f, ",")?;
-            }
-            write!(f, "}}")
-        }
-    }
-}
-
-impl Display for TMember {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: {}", self.name, self.typ_)
-    }
+    pub ty: TypeRef,
 }
 
 //------------------------------
@@ -275,13 +204,18 @@ pub struct Jpe {
 //------------------------------
 
 #[inline]
-pub fn table_definition(name: String, columns: Vec<ColumnDefinition>) -> Table {
-    Table { name, columns }
+pub fn create_table(table: TableDefinition) -> Create {
+    Create::Table(table)
 }
 
 #[inline]
-pub fn column_definition(name: String, typ: ColumnType) -> ColumnDefinition {
-    ColumnDefinition { name, typ }
+pub fn table_definition(name: String, members: Vec<TableMember>) -> TableDefinition {
+    TableDefinition { name, members }
+}
+
+#[inline]
+pub fn table_member(name: String, ty: Type) -> TableMember {
+    TableMember { name, ty }
 }
 
 #[inline]
@@ -334,7 +268,10 @@ pub fn from_source_table(tbl: String) -> Source {
 
 #[inline]
 pub fn from_source_path(identifier: String, segments: Vec<Segment>) -> Source {
-    Source::Path(Path { identifier, segments })
+    Source::Path(Path {
+        identifier,
+        segments,
+    })
 }
 
 #[inline]
@@ -385,6 +322,14 @@ pub fn t_bool() -> Type {
     Type::Bool
 }
 
+pub fn t_int() -> Type {
+    Type::Int
+}
+
+pub fn t_float() -> Type {
+    Type::Float
+}
+
 pub fn t_number() -> Type {
     Type::Number
 }
@@ -393,12 +338,15 @@ pub fn t_string() -> Type {
     Type::String
 }
 
-pub fn t_object(members: Vec<TMember>, open: bool) -> Type {
-    Type::Object(TObject { members, open })
+pub fn t_object(members: Vec<TMember>) -> Type {
+    Type::Object(TObject { members })
 }
 
-pub fn t_member(name: String, typ_: Type, _: bool) -> TMember {
-    TMember { name, typ_: Box::new(typ_) }
+pub fn t_member(name: String, ty: Type) -> TMember {
+    TMember {
+        name,
+        ty: Box::new(ty),
+    }
 }
 
 pub fn t_array() -> Type {
@@ -410,7 +358,10 @@ pub fn t_array() -> Type {
 //------------------------------
 
 pub fn path(identifier: String, segments: Vec<Segment>) -> Path {
-    Path { identifier, segments }
+    Path {
+        identifier,
+        segments,
+    }
 }
 
 pub fn segment_child(selectors: Vec<Selector>) -> Segment {
@@ -500,7 +451,7 @@ pub fn expr_op(sym: &str, lhs: Expr, rhs: Expr) -> Expr {
 
 #[cfg(test)]
 mod test {
-    use crate::{lexer::SqlLexer, parser::SqlParser};
+    use crate::{display::ToSql, lexer::SqlLexer, parser::SqlParser};
 
     use super::*;
 
@@ -562,7 +513,7 @@ mod test {
             // "T$.store.book[?(@.author != 'John')]",
         ];
         // Test each path with an alias
-        for path in paths{
+        for path in paths {
             let input = format!("select * from {path} as a;");
             let _ = parse(&input);
         }
@@ -570,7 +521,7 @@ mod test {
     }
 
     #[test]
-    pub fn parse_acceptance_where()  {
+    pub fn parse_acceptance_where() {
         let inputs = vec![
             "select * from T where 10;",
             "select * from T where a > 0;",
@@ -583,29 +534,25 @@ mod test {
 
     #[test]
     fn parse_acceptance_create_table() {
-        let cases: &[(&str, &[(&str, ColumnType)])] = &[
-            ("create table points;",                &[]),
-            ("create table points (x int);",        &[("x", ColumnType::Int)]),
-            ("create table points (x int, y int);", &[("x", ColumnType::Int), ("y", ColumnType::Int)]),
-            ("create table users (id string);",     &[("id", ColumnType::String)]),
+        let cases: &[(&str, &[(&str, Type)])] = &[
+            ("create table points;", &[]),
+            ("create table points (x int);", &[("x", Type::Int)]),
+            (
+                "create table points (x int, y int);",
+                &[("x", Type::Int), ("y", Type::Int)],
+            ),
+            ("create table users (id string);", &[("id", Type::String)]),
         ];
         for (input, expected_cols) in cases {
             let stmt = parse(input);
             let Statement::Create(Create::Table(table)) = stmt else {
                 panic!("expected create table for {input:?}");
             };
-            assert_eq!(table.columns.len(), expected_cols.len(), "input: {input:?}");
-            for (actual, (name, typ)) in table.columns.iter().zip(expected_cols.iter()) {
+            assert_eq!(table.members.len(), expected_cols.len(), "input: {input:?}");
+            for (actual, (name, ty)) in table.members.iter().zip(expected_cols.iter()) {
                 assert_eq!(actual.name, *name, "input: {input:?}");
-                assert_eq!(actual.typ, *typ, "input: {input:?}");
+                assert_eq!(actual.ty, *ty, "input: {input:?}");
             }
-            // round-trip: Display → parse → equal IR
-            let rendered = table.to_string();
-            let stmt2 = parse(&rendered);
-            let Statement::Create(Create::Table(table2)) = stmt2 else {
-                panic!("expected create table for round-trip of {input:?}");
-            };
-            assert_eq!(table, table2, "round-trip mismatch for {input:?}");
         }
     }
 

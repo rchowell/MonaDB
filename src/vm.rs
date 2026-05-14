@@ -1,25 +1,38 @@
+use std::mem::take;
 use std::vec;
+use std::fmt::Write;
 
-use crate::ir::Table;
+use crate::cursor::Cursor;
 use crate::storage::Storage;
+use heed::byteorder::BigEndian;
+use heed::byteorder::ByteOrder;
 use crate::transaction::{Transaction, TransactionMode};
 use crate::value::Value;
-use crate::{Result, unsupported};
+use crate::{Result, error, unsupported};
 
 /// Program is a sequence of virtual machine instructions.
 pub type Program = Vec<Vop>;
 
 /// Vop is a virtual machine instruction code.
+///
+/// Operand naming conventions are strict 3-chars.
+///   csr  – cursor slot
+///   tbl  – index into vm tables
+///   cst  – index into vm constants
+///   jmp  – jump target (absolute PC)
+///   cnt  – count (arity, column count, …)
+///   key  – secondary-key discriminant (u8 tag, variant selector)
+///
+/// TODO: Make this Copy in the near future.
+///
 #[derive(Debug, Clone)]
 pub enum Vop {
     /// Initialize the virtual machine, then jump to jmp.
     Init { jmp: usize },
-    /// Consider replacing with an `Insert` instruction on the catalog table.
-    CreateTable { table: Table },
     /// Consider replacing with a `Delete` instruction on the catalog table.
     Drop { table: String },
-    /// Insert a value into the table.
-    Insert(String),
+    /// Insert a value into the given cursor (csr) where key=stack[0] value=stack[1].
+    Insert { csr: usize },
     /// Jump to the instruction at jmp.
     Jump { jmp: usize },
     /// JSON Path Index
@@ -32,8 +45,12 @@ pub enum Vop {
     Load(usize),
     /// Next from cursors[p0], else jump to p1.
     Next(usize, usize),
-    /// Opens a table for reading with the cursor positioned at the first row.
-    Open(String),
+    /// Pushes a new OID for the given cursor (csr) onto the stack.
+    NewOid { csr: usize },
+    /// Creates a new btree named by the stack[0] oid.
+    NewBtree,
+    /// Opens the table 'tbl'
+    Open { csr: usize, tbl: String },
     /// Create a new object on the stack.
     Obj,
     /// Assign a value to an object member.
@@ -74,8 +91,8 @@ pub enum Vop {
     IfNot(usize),
     /// Pop the top value from the stack.
     Pop,
-    /// Push a value onto the stack.
-    Push(Value),
+    /// Push a literal onto the stack.
+    Push { val: Value },
     /// Rewind the cursor to its initial position.
     Rewind(usize, usize),
     /// Return a value from the stack.
@@ -102,8 +119,8 @@ pub struct VM<'s> {
     stack: Vec<Value>,
     /// The open transaction handle, if any.
     txn: Option<Transaction<'s>>,
-    // /// The cursors.
-    // cursors: Vec<Cursor<'s>>,
+    /// The open cursors, addressed by index.
+    cursors: Vec<Cursor>,
     // /// The counters.
     // counters: Vec<u64>,
 }
@@ -116,13 +133,13 @@ impl<'s> VM<'s> {
             program,
             stack: vec![],
             txn: None,
-            // cursors: vec![],
+            cursors: vec![],
             // counters: vec![0; 10],
         }
     }
 
-    fn push(&mut self, value: Value) {
-        self.stack.push(value);
+    fn push<V: Into<Value>>(&mut self, value: V) {
+        self.stack.push(value.into());
     }
 
     fn push_bool(&mut self, value: bool) {
@@ -154,18 +171,20 @@ impl<'s> VM<'s> {
             self.pc += 1;
             match &op {
                 Vop::Init { jmp } => {
+                    // TODO: initialize any state
                     self.pc = *jmp;
                 }
-                Vop::CreateTable { table } => {
-                    unsupported!("create table")
-                }
-
                 Vop::Drop { table } => {
                     unsupported!("drop table {table:?} (Phase 1: not yet wired through storage)");
                 }
-                Vop::Insert(table) => {
-                    let value = self.pop();
-                    todo!()
+                Vop::Insert { csr } => {
+                    //
+                    let val = self.pop().encode()?;
+                    let key = self.pop().encode()?;
+                    //
+                    let csr = self.cursors[*csr];
+                    let txn = self.txn.as_mut().unwrap().as_rw()?;
+                    csr.put(txn, &key, &val)?;
                 }
                 Vop::Jpe => {
                     let e = self.pop();
@@ -188,6 +207,26 @@ impl<'s> VM<'s> {
                     // let val = row.val.clone();
                     // self.push(val);
                 }
+                Vop::NewOid { csr } => {
+                    // TODO: get an actual cursor that accepts our txn
+                    let txn = self.txn.as_mut().unwrap().as_ro();
+                    let csr = self.cursors[*csr];
+                    let oid = match csr.last(txn)? {
+                        Some((key, _)) => BigEndian::read_u32(key) + 1,
+                        None => 0,
+                    };
+                    self.push(oid);
+                }
+                Vop::NewBtree => {
+                    // The btree name is the hex of the big-endian oid.
+                    let oid = self.peek().as_oid();
+                    let txn = self.txn.as_mut().unwrap();
+                    let mut name = String::with_capacity(8);
+                    for b in oid.to_be_bytes() {
+                        write!(&mut name, "{b:02x}")?;
+                    }
+                    self.storage.create_btree(txn, name.as_str())?;
+                }
                 Vop::Obj => {
                     self.stack.push(Value::object());
                 }
@@ -204,8 +243,9 @@ impl<'s> VM<'s> {
                 Vop::Pop => {
                     let _ = self.pop();
                 }
-                Vop::Push(v) => {
-                    self.push(v.clone());
+                Vop::Push { val } => {
+                    // TODO: no clone, we want copy.
+                    self.push(val.clone());
                 }
                 Vop::Return(tofs) => {
                     // let v = self.pop();
@@ -224,6 +264,9 @@ impl<'s> VM<'s> {
                     self.txn = Some(txn);
                 }
                 Vop::Halt => {
+                    if let Some(txn) = take(&mut self.txn) {
+                        txn.commit()?;
+                    }
                     return Ok(None);
                 }
                 Vop::Add => {
@@ -291,10 +334,17 @@ impl<'s> VM<'s> {
                         self.pc = *jmp;
                     }
                 }
-                Vop::Open(table) => {
-                    // let cursor = self.txn.open_cursor(table)?;
-                    // let cursor: Cursor<'a> = unsafe { std::mem::transmute(cursor) };
-                    // self.cursors.push(cursor);
+                //
+                // Cursor Instructions
+                //
+                Vop::Open { csr, tbl } => {
+                    let txn = self.txn.as_mut().unwrap();
+                    let cursor = self.storage.open_cursor(txn, tbl)?;
+                    self.cursors.push(cursor);
+                    // TODO: assign a cursor to the given index, we can't just push. I'd like to
+                    // put the cursor count in the VM initialization state, then I can allocate 
+                    // the right amount, and then I want a nil/nul/noop cursor so I don't have to
+                    // unwrap at runtime. And honestly, I want to avoid unwrapping if/when possible.
                 }
                 Vop::Next(cursor, jmp) => {
                     // if self.cursors[*cursor].next()? {
@@ -306,6 +356,9 @@ impl<'s> VM<'s> {
                     //     self.pc = *jmp;
                     // }
                 }
+                //
+                // Counter Instructions
+                //
                 Vop::CntSet(c, v) => {
                     // self.counters[*c] = *v;
                 }

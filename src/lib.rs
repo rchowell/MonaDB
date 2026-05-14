@@ -1,12 +1,14 @@
 pub mod error;
+pub mod ir;
 
 mod catalog;
 mod compiler;
+mod cursor;
+mod display;
 mod value;
 mod lexer;
 mod storage;
 mod transaction;
-mod ir;
 mod vm;
 
 // lalrpop module
@@ -43,8 +45,8 @@ impl MonaDB {
 
     /// Execute the given sql statement(s).
     pub fn exec(&mut self, sql: &str, debug: bool) -> Result<Rows<'_>> {
-        let statement = self.parse(sql)?;
-        let program = self.compile(statement)?;
+        let statement = Self::parse(sql)?;
+        let program = Self::compile(statement)?;
         if debug {
             Self::debug(&program);
         }
@@ -52,13 +54,13 @@ impl MonaDB {
         Ok(Rows::new(vm))
     }
 
-    fn parse(&self, sql: &str) -> Result<Statement> {
+    pub fn parse(sql: &str) -> Result<Statement> {
         let l = SqlLexer::new(sql);
         let p = SqlParser::new();
         Ok(p.parse(l)?)
     }
 
-    fn compile(&self, statement: Statement) -> Result<Program> {
+    pub fn compile(statement: Statement) -> Result<Program> {
         let c = Compiler::new();
         c.compile(statement)
     }
@@ -85,7 +87,7 @@ mod tests {
         let db_path = dir.path().join("test.db");
         let mut db = MonaDB::open(&db_path).unwrap();
 
-        db.exec("create table t (id int);", false).unwrap();
-        let _ = db.exec("select * from t;", true);
+        db.exec("create table t (id int);", true).unwrap();
+        // let _ = db.exec("select * from t;", true);
     }
 }

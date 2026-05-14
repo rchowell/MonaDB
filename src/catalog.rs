@@ -6,8 +6,8 @@ use crate::error::Result;
 pub struct Catalog {
     /// Owned reference to the storage environment.
     storage: Storage,
-    /// Table of tables for plan binding.
-    tables: Table,
+    /// Table of objects for plan binding.
+    objects: Table,
 }
 
 impl Catalog {
@@ -15,10 +15,10 @@ impl Catalog {
     pub fn load(storage: Storage) -> Result<Self> {
         // Create system table(s); this is idempotent.
         let mut txn = storage.write()?;
-        let tables: BTree = storage.create_btree(&mut txn, "_tables")?;
-        let tables = Table { name: "_tables".to_string(), btree: tables };
+        let objects: BTree = storage.create_btree(&mut txn, "catalog")?;
+        let objects = Table { name: "catalog".to_string(), btree: objects };
         txn.commit()?;
-        Ok(Self { storage, tables })
+        Ok(Self { storage, objects })
     }
 }
 

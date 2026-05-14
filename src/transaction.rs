@@ -25,10 +25,11 @@ impl<'s> Transaction<'s> {
     }
 
     /// Borrow mutably as a write txn; fails if read-only.
+    #[allow(clippy::unnecessary_wraps)]
     pub fn as_rw(&mut self) -> Result<&mut RwTxn<'s>, Error> {
         match self {
-            Transaction::Rw(t) => Ok(t),
             Transaction::Ro(_) => panic!("read-only"),
+            Transaction::Rw(t) => Ok(t),
         }
     }
 
@@ -42,7 +43,7 @@ impl<'s> Transaction<'s> {
 
     /// Abort the transaction; drop is sufficient too.
     pub fn abort(self) {
-        drop(self)
+        drop(self);
     }
 } 
 

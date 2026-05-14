@@ -20,4 +20,5 @@ serde_yaml = "0.9"
 tempfile = "3.14.0"
 
 [lints.clippy]
-pedantic = "warn"
+missing_errors_doc = "allow"
+pedantic = { level = "warn", priority = -1 }
