@@ -2,13 +2,13 @@ use std::mem::take;
 use std::vec;
 use std::fmt::Write;
 
-use crate::cursor::Cursor;
+use crate::storage::BTree;
 use crate::storage::Storage;
 use heed::byteorder::BigEndian;
 use heed::byteorder::ByteOrder;
 use crate::transaction::{Transaction, TransactionMode};
 use crate::value::Value;
-use crate::{Result, error, unsupported};
+use crate::{Result, unsupported};
 
 /// Program is a sequence of virtual machine instructions.
 pub type Program = Vec<Vop>;
@@ -41,15 +41,15 @@ pub enum Vop {
     Jpk(String),
     /// JSON Path Expression
     Jpe,
-    /// Load a value from cursors[p0] to the stack.
-    Load(usize),
-    /// Next from cursors[p0], else jump to p1.
-    Next(usize, usize),
+    /// Load the current value from the cursor onto to the stack.
+    Load { csr: usize },
+    /// Next from the cursor, else jump.
+    Next { csr: usize, jmp: usize },
     /// Pushes a new OID for the given cursor (csr) onto the stack.
     NewOid { csr: usize },
     /// Creates a new btree named by the stack[0] oid.
     NewBtree,
-    /// Opens the table 'tbl'
+    /// Opens the table 'tbl' and binds to cursors[csr].
     Open { csr: usize, tbl: String },
     /// Create a new object on the stack.
     Obj,
@@ -93,10 +93,10 @@ pub enum Vop {
     Pop,
     /// Push a literal onto the stack.
     Push { val: Value },
-    /// Rewind the cursor to its initial position.
-    Rewind(usize, usize),
-    /// Return a value from the stack.
-    Return(usize),
+    /// Returns the top value from the stack.
+    Return,
+    /// Initializes a cursor's scan state
+    Scan { csr: usize, jmp: usize },
     /// Open a transaction
     Transaction { txn: TransactionMode },
     /// Halt the virtual machine.
@@ -120,7 +120,7 @@ pub struct VM<'s> {
     /// The open transaction handle, if any.
     txn: Option<Transaction<'s>>,
     /// The open cursors, addressed by index.
-    cursors: Vec<Cursor>,
+    cursors: Vec<BTree>,
     // /// The counters.
     // counters: Vec<u64>,
 }
@@ -202,11 +202,6 @@ impl<'s> VM<'s> {
                     let v = v.jpk(key).unwrap_or_default();
                     self.push(v);
                 }
-                Vop::Load(cursor) => {
-                    // let row = self.cursors[*cursor].curr();
-                    // let val = row.val.clone();
-                    // self.push(val);
-                }
                 Vop::NewOid { csr } => {
                     // TODO: get an actual cursor that accepts our txn
                     let txn = self.txn.as_mut().unwrap().as_ro();
@@ -247,7 +242,7 @@ impl<'s> VM<'s> {
                     // TODO: no clone, we want copy.
                     self.push(val.clone());
                 }
-                Vop::Return(tofs) => {
+                Vop::Return => {
                     // let v = self.pop();
                     // self.drop(*tofs);
                     // return Ok(Some(v));
@@ -339,22 +334,29 @@ impl<'s> VM<'s> {
                 //
                 Vop::Open { csr, tbl } => {
                     let txn = self.txn.as_mut().unwrap();
-                    let cursor = self.storage.open_cursor(txn, tbl)?;
+                    let cursor = self.storage.open_btree(txn, tbl)?;
                     self.cursors.push(cursor);
                     // TODO: assign a cursor to the given index, we can't just push. I'd like to
                     // put the cursor count in the VM initialization state, then I can allocate 
                     // the right amount, and then I want a nil/nul/noop cursor so I don't have to
                     // unwrap at runtime. And honestly, I want to avoid unwrapping if/when possible.
                 }
-                Vop::Next(cursor, jmp) => {
-                    // if self.cursors[*cursor].next()? {
-                    //     self.pc = *jmp;
-                    // }
-                }
-                Vop::Rewind(cursor, jmp) => {
+                Vop::Scan { csr, jmp} => {
                     // if !self.cursors[*cursor].rewind()? {
                     //     self.pc = *jmp;
                     // }
+                    todo!()
+                }
+                Vop::Load { csr } => {
+                    // let row = self.cursors[*cursor].curr();
+                    // let val = row.val.clone();
+                    // self.push(val);
+                }
+                Vop::Next { csr, jmp} => {
+                    // if self.cursors[*cursor].next()? {
+                    //     self.pc = *jmp;
+                    // }
+                    todo!()
                 }
                 //
                 // Counter Instructions

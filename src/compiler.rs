@@ -1,7 +1,10 @@
 use serde_json::json;
 
 use crate::error::Error;
-use crate::ir::*;
+use crate::ir::{
+    Constructor, Create, Expr, Insert, Iter, Jpe, Jpi, Jpk, Limit, Member, Obj, Op, Select, Source,
+    Statement, ToSql,
+};
 use crate::transaction::TransactionMode;
 use crate::value::Value;
 use crate::{Program, Result, Vop};
@@ -61,7 +64,7 @@ impl Compiler {
             // Statement::Delete(delete) => self.cc_delete(delete)?,
             // Statement::Drop(drop) => self.cc_drop(drop),
             // Statement::Insert(insert) => self.cc_insert(insert)?,
-            // Statement::Select(select) => self.cc_select(select)?,
+            Statement::Select(select) => self.cc_select(select)?,
             _ => unsupported!("statement not supported: {:?}", statement),
         };
         self.emit_halt();
@@ -147,60 +150,64 @@ impl Compiler {
     }
 
     fn cc_select(&mut self, select: Select) -> Result<()> {
-        // track current scope
-        let scope = self.vars.len();
-        let counters = self.counters;
-        let mut to_patch: Vec<Patch> = vec![];
+        // TODO: track current scope
+        // let scope = self.vars.len();
+        // let counters = self.counters;
+        // let mut to_patch: Vec<Patch> = vec![];
 
-        // initialize counters before the loop
-        let mut cnt_skip: Option<usize> = None;
-        let mut cnt_take: Option<usize> = None;
-        if let Some(limit) = &select.limit {
-            match limit {
-                Limit::Skip(n) => cnt_skip = self.define_counter(*n).into(),
-                Limit::Take(n) => cnt_take = self.define_counter(*n).into(),
-                Limit::Slice(n, m) => {
-                    cnt_skip = self.define_counter(*n).into();
-                    cnt_take = self.define_counter(*m).into();
-                }
-            }
-        }
+        // TODO: initialize counters before the loop
+        // let mut cnt_skip: Option<usize> = None;
+        // let mut cnt_take: Option<usize> = None;
+        // if let Some(limit) = &select.limit {
+        //     match limit {
+        //         Limit::Skip(n) => cnt_skip = self.define_counter(*n).into(),
+        //         Limit::Take(n) => cnt_take = self.define_counter(*n).into(),
+        //         Limit::Slice(n, m) => {
+        //             cnt_skip = self.define_counter(*n).into();
+        //             cnt_take = self.define_counter(*m).into();
+        //         }
+        //     }
+        // }
 
         // loop open
-        let loop_ = self.cc_iter(select.from)?;
-        to_patch.push((loop_, 1)); // <- patch loop (rewind) to next+1
+        // let loop_ = self.cc_iter(select.from)?;
+        // to_patch.push((loop_, 1)); // <- patch loop (rewind) to next+1
 
-        // skip (offset)
-        if let Some(counter) = cnt_skip {
-            self.emit_cnt_if_pos(counter, 0);
-            to_patch.push((self.pc(), 0)); // <- patch cnt_if_pos to next
-        }
+        // TODO: offset
+        // if let Some(counter) = cnt_skip {
+        //     self.emit_cnt_if_pos(counter, 0);
+        //     to_patch.push((self.pc(), 0)); // <- patch cnt_if_pos to next
+        // }
 
-        // where
-        if let Some(where_) = select.where_ {
-            self.cc_expr(where_)?;
-            self.emit_if_not(0);
-            to_patch.push((self.pc(), 0)); // <- patch if_not to next
-        }
-        self.cc_select_constructor(select.select, scope)?;
+        // TODO: where
+        // if let Some(where_) = select.where_ {
+        //     self.cc_expr(where_)?;
+        //     self.emit_if_not(0);
+        //     to_patch.push((self.pc(), 0)); // <- patch if_not to next
+        // }
 
-        // take (limit)
-        if let Some(counter) = cnt_take {
-            self.emit_cnt_if_zero(counter, 0);
-            to_patch.push((self.pc(), 1)); // <- patch cnt_if_zero to next+1
-        }
+        // select
+        // self.cc_select_constructor(select.select, scope)?;
+
+        // TODO: limit
+        // if let Some(counter) = cnt_take {
+        //     self.emit_cnt_if_zero(counter, 0);
+        //     to_patch.push((self.pc(), 1)); // <- patch cnt_if_zero to next+1
+        // }
 
         // loop close
-        self.emit_return(scope);
-        self.emit_next(0, loop_ + 1);
-        let next = self.pc();
+        // self.emit_return(scope);
+        // self.emit_next(0, loop_ + 1);
+        // let next = self.pc();
 
         // apply patches and cleanup
-        for (pc, offset) in to_patch {
-            self.patch(pc, next + offset)?;
-        }
-        self.vars.truncate(scope);
-        self.counters = counters;
+        // for (pc, offset) in to_patch {
+        //     self.patch(pc, next + offset)?;
+        // }
+
+        // TODO: scope tracking
+        // self.vars.truncate(scope);
+        // self.counters = counters;
 
         Ok(())
     }
@@ -247,7 +254,7 @@ impl Compiler {
         // define the iteration variable
         self.define(iter.var);
         self.emit_open(0, "catalog".to_string());
-        self.emit_rewind(0, 0); // <- patch to n+1
+        // self.emit_rewind(0, 0); // <- patch to n+1
         Ok(self.pc())
     }
 
@@ -256,12 +263,8 @@ impl Compiler {
         // TODO: actual error handling
         match self.code.get_mut(pc).unwrap() {
             Vop::Init { jmp }
-            | Vop::CntIfPos(_, jmp)
-            | Vop::CntIfZero(_, jmp)
-            | Vop::If(jmp)
-            | Vop::IfNot(jmp)
-            | Vop::Next(_, jmp)
-            | Vop::Rewind(_, jmp) => *jmp = dst,
+            | Vop::Next { csr: _, jmp}
+            | Vop::Scan { csr: _, jmp} => *jmp = dst,
             _ => unsupported!("cannot patch instruction at pc[{}]", pc),
         }
         Ok(())
@@ -430,8 +433,8 @@ impl Compiler {
         self.code.push(Vop::Jpk(key));
     }
 
-    fn emit_load(&mut self, idx: usize) {
-        self.code.push(Vop::Load(idx));
+    fn emit_load(&mut self, csr: usize) {
+        self.code.push(Vop::Load { csr });
     }
 
     fn emit_jump(&mut self, jmp: usize) {
@@ -439,7 +442,7 @@ impl Compiler {
     }
 
     fn emit_next(&mut self, csr: usize, jmp: usize) {
-        self.code.push(Vop::Next(csr, jmp));
+        self.code.push(Vop::Next { csr, jmp });
     }
 
     fn emit_new_oid(&mut self, csr: usize) -> usize {
@@ -469,16 +472,17 @@ impl Compiler {
         self.code.len()
     }
 
+    fn emit_scan(&mut self, csr: usize, jmp: usize) -> usize {
+        self.code.push(Vop::Scan { csr, jmp });
+        self.code.len()
+    }
+
     fn emit_push<V: Into<Value>>(&mut self, val: V) {
         self.code.push(Vop::Push { val: val.into() });
     }
 
-    fn emit_rewind(&mut self, csr: usize, jmp: usize) {
-        self.code.push(Vop::Rewind(csr, jmp));
-    }
-
-    fn emit_return(&mut self, tofs: usize) {
-        self.code.push(Vop::Return(tofs));
+    fn emit_return(&mut self) {
+        self.code.push(Vop::Return);
     }
 
     fn emit_transaction(&mut self, txn: TransactionMode) {

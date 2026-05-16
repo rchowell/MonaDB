@@ -72,12 +72,14 @@ transaction, we set the transaction mode accordingly. From this mode,
 we create a transaction instruction then patch the init jump.
 
 ```
-addr 0:      Init           -> jumps to addr N (patched)
-addr 1:      [body]
-...
-addr M:      Halt           -> commits the transaction, halts execution
-addr N:      Transaction    -> opens the transaction, falls through
-addr N+1:    Jump 1         -> jumps to body start
+addr	instruction	    comment
+----	-----------	    -------
+0     Init	          jumps to addr N (patched)
+1	    [body]	        main body of program
+...	  ...	            ...
+M	    Halt	          commits the transaction, halts execution
+N	    Transaction	    opens the transaction, falls through
+N+1   Jump 1	        jumps to body start (addr 1)
 ```
 
 During execution, we create the appropriate transaction handle and
@@ -85,6 +87,49 @@ hold it as VM state. This transaction handle is then used by all other
 instructions in the program that require it, and we have appropriate
 typing and assertions on the transaction mode.
 
+
+## Cursors
+
+Cursors are iterators over rows in table. Our tables are backed by
+an LMDB B+ tree, and we can iterate forwards or backwards as well as
+use byte-ordered key prefixes. We only need three cursor instructions.
+
+```rs
+Open { csr, tbl }
+Scan { csr, jmp } // also ScanRev
+Next { csr, jmp }
+Load { csr }
+```
+
+The `Open` instruction will open the underlyign heed btree, but does
+not create any state or position the cursor. It simply binds a cursor
+slot to an open btree based on the tbl argument. The btree handle is
+stable for the process lifetime and across transactions.
+
+The `Scan` instruction creates the internal cursor state by initializing a
+forward iterator and positioning it to the first value. If there is no value
+then jump, otherwise fallthrough and the loop body begins with the cursor
+properly positioned. The `Scan` instruction unconditionally pops a prefix value
+from the stack before positioning the cursor. I think this is an elegant design
+because we can support compiled prefixes (optimization), runtime prefixes (nested
+loop joins), and full table scans with a uniform instruction pattern just by
+using our existing 'push' instruction. Scans are also easily restarted with
+different runtime prefixes (nested loop join) by simply pushing the new key
+prefix and calling `Scan` again. The existing iterator is dropped, that new
+key is popped, and the new iterator is created with proper positioning.
+
+The `Next` instruction advances the scan and updates the iternal cursor state.
+If there's a next row, then we jump back to the top of the loop with the cursor
+properly positioned once again. Otherwise fallthrough because we are done looping.
+
+The `Load` instruction is used to put the current value at the cursor onto
+the stack, and it is read only. It does not change the cursor's state.
+
+The `Scan->[body]->Next` structure upholds the invariant that, whenever we are
+in a loop body, the cursor points to a valid row. All other instructions can
+safely read the current row, but cannot modify the cursor position.
+
+Scans are easily restarted and don't require any re-openning. 
 
 ## Display
 

@@ -61,9 +61,13 @@ impl Storage {
         Ok(btree)
     }
 
-    pub fn open_cursor(&self, txn: &mut Transaction<'_>, name: &str) -> Result<Cursor> {
+    pub fn open_btree(&self, txn: &mut Transaction<'_>, name: &str) -> Result<BTree> {
         let rtxn = txn.as_ro();
         let cursor = self.env.open_database(rtxn, Some(name))?.unwrap();
         Ok(cursor)
+    }
+
+    pub fn open_cursor(&self, txn: &mut Transaction<'_>, name: &str) -> Result<Cursor> {
+        todo!()
     }
 }
