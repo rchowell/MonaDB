@@ -46,7 +46,7 @@ pub struct TableMember {
 
 #[derive(Debug)]
 pub struct Select {
-    pub from: Iter,
+    pub from: From,
     // pub with: Option<Expr>,
     pub where_: Option<Where>,
     // group
@@ -71,16 +71,15 @@ pub enum Source {
     Value(Value),
 }
 
-// this is a single source iter, consider joins
 #[derive(Debug)]
-pub struct Iter {
+pub struct From {
     pub src: Source,
     pub var: String, // AS <var>
 }
 
-impl Default for Iter {
+impl Default for From {
     fn default() -> Self {
-        Iter {
+        From {
             src: Source::Value(Value::null()),
             var: String::new(),
         }
@@ -234,7 +233,7 @@ pub fn select(select: Constructor, block: Select) -> Select {
 }
 
 #[inline]
-pub fn select_block(from: Iter, where_: Option<Where>, limit: Option<Limit>) -> Select {
+pub fn select_block(from: From, where_: Option<Where>, limit: Option<Limit>) -> Select {
     Select {
         from,
         where_,
@@ -250,15 +249,15 @@ pub fn select_item(expr: Expr, name: String) -> Member {
 }
 
 #[inline]
-pub fn from_table(tbl: String) -> Iter {
+pub fn from_table(tbl: String) -> From {
     let src = Source::Table(tbl.clone());
     let var = tbl.clone();
-    Iter { src, var }
+    From { src, var }
 }
 
 #[inline]
-pub fn from_source(src: Source, var: String) -> Iter {
-    Iter { src, var }
+pub fn from_source(src: Source, var: String) -> From {
+    From { src, var }
 }
 
 #[inline]

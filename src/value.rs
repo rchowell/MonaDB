@@ -224,6 +224,11 @@ impl Value {
             }
         }
     }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self> {
+        let val = serde_json::from_slice(bytes)?;
+        Ok(Self::Json(val))
+    }
 }
 
 impl From<String> for Value {

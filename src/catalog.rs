@@ -1,6 +1,7 @@
 use crate::storage::{BTree, Storage};
 
 use crate::error::Result;
+use crate::transaction::Transaction;
 
 /// Catalog handles all table metadata.
 pub struct Catalog {
@@ -14,7 +15,7 @@ impl Catalog {
     /// Loads the catalog from the storage environment.
     pub fn load(storage: Storage) -> Result<Self> {
         // Create system table(s); this is idempotent.
-        let mut txn = storage.write()?;
+        let mut txn = Transaction::write(&storage)?;
         let objects: BTree = storage.create_btree(&mut txn, "catalog")?;
         let objects = Table { name: "catalog".to_string(), btree: objects };
         txn.commit()?;

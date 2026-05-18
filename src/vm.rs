@@ -2,6 +2,7 @@ use std::mem::take;
 use std::vec;
 use std::fmt::Write;
 
+use crate::cursor::Cursor;
 use crate::storage::BTree;
 use crate::storage::Storage;
 use heed::byteorder::BigEndian;
@@ -97,8 +98,8 @@ pub enum Vop {
     Return,
     /// Initializes a cursor's scan state
     Scan { csr: usize, jmp: usize },
-    /// Open a transaction
-    Transaction { txn: TransactionMode },
+    /// Open a transaction with the given mode
+    Transaction { txm: TransactionMode },
     /// Halt the virtual machine.
     Halt,
 }
@@ -108,25 +109,23 @@ pub enum Vop {
 // const _: () = assert!(std::mem::size_of::<Vop>() <= 4);
 
 /// VM holds the state of the virtual machine.
-pub struct VM<'s> {
-    /// The storage environment reference.
-    storage: &'s Storage,
+pub struct VM {
+    /// The storage environment is an owned Arc clone.
+    storage: Storage,
     /// The program counter.
     pc: usize,
     /// The program.
     program: Program,
     /// The stack.
     stack: Vec<Value>,
-    /// The open transaction handle, if any.
-    txn: Option<Transaction<'s>>,
-    /// The open cursors, addressed by index.
-    cursors: Vec<BTree>,
-    // /// The counters.
-    // counters: Vec<u64>,
+    /// The open cursors, addressed by index; dropped before the transaction.
+    cursors: Vec<Cursor>,
+    /// The open transaction handle; dropped last.
+    txn: Option<Transaction>,
 }
 
-impl<'s> VM<'s> {
-    pub fn init(storage: &'s Storage, program: Program) -> VM<'s> {
+impl VM {
+    pub fn init(storage: Storage, program: Program) -> VM {
         VM {
             storage,
             pc: 0,
@@ -148,10 +147,6 @@ impl<'s> VM<'s> {
 
     fn pop(&mut self) -> Value {
         self.stack.pop().unwrap()
-    }
-
-    fn drop(&mut self, tofs: usize) {
-        self.stack.truncate(tofs);
     }
 
     fn take(&mut self, n: usize) -> Vec<Value> {
@@ -178,13 +173,11 @@ impl<'s> VM<'s> {
                     unsupported!("drop table {table:?} (Phase 1: not yet wired through storage)");
                 }
                 Vop::Insert { csr } => {
-                    //
                     let val = self.pop().encode()?;
                     let key = self.pop().encode()?;
-                    //
-                    let csr = self.cursors[*csr];
-                    let txn = self.txn.as_mut().unwrap().as_rw()?;
-                    csr.put(txn, &key, &val)?;
+                    let csr = &self.cursors[*csr];
+                    let txn = self.txn.as_mut().expect("Insert before Transaction");
+                    csr.insert(txn, &key, &val)?;
                 }
                 Vop::Jpe => {
                     let e = self.pop();
@@ -203,11 +196,10 @@ impl<'s> VM<'s> {
                     self.push(v);
                 }
                 Vop::NewOid { csr } => {
-                    // TODO: get an actual cursor that accepts our txn
-                    let txn = self.txn.as_mut().unwrap().as_ro();
-                    let csr = self.cursors[*csr];
+                    let txn = self.txn.as_ref().unwrap();
+                    let csr = &self.cursors[*csr];
                     let oid = match csr.last(txn)? {
-                        Some((key, _)) => BigEndian::read_u32(key) + 1,
+                        Some((key, _)) => BigEndian::read_u32(&key) + 1,
                         None => 0,
                     };
                     self.push(oid);
@@ -243,22 +235,18 @@ impl<'s> VM<'s> {
                     self.push(val.clone());
                 }
                 Vop::Return => {
-                    // let v = self.pop();
-                    // self.drop(*tofs);
-                    // return Ok(Some(v));
-                    todo!()
+                    let val = self.pop();
+                    return Ok(Some(val));
                 }
                 Vop::Jump { jmp } => {
                     self.pc = *jmp;
                 }
-                Vop::Transaction { txn } => {
-                    let txn = match txn {
-                        TransactionMode::Ro => self.storage.read(),
-                        TransactionMode::Rw => self.storage.write(),
-                    }?;
+                Vop::Transaction { txm } => {
+                    let txn = Transaction::new(&self.storage, *txm)?;
                     self.txn = Some(txn);
                 }
                 Vop::Halt => {
+                    self.cursors.clear();
                     if let Some(txn) = take(&mut self.txn) {
                         txn.commit()?;
                     }
@@ -333,30 +321,27 @@ impl<'s> VM<'s> {
                 // Cursor Instructions
                 //
                 Vop::Open { csr, tbl } => {
-                    let txn = self.txn.as_mut().unwrap();
-                    let cursor = self.storage.open_btree(txn, tbl)?;
+                    // TODO: assign new cursor to cursors[csr], push is only ok right now
+                    let txn = self.txn.as_ref().expect("Open before Transaction");
+                    let btree = self.storage.open_btree(txn, tbl)?;
+                    let cursor = Cursor::new(btree);
                     self.cursors.push(cursor);
-                    // TODO: assign a cursor to the given index, we can't just push. I'd like to
-                    // put the cursor count in the VM initialization state, then I can allocate 
-                    // the right amount, and then I want a nil/nul/noop cursor so I don't have to
-                    // unwrap at runtime. And honestly, I want to avoid unwrapping if/when possible.
                 }
                 Vop::Scan { csr, jmp} => {
-                    // if !self.cursors[*cursor].rewind()? {
-                    //     self.pc = *jmp;
-                    // }
-                    todo!()
-                }
-                Vop::Load { csr } => {
-                    // let row = self.cursors[*cursor].curr();
-                    // let val = row.val.clone();
-                    // self.push(val);
+                    let txn = self.txn.as_ref().expect("Scan before Transaction");
+                    if !self.cursors[*csr].scan(txn, None)? {
+                        self.pc = *jmp;
+                    }
                 }
                 Vop::Next { csr, jmp} => {
-                    // if self.cursors[*cursor].next()? {
-                    //     self.pc = *jmp;
-                    // }
-                    todo!()
+                    if self.cursors[*csr].next()? {
+                        self.pc = *jmp;
+                    }
+                }
+                Vop::Load { csr } => {
+                    let (_, val) = self.cursors[*csr].current().expect("Load on unpositioned cursor");
+                    let val = Value::decode(val)?;
+                    self.push(val);
                 }
                 //
                 // Counter Instructions
@@ -383,12 +368,12 @@ impl<'s> VM<'s> {
 }
 
 /// Pull-based result iterator over a running VM. Produced by `MonaDB::exec`.
-pub struct Rows<'vm> {
-    vm: VM<'vm>,
+pub struct Rows {
+    vm: VM,
 }
 
-impl<'vm> Rows<'vm> {
-    pub fn new(vm: VM<'vm>) -> Self {
+impl Rows {
+    pub fn new(vm: VM) -> Self {
         Self { vm }
     }
 

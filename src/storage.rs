@@ -22,7 +22,7 @@ pub type BTree = Database<Bytes, Bytes>;
 #[derive(Clone)]
 pub struct Storage {
     /// The inner LMDB environment.
-    env: Arc<Env<WithoutTls>>,
+    pub(crate) env: Arc<Env<WithoutTls>>,
 }
 
 impl Storage {
@@ -40,34 +40,86 @@ impl Storage {
         Ok(Self { env })
     }
 
-    /// Returns a read transaction.
-    pub fn read(&self) -> Result<Transaction<'_>> {
-        let txn = self.env.read_txn()?;
-        let txn = txn.into();
-        Ok(txn)
-    }
-
-    /// Returns a write transaction handle.
-    pub fn write(&self) -> Result<Transaction<'_>> {
-        let txn = self.env.write_txn()?;
-        let txn = txn.into();
-        Ok(txn)
-    }
-
     /// Creates a new b-tree and returns a handle.
-    pub fn create_btree(&self, txn: &mut Transaction<'_>, name: &str) -> Result<BTree> {
+    pub fn create_btree(&self, txn: &mut Transaction, name: &str) -> Result<BTree> {
         let wtxn = txn.as_rw()?;
         let btree = self.env.create_database(wtxn, Some(name))?;
         Ok(btree)
     }
 
-    pub fn open_btree(&self, txn: &mut Transaction<'_>, name: &str) -> Result<BTree> {
+    pub fn open_btree(&self, txn: &Transaction, name: &str) -> Result<BTree> {
         let rtxn = txn.as_ro();
         let cursor = self.env.open_database(rtxn, Some(name))?.unwrap();
         Ok(cursor)
     }
+}
 
-    pub fn open_cursor(&self, txn: &mut Transaction<'_>, name: &str) -> Result<Cursor> {
-        todo!()
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::transaction::Transaction;
+    use tempfile::TempDir;
+
+    #[test]
+    fn reopen_sees_committed_data() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        {
+            let storage = Storage::open(&path).unwrap();
+            let mut txn = Transaction::write(&storage).unwrap();
+            let btree = storage.create_btree(&mut txn, "t").unwrap();
+            btree.put(txn.as_rw().unwrap(), b"k", b"v").unwrap();
+            txn.commit().unwrap();
+        }
+        let storage = Storage::open(&path).unwrap();
+        let txn = Transaction::read(&storage).unwrap();
+        let btree = storage.open_btree(&txn, "t").unwrap();
+        assert_eq!(btree.get(txn.as_ro(), b"k").unwrap(), Some(b"v".as_slice()));
+    }
+
+    #[test]
+    fn create_btree_returns_existing_handle() {
+        let dir = TempDir::new().unwrap();
+        let storage = Storage::open(dir.path().join("t.db")).unwrap();
+        let mut txn = Transaction::write(&storage).unwrap();
+        let a = storage.create_btree(&mut txn, "x").unwrap();
+        let b = storage.create_btree(&mut txn, "x").unwrap();
+        a.put(txn.as_rw().unwrap(), b"k", b"v").unwrap();
+        assert_eq!(b.get(txn.as_ro(), b"k").unwrap(), Some(b"v".as_slice()));
+    }
+
+    #[test]
+    fn multiple_read_txns_coexist() {
+        let dir = TempDir::new().unwrap();
+        let storage = Storage::open(dir.path().join("t.db")).unwrap();
+        let mut txn = Transaction::write(&storage).unwrap();
+        let btree = storage.create_btree(&mut txn, "t").unwrap();
+        btree.put(txn.as_rw().unwrap(), b"k", b"v").unwrap();
+        txn.commit().unwrap();
+
+        let r1 = Transaction::read(&storage).unwrap();
+        let r2 = Transaction::read(&storage).unwrap();
+        assert_eq!(btree.get(r1.as_ro(), b"k").unwrap(), Some(b"v".as_slice()));
+        assert_eq!(btree.get(r2.as_ro(), b"k").unwrap(), Some(b"v".as_slice()));
+    }
+
+    #[test]
+    fn read_txn_holds_snapshot_through_concurrent_write() {
+        let dir = TempDir::new().unwrap();
+        let storage = Storage::open(dir.path().join("t.db")).unwrap();
+        let mut txn = Transaction::write(&storage).unwrap();
+        let btree = storage.create_btree(&mut txn, "t").unwrap();
+        btree.put(txn.as_rw().unwrap(), b"a", b"1").unwrap();
+        txn.commit().unwrap();
+
+        let snap = Transaction::read(&storage).unwrap();
+        assert_eq!(btree.get(snap.as_ro(), b"a").unwrap(), Some(b"1".as_slice()));
+        assert_eq!(btree.get(snap.as_ro(), b"b").unwrap(), None);
+
+        let mut w = Transaction::write(&storage).unwrap();
+        btree.put(w.as_rw().unwrap(), b"b", b"2").unwrap();
+        w.commit().unwrap();
+
+        assert_eq!(btree.get(snap.as_ro(), b"b").unwrap(), None);
     }
 }

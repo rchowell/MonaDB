@@ -127,9 +127,11 @@ the stack, and it is read only. It does not change the cursor's state.
 
 The `Scan->[body]->Next` structure upholds the invariant that, whenever we are
 in a loop body, the cursor points to a valid row. All other instructions can
-safely read the current row, but cannot modify the cursor position.
-
-Scans are easily restarted and don't require any re-openning. 
+safely read the current row, but cannot modify the cursor position. Scans are easily
+restarted and don't require any re-openning. Finally, you will see erased
+lifetimes in the code. This is for self-reference and the lifetime invariants are
+upheld where storage lives longer than a transaction, which lives longer than all
+cursors. This keep-alive pattern is yolk-inspired.
 
 ## Display
 

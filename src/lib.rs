@@ -27,11 +27,11 @@ use storage::Storage;
 
 use crate::{catalog::Catalog, ir::Statement, lexer::SqlLexer, parser::SqlParser, vm::*};
 
-/// The user-facing database handle. Holds an `Engine` and runs SQL programs.
+/// The user-facing database handle.
 pub struct MonaDB {
     /// The single catalog interface.
     catalog: Catalog,
-    /// The storage engine.
+    /// The storage engine over LMDB.
     storage: Storage,
 }
 
@@ -44,13 +44,13 @@ impl MonaDB {
     }
 
     /// Execute the given sql statement(s).
-    pub fn exec(&mut self, sql: &str, debug: bool) -> Result<Rows<'_>> {
+    pub fn exec(&mut self, sql: &str, debug: bool) -> Result<Rows> {
         let statement = Self::parse(sql)?;
         let program = Self::compile(statement)?;
         if debug {
             Self::debug(&program);
         }
-        let vm = VM::init(&self.storage, program);
+        let vm = VM::init(self.storage.clone(), program);
         Ok(Rows::new(vm))
     }
 

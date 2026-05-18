@@ -2,7 +2,7 @@ use serde_json::json;
 
 use crate::error::Error;
 use crate::ir::{
-    Constructor, Create, Expr, Insert, Iter, Jpe, Jpi, Jpk, Limit, Member, Obj, Op, Select, Source,
+    Constructor, Create, Expr, Insert, Jpe, Jpi, Jpk, Member, Obj, Op, Select, Source,
     Statement, ToSql,
 };
 use crate::transaction::TransactionMode;
@@ -83,7 +83,7 @@ impl Compiler {
     }
 
     fn cc_create(&mut self, create: Create) {
-        self.txn = Some(TransactionMode::Rw);
+        self.txn = Some(TransactionMode::Write);
 
         // Open the system 'catalog' table
         let csr = self.next_cursor();
@@ -105,8 +105,8 @@ impl Compiler {
         //
         // Simplified where 'oid' is already top of stack from the NewOid instruction.
         //
-        // addr 0:  Push    { val }     -> push unencoded value {}
-        // addr 1:  Insert  { csr }     -> val=encode(pop()); key=encode(pop()); cursor.put(key, val)
+        // 0    Push    { val }     -> push unencoded value {}
+        // 1    Insert  { csr }     -> val=encode(pop()); key=encode(pop()); cursor.put(key, val)
         //
         // Later I'll change it to be more like:
         //
@@ -150,6 +150,7 @@ impl Compiler {
     }
 
     fn cc_select(&mut self, select: Select) -> Result<()> {
+        self.ensure_txn(TransactionMode::Read);
         // TODO: track current scope
         // let scope = self.vars.len();
         // let counters = self.counters;
@@ -170,8 +171,35 @@ impl Compiler {
         // }
 
         // loop open
-        // let loop_ = self.cc_iter(select.from)?;
         // to_patch.push((loop_, 1)); // <- patch loop (rewind) to next+1
+
+        //
+
+        // Extract the table name, we don't bind anything.
+        let tbl = match &select.from.src {
+            Source::Table(table) => table,
+            Source::Path(path) => unsupported!("from path: {:?}", path),
+            Source::Value(_) => unsupported!("from value"),
+        }.clone();
+        
+        // open
+        // scan -> jmp=next
+        // ....
+        // next -> jmp=scan
+        let csr = self.next_cursor();
+        let jmp = self.pc() + 2;
+        self.emit_open(csr, tbl);
+        self.emit_scan(csr, jmp);
+        let scan_pc = self.pc();
+
+        // body, hardcoded for select *
+        self.emit_load(csr);
+        self.emit_return();
+
+        // loop close
+        self.emit_next(csr, scan_pc + 1);
+        let next_pc = self.pc();
+        self.patch(scan_pc, next_pc + 1);
 
         // TODO: offset
         // if let Some(counter) = cnt_skip {
@@ -193,16 +221,6 @@ impl Compiler {
         // if let Some(counter) = cnt_take {
         //     self.emit_cnt_if_zero(counter, 0);
         //     to_patch.push((self.pc(), 1)); // <- patch cnt_if_zero to next+1
-        // }
-
-        // loop close
-        // self.emit_return(scope);
-        // self.emit_next(0, loop_ + 1);
-        // let next = self.pc();
-
-        // apply patches and cleanup
-        // for (pc, offset) in to_patch {
-        //     self.patch(pc, next + offset)?;
         // }
 
         // TODO: scope tracking
@@ -231,43 +249,21 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compile an iteration operator, callers must patch the return pc.
-    ///
-    /// | ADDR | INSTRUCTION | NOTE
-    /// +------+-------------+-----------
-    /// | 0    | open        |
-    /// | 1    | rewind      | if empty, jump to n+1
-    /// | 2    |  (loop)     |
-    /// | ..   |             |
-    /// | n    | next        | if next, jump to 2
-    /// | n+1  | ...         |   
-    ///
-    /// TODO handle paths
-    /// TODO multiple cursors
-    ///
-    fn cc_iter(&mut self, iter: Iter) -> Result<usize> {
-        let table = match iter.src {
-            Source::Table(table) => table,
-            Source::Path(path) => unsupported!("from path: {:?}", path),
-            Source::Value(_) => unsupported!("from value"),
-        };
-        // define the iteration variable
-        self.define(iter.var);
-        self.emit_open(0, "catalog".to_string());
-        // self.emit_rewind(0, 0); // <- patch to n+1
-        Ok(self.pc())
-    }
-
-    /// Patch the control-flow instruction at code[pc] to jump to dst.
-    fn patch(&mut self, pc: usize, dst: usize) -> Result<()> {
+    /// Patch the control-flow instruction at src to have jmp=dst.
+    fn patch(&mut self, src: usize, dst: usize) -> Result<()> {
         // TODO: actual error handling
-        match self.code.get_mut(pc).unwrap() {
+        match self.code.get_mut(src).unwrap() {
             Vop::Init { jmp }
             | Vop::Next { csr: _, jmp}
             | Vop::Scan { csr: _, jmp} => *jmp = dst,
-            _ => unsupported!("cannot patch instruction at pc[{}]", pc),
+            _ => unsupported!("cannot patch instruction at pc[{}]", src),
         }
         Ok(())
+    }
+
+    /// Ensures the program as at least the given transaction mode
+    fn ensure_txn(&mut self, txn: TransactionMode) {
+        self.txn = Some(txn.coalesce(self.txn));
     }
 
     //------------------------------
@@ -445,14 +441,12 @@ impl Compiler {
         self.code.push(Vop::Next { csr, jmp });
     }
 
-    fn emit_new_oid(&mut self, csr: usize) -> usize {
+    fn emit_new_oid(&mut self, csr: usize) {
         self.code.push(Vop::NewOid { csr });
-        self.code.len()
     }
 
-    fn emit_new_btree(&mut self) -> usize {
+    fn emit_new_btree(&mut self) {
         self.code.push(Vop::NewBtree);
-        self.code.len()
     }
 
     fn emit_obj(&mut self) {
@@ -467,14 +461,12 @@ impl Compiler {
         self.code.push(Vop::ObjSpread);
     }
 
-    fn emit_open(&mut self, csr: usize, tbl: String) -> usize {
+    fn emit_open(&mut self, csr: usize, tbl: String) {
         self.code.push(Vop::Open { csr, tbl });
-        self.code.len()
     }
 
-    fn emit_scan(&mut self, csr: usize, jmp: usize) -> usize {
+    fn emit_scan(&mut self, csr: usize, jmp: usize) {
         self.code.push(Vop::Scan { csr, jmp });
-        self.code.len()
     }
 
     fn emit_push<V: Into<Value>>(&mut self, val: V) {
@@ -486,6 +478,64 @@ impl Compiler {
     }
 
     fn emit_transaction(&mut self, txn: TransactionMode) {
-        self.code.push(Vop::Transaction { txn });
+        self.code.push(Vop::Transaction { txm: txn });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lexer::SqlLexer;
+    use crate::parser::SqlParser;
+
+    fn compile_sql(sql: &str) -> Program {
+        let stmt = SqlParser::new().parse(SqlLexer::new(sql)).unwrap();
+        Compiler::new().compile(stmt).unwrap()
+    }
+
+    #[test]
+    fn select_star_from_catalog_bytecode_shape() {
+        let code = compile_sql("select * from catalog;");
+        assert_eq!(code.len(), 9);
+        assert!(matches!(code[0], Vop::Init { jmp: 7 }));
+        assert!(matches!(&code[1], Vop::Open { csr: 0, tbl } if tbl == "catalog"));
+        assert!(matches!(code[2], Vop::Scan { csr: 0, jmp: 6 }));
+        assert!(matches!(code[3], Vop::Load { csr: 0 }));
+        assert!(matches!(code[4], Vop::Return));
+        assert!(matches!(code[5], Vop::Next { csr: 0, jmp: 3 }));
+        assert!(matches!(code[6], Vop::Halt));
+        assert!(matches!(code[7], Vop::Transaction { txm: TransactionMode::Read }));
+        assert!(matches!(code[8], Vop::Jump { jmp: 1 }));
+    }
+
+    #[test]
+    fn create_table_bytecode_shape() {
+        let code = compile_sql("create table t (id int);");
+        assert_eq!(code.len(), 9);
+        assert!(matches!(code[0], Vop::Init { jmp: 7 }));
+        assert!(matches!(&code[1], Vop::Open { csr: 0, tbl } if tbl == "catalog"));
+        assert!(matches!(code[2], Vop::NewOid { csr: 0 }));
+        assert!(matches!(code[3], Vop::NewBtree));
+        assert!(matches!(code[4], Vop::Push { .. }));
+        assert!(matches!(code[5], Vop::Insert { csr: 0 }));
+        assert!(matches!(code[6], Vop::Halt));
+        assert!(matches!(code[7], Vop::Transaction { txm: TransactionMode::Write }));
+        assert!(matches!(code[8], Vop::Jump { jmp: 1 }));
+    }
+
+    #[test]
+    fn select_cursor_index_is_zero() {
+        // Guards the latent slot-vs-push bug: the single emitted cursor
+        // must use index 0 so that vm.cursors.push lands in the expected slot.
+        let code = compile_sql("select * from catalog;");
+        for op in &code {
+            match op {
+                Vop::Open { csr, .. }
+                | Vop::Scan { csr, .. }
+                | Vop::Load { csr }
+                | Vop::Next { csr, .. } => assert_eq!(*csr, 0),
+                _ => {}
+            }
+        }
     }
 }

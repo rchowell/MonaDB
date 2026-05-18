@@ -125,7 +125,7 @@ SelectBlock: ir::Select =
     <Limit?> => ir::select_block(<>);
 
 // TODO from <expr>
-From: ir::Iter = {
+From: ir::From = {
     "from" <"ident">                    => ir::from_table(<>),
     "from" <FromSource> "as"? <"ident"> => ir::from_source(<>),
 };
