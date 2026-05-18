@@ -24,6 +24,7 @@ use compiler::Compiler;
 use error::Result;
 use lalrpop_util::lalrpop_mod;
 use storage::Storage;
+use tempfile::TempDir;
 
 use crate::{catalog::Catalog, ir::Statement, lexer::SqlLexer, parser::SqlParser, vm::*};
 
@@ -41,6 +42,12 @@ impl MonaDB {
         let storage = Storage::open(path)?;
         let catalog = Catalog::load(storage.clone())?;
         Ok(MonaDB { catalog, storage })
+    }
+
+    pub fn memory() -> Result<MonaDB> {
+        let tmp_dir = TempDir::new()?;
+        let tmp_pth = tmp_dir.path().join("memory.db");
+        Self::open(&tmp_pth)
     }
 
     /// Execute the given sql statement(s).

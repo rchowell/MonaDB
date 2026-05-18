@@ -79,8 +79,12 @@ impl Value {
         serde_json::to_vec(&self.json()).unwrap()
     }
 
-    pub fn into_json(&self) -> &JsonValue {
-        self.json()
+    pub fn into_json(self) -> JsonValue {
+        if let Value::Json(value) = self {
+            value
+        } else {
+            unreachable!()
+        }
     }
 
     /// If the value is an object, return the members – otherwise, None.

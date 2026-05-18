@@ -196,11 +196,6 @@ impl Compiler {
         self.emit_load(csr);
         self.emit_return();
 
-        // loop close
-        self.emit_next(csr, scan_pc + 1);
-        let next_pc = self.pc();
-        self.patch(scan_pc, next_pc + 1);
-
         // TODO: offset
         // if let Some(counter) = cnt_skip {
         //     self.emit_cnt_if_pos(counter, 0);
@@ -215,13 +210,18 @@ impl Compiler {
         // }
 
         // select
-        // self.cc_select_constructor(select.select, scope)?;
+        self.cc_select_constructor(select.select, 1)?;
 
         // TODO: limit
         // if let Some(counter) = cnt_take {
         //     self.emit_cnt_if_zero(counter, 0);
         //     to_patch.push((self.pc(), 1)); // <- patch cnt_if_zero to next+1
         // }
+
+        // loop close
+        self.emit_next(csr, scan_pc + 1);
+        let next_pc = self.pc();
+        self.patch(scan_pc, next_pc + 1);
 
         // TODO: scope tracking
         // self.vars.truncate(scope);

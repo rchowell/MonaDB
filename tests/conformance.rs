@@ -95,6 +95,7 @@ fn run_step(db: &mut MonaDB, step: &Step, idx: usize) -> Result<(), String> {
             let mut rows = db
                 .exec(&step.sql, false)
                 .map_err(|e| format!("step {idx}: unexpected error: {e:?}"))?;
+
             let mut actual: Vec<Json> = Vec::new();
             while let Some(v) = rows
                 .next()
@@ -102,6 +103,7 @@ fn run_step(db: &mut MonaDB, step: &Step, idx: usize) -> Result<(), String> {
             {
                 actual.push(v.into_json());
             }
+
             let expected: Vec<Json> = expected_yaml
                 .iter()
                 .map(|v| serde_json::to_value(v).expect("yaml→json conversion"))
@@ -163,6 +165,7 @@ fn error_category(err: &Error) -> &'static str {
         Error::UnknownTable(_) | Error::UnknownFunction(_) | Error::Unsupported(_) => "static",
         Error::IoError(_) | Error::Storage(_) => "storage",
         Error::InternalError(_) | Error::Unknown => "runtime",
+        Error::Transaction(_) => "transaction",
     }
 }
 
@@ -192,13 +195,16 @@ fn json_eq(a: &Json, b: &Json) -> bool {
 // ── Suite test functions ───────────────────────────────────────────────────────
 
 #[test]
-#[ignore = "requires Connection::memory()"]
 fn conformance_01_literals() {
     run_suite("tests/conformance/suites/01-literals.yaml");
 }
 
 #[test]
-#[ignore = "requires Connection::memory()"]
+fn conformance_08_select() {
+    run_suite("tests/conformance/suites/08-select.yaml");
+}
+
+#[test]
 fn conformance_09_from() {
     run_suite("tests/conformance/suites/09-from.yaml");
 }
