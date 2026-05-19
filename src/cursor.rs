@@ -1,13 +1,14 @@
-use heed::{RoIter, RoPrefix, RoRevIter, RoRevPrefix};
 use heed::types::Bytes;
+use heed::{RoIter, RoPrefix, RoRevIter, RoRevPrefix};
 
 use crate::error::{Error, Result};
 use crate::{storage::BTree, transaction::Transaction};
 
 /// Cursor controls btree traversal.
+#[derive(Default)]
 pub struct Cursor {
     /// Inner btree handle for creating scan states.
-    btree: BTree,
+    btree: Option<BTree>,
     /// Inner scan state upon which we call next.
     scan: Option<Scan>,
     /// Current (key,val) owned bytes
@@ -15,20 +16,23 @@ pub struct Cursor {
 }
 
 impl Cursor {
-    /// Creates a new cursor for the given btree with empty scan state.
-    pub fn new(btree: BTree) -> Self {
-        Self {
-            btree,
-            scan: None,
-            curr: None,
-        }
+    /// Creates a new unopened and unpositioned cursor.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Opens this cursor on the given btree.
+    pub fn open(&mut self, btree: BTree) {
+        self.btree = Some(btree);
     }
 
     /// Begins a forward scan; returns true if there's an available row.
+    #[allow(unused)]
     pub fn scan(&mut self, txn: &Transaction, prefix: Option<&[u8]>) -> Result<bool> {
+        let btree = self.btree.expect("cursor must be open");
         // SAFETY: ...
         let rtxn = txn.as_ro();
-        let iter = self.btree.iter(rtxn)?;
+        let iter = btree.iter(rtxn)?;
         let iter: RoIter<'static, Bytes, Bytes> = unsafe { std::mem::transmute(iter) };
         let mut scan: Scan = Scan::Fwd(iter);
         // Position on the next available item
@@ -48,28 +52,30 @@ impl Cursor {
         Ok(self.curr.is_some())
     }
 
-    /// Returns the current (key,val) bytes.
+    /// Returns the current (key,val) bytes, consider an expect inside here so no Option
     pub fn current(&self) -> Option<(&[u8], &[u8])> {
         self.curr.as_ref().map(|(k,v)| (k.as_slice(), v.as_slice()))
     }
 
     /// Inserts the value at the given key
     pub fn insert(&self, txn: &mut Transaction, key: &[u8], val: &[u8]) -> Result<()> {
+        let btree = self.btree.expect("cursor must be open");
         let txn = txn.as_rw()?;
-        self.btree.put(txn, key, val)?;
+        btree.put(txn, key, val)?;
         Ok(())
     }
 
     pub fn last(&self, txn: &Transaction) -> Result<Option<(Vec<u8>, Vec<u8>)>> {
+        let btree = self.btree.expect("cursor must be open");
         let txn = txn.as_ro();
-        let res = self.btree.last(txn)?;
-        let res = res.map(|(k ,v)| (k.to_vec(), v.to_vec()));
+        let res = btree.last(txn)?;
+        let res = res.map(|(k, v)| (k.to_vec(), v.to_vec()));
         Ok(res)
     }
 }
 
-
 /// The inner scan state; dispatches on type.
+#[allow(unused)]
 enum Scan {
     /// Forward iteration.
     Fwd(RoIter<'static, Bytes, Bytes>),
@@ -138,7 +144,8 @@ mod tests {
     fn scan_empty_btree_returns_false() {
         let (_dir, storage) = fixture(&[]);
         let (txn, btree) = open_read(&storage);
-        let mut cursor = Cursor::new(btree);
+        let mut cursor = Cursor::new();
+        cursor.open(btree);
         assert!(!cursor.scan(&txn, None).unwrap());
         assert_eq!(cursor.current(), None);
     }
@@ -147,7 +154,8 @@ mod tests {
     fn scan_single_row_positions_on_it() {
         let (_dir, storage) = fixture(&[(b"a", b"1")]);
         let (txn, btree) = open_read(&storage);
-        let mut cursor = Cursor::new(btree);
+        let mut cursor = Cursor::new();
+        cursor.open(btree);
         assert!(cursor.scan(&txn, None).unwrap());
         assert_eq!(cursor.current(), Some((b"a".as_slice(), b"1".as_slice())));
         assert!(!cursor.next().unwrap());
@@ -159,11 +167,15 @@ mod tests {
         let rows: &[(&[u8], &[u8])] = &[(b"c", b"3"), (b"a", b"1"), (b"b", b"2")];
         let (_dir, storage) = fixture(rows);
         let (txn, btree) = open_read(&storage);
-        let mut cursor = Cursor::new(btree);
+        let mut cursor = Cursor::new();
+        cursor.open(btree);
         assert!(cursor.scan(&txn, None).unwrap());
         let collected = drain(&mut cursor);
         let keys: Vec<&[u8]> = collected.iter().map(|(k, _)| k.as_slice()).collect();
-        assert_eq!(keys, vec![b"a".as_slice(), b"b".as_slice(), b"c".as_slice()]);
+        assert_eq!(
+            keys,
+            vec![b"a".as_slice(), b"b".as_slice(), b"c".as_slice()]
+        );
     }
 
     #[test]
@@ -171,7 +183,8 @@ mod tests {
         let rows: &[(&[u8], &[u8])] = &[(b"c", b"three"), (b"a", b"one"), (b"b", b"two")];
         let (_dir, storage) = fixture(rows);
         let (txn, btree) = open_read(&storage);
-        let mut cursor = Cursor::new(btree);
+        let mut cursor = Cursor::new();
+        cursor.open(btree);
         assert!(cursor.scan(&txn, None).unwrap());
         let collected = drain(&mut cursor);
         assert_eq!(
@@ -188,7 +201,8 @@ mod tests {
     fn next_after_exhaustion_is_idempotent() {
         let (_dir, storage) = fixture(&[(b"a", b"1")]);
         let (txn, btree) = open_read(&storage);
-        let mut cursor = Cursor::new(btree);
+        let mut cursor = Cursor::new();
+        cursor.open(btree);
         assert!(cursor.scan(&txn, None).unwrap());
         assert!(!cursor.next().unwrap());
         assert!(!cursor.next().unwrap());
@@ -200,7 +214,8 @@ mod tests {
     fn current_is_none_before_first_scan() {
         let (_dir, storage) = fixture(&[(b"a", b"1")]);
         let (_txn, btree) = open_read(&storage);
-        let cursor = Cursor::new(btree);
+        let mut cursor = Cursor::new();
+        cursor.open(btree);
         assert_eq!(cursor.current(), None);
     }
 
@@ -208,7 +223,8 @@ mod tests {
     fn next_without_scan_returns_error() {
         let (_dir, storage) = fixture(&[(b"a", b"1")]);
         let (_txn, btree) = open_read(&storage);
-        let mut cursor = Cursor::new(btree);
+        let mut cursor = Cursor::new();
+        cursor.open(btree);
         let err = cursor.next().unwrap_err();
         assert!(matches!(err, Error::InternalError(_)));
     }
@@ -218,7 +234,8 @@ mod tests {
         let rows: &[(&[u8], &[u8])] = &[(b"a", b"1"), (b"b", b"2"), (b"c", b"3")];
         let (_dir, storage) = fixture(rows);
         let (txn, btree) = open_read(&storage);
-        let mut cursor = Cursor::new(btree);
+        let mut cursor = Cursor::new();
+        cursor.open(btree);
 
         // First scan: walk to exhaustion.
         assert!(cursor.scan(&txn, None).unwrap());
@@ -239,8 +256,10 @@ mod tests {
         let (_dir, storage) = fixture(rows);
         let (txn, btree) = open_read(&storage);
 
-        let mut a = Cursor::new(btree);
-        let mut b = Cursor::new(btree);
+        let mut a = Cursor::new();
+        a.open(btree);
+        let mut b = Cursor::new();
+        b.open(btree);
 
         assert!(a.scan(&txn, None).unwrap());
         assert!(b.scan(&txn, None).unwrap());
@@ -265,7 +284,8 @@ mod tests {
         let rows: &[(&[u8], &[u8])] = &[(key.as_slice(), val.as_slice())];
         let (_dir, storage) = fixture(rows);
         let (txn, btree) = open_read(&storage);
-        let mut cursor = Cursor::new(btree);
+        let mut cursor = Cursor::new();
+        cursor.open(btree);
         assert!(cursor.scan(&txn, None).unwrap());
         let (k, v) = cursor.current().unwrap();
         assert_eq!(k, key.as_slice());
@@ -278,7 +298,8 @@ mod tests {
         let rows: &[(&[u8], &[u8])] = &[(b"a", b"1"), (b"b", b"2")];
         let (_dir, storage) = fixture(rows);
         let (txn, btree) = open_read(&storage);
-        let mut cursor = Cursor::new(btree);
+        let mut cursor = Cursor::new();
+        cursor.open(btree);
         assert!(cursor.scan(&txn, None).unwrap());
         let collected = drain(&mut cursor);
         assert_eq!(collected.len(), 2);
@@ -287,11 +308,11 @@ mod tests {
     #[test]
     #[ignore = "prefix arg currently unused in scan"]
     fn scan_with_prefix_yields_only_matching_keys() {
-        let rows: &[(&[u8], &[u8])] =
-            &[(b"aa", b"1"), (b"ab", b"2"), (b"ba", b"3"), (b"bb", b"4")];
+        let rows: &[(&[u8], &[u8])] = &[(b"aa", b"1"), (b"ab", b"2"), (b"ba", b"3"), (b"bb", b"4")];
         let (_dir, storage) = fixture(rows);
         let (txn, btree) = open_read(&storage);
-        let mut cursor = Cursor::new(btree);
+        let mut cursor = Cursor::new();
+        cursor.open(btree);
         assert!(cursor.scan(&txn, Some(b"a")).unwrap());
         let collected = drain(&mut cursor);
         let keys: Vec<&[u8]> = collected.iter().map(|(k, _)| k.as_slice()).collect();
@@ -304,7 +325,8 @@ mod tests {
         let rows: &[(&[u8], &[u8])] = &[(b"a", b"1"), (b"b", b"2")];
         let (_dir, storage) = fixture(rows);
         let (txn, btree) = open_read(&storage);
-        let mut cursor = Cursor::new(btree);
+        let mut cursor = Cursor::new();
+        cursor.open(btree);
         assert!(cursor.scan(&txn, Some(b"")).unwrap());
         let collected = drain(&mut cursor);
         assert_eq!(collected.len(), 2);
@@ -315,7 +337,8 @@ mod tests {
     fn scan_with_prefix_on_empty_btree_returns_false() {
         let (_dir, storage) = fixture(&[]);
         let (txn, btree) = open_read(&storage);
-        let mut cursor = Cursor::new(btree);
+        let mut cursor = Cursor::new();
+        cursor.open(btree);
         assert!(!cursor.scan(&txn, Some(b"x")).unwrap());
         assert_eq!(cursor.current(), None);
     }
@@ -325,7 +348,8 @@ mod tests {
         let (_dir, storage) = fixture(&[]);
         let mut txn = Transaction::write(&storage).unwrap();
         let btree = storage.open_btree(&txn, 1).unwrap();
-        let mut cursor = Cursor::new(btree);
+        let mut cursor = Cursor::new();
+        cursor.open(btree);
         cursor.insert(&mut txn, b"k", b"v").unwrap();
         assert!(cursor.scan(&txn, None).unwrap());
         assert_eq!(cursor.current(), Some((b"k".as_slice(), b"v".as_slice())));
@@ -336,7 +360,8 @@ mod tests {
         let (_dir, storage) = fixture(&[]);
         let mut ro = Transaction::read(&storage).unwrap();
         let btree = storage.open_btree(&ro, 1).unwrap();
-        let cursor = Cursor::new(btree);
+        let mut cursor = Cursor::new();
+        cursor.open(btree);
         let err = cursor.insert(&mut ro, b"k", b"v").unwrap_err();
         assert!(matches!(err, Error::InternalError(_)));
     }
@@ -345,7 +370,8 @@ mod tests {
     fn last_returns_none_on_empty() {
         let (_dir, storage) = fixture(&[]);
         let (txn, btree) = open_read(&storage);
-        let cursor = Cursor::new(btree);
+        let mut cursor = Cursor::new();
+        cursor.open(btree);
         assert_eq!(cursor.last(&txn).unwrap(), None);
     }
 
@@ -353,7 +379,8 @@ mod tests {
     fn last_returns_owned_max_key() {
         let (_dir, storage) = fixture(&[(b"a", b"1"), (b"c", b"3"), (b"b", b"2")]);
         let (txn, btree) = open_read(&storage);
-        let cursor = Cursor::new(btree);
+        let mut cursor = Cursor::new();
+        cursor.open(btree);
         let (k, v) = cursor.last(&txn).unwrap().unwrap();
         assert_eq!(k, b"c");
         assert_eq!(v, b"3");
@@ -365,7 +392,8 @@ mod tests {
         let txn = Transaction::read(&storage).unwrap();
         let btree = storage.open_btree(&txn, 1).unwrap();
         {
-            let mut cursor = Cursor::new(btree);
+            let mut cursor = Cursor::new();
+        cursor.open(btree);
             assert!(cursor.scan(&txn, None).unwrap());
         }
         txn.commit().unwrap();
@@ -377,13 +405,15 @@ mod tests {
         let mut txn = Transaction::write(&storage).unwrap();
         let btree = storage.open_btree(&txn, 1).unwrap();
         {
-            let cursor = Cursor::new(btree);
+            let mut cursor = Cursor::new();
+        cursor.open(btree);
             cursor.insert(&mut txn, b"k", b"v").unwrap();
         }
         txn.commit().unwrap();
 
         let (txn, btree) = open_read(&storage);
-        let cursor = Cursor::new(btree);
+        let mut cursor = Cursor::new();
+        cursor.open(btree);
         let (k, v) = cursor.last(&txn).unwrap().unwrap();
         assert_eq!(k, b"k");
         assert_eq!(v, b"v");
@@ -396,7 +426,8 @@ mod tests {
     //     let rows: &[(&[u8], &[u8])] = &[(b"a", b"1"), (b"b", b"2"), (b"c", b"3")];
     //     let (_dir, storage) = fixture(rows);
     //     let (txn, btree) = open_read(&storage);
-    //     let mut cursor = Cursor::new(btree);
+    //     let mut cursor = Cursor::new();
+    //     cursor.open(btree);
     //     assert!(cursor.scan_rev(&txn, None).unwrap());
     //     let collected = drain(&mut cursor);
     //     let keys: Vec<&[u8]> = collected.iter().map(|(k, _)| k.as_slice()).collect();
@@ -408,7 +439,8 @@ mod tests {
     //     let rows: &[(&[u8], &[u8])] = &[(b"aa", b"1"), (b"ab", b"2"), (b"ba", b"3")];
     //     let (_dir, storage) = fixture(rows);
     //     let (txn, btree) = open_read(&storage);
-    //     let mut cursor = Cursor::new(btree);
+    //     let mut cursor = Cursor::new();
+    //     cursor.open(btree);
     //     assert!(cursor.scan_rev(&txn, Some(b"a")).unwrap());
     //     let collected = drain(&mut cursor);
     //     let keys: Vec<&[u8]> = collected.iter().map(|(k, _)| k.as_slice()).collect();
@@ -419,7 +451,8 @@ mod tests {
     // fn scan_rev_on_empty_btree() {
     //     let (_dir, storage) = fixture(&[]);
     //     let (txn, btree) = open_read(&storage);
-    //     let mut cursor = Cursor::new(btree);
+    //     let mut cursor = Cursor::new();
+    //     cursor.open(btree);
     //     assert!(!cursor.scan_rev(&txn, None).unwrap());
     // }
 }

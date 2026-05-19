@@ -22,11 +22,13 @@ macro_rules! unsupported {
 /// Compiler translates SQL queries to Vops.
 pub struct Compiler<'c> {
     catalog: &'c Catalog,
-    code: Program,
+    code: Vec<Vop>,
     vars: Vec<Var>,
     counters: usize,
-    txn: Option<TransactionMode>,
-    csr: usize,
+    /// The transaction mode this program requires
+    txm: Option<TransactionMode>,
+    /// This is the next available cursor slot index
+    next_cursor: usize,
 }
 
 /// Variable bindings where [depth] represents stack position.
@@ -42,8 +44,8 @@ impl<'c> Compiler<'c> {
             code: vec![],
             vars: vec![],
             counters: 0,
-            txn: None,
-            csr: 0,
+            txm: None,
+            next_cursor: 0,
         }
     }
 
@@ -73,17 +75,21 @@ impl<'c> Compiler<'c> {
         //
         // addr N:      Transaction     -> opens the transaction, falls through
         // addr N+1:    Jump 1          -> jumps back to body start
-        if let Some(txn) = self.txn {
+        if let Some(txn) = self.txm {
             self.emit_transaction(txn);
             self.patch(0, self.pc())?;
             self.emit_jump(1);
         }
 
-        Ok(self.code)
+        // Return the final program with appropriate counters
+        Ok(Program {
+            cursors: self.next_cursor,
+            instructions: self.code,
+        })
     }
 
     fn cc_create(&mut self, create: Create) {
-        self.txn = Some(TransactionMode::Write);
+        self.txm = Some(TransactionMode::Write);
 
         // Open the system catalog (oid=0).
         let csr = self.next_cursor();
@@ -263,7 +269,7 @@ impl<'c> Compiler<'c> {
 
     /// Ensures the program as at least the given transaction mode
     fn ensure_txn(&mut self, txn: TransactionMode) {
-        self.txn = Some(txn.coalesce(self.txn));
+        self.txm = Some(txn.coalesce(self.txm));
     }
 
     //------------------------------
@@ -363,8 +369,8 @@ impl<'c> Compiler<'c> {
 
     /// Returns the next available cursor index
     fn next_cursor(&mut self) -> usize {
-        let c = self.csr;
-        self.csr += 1;
+        let c = self.next_cursor;
+        self.next_cursor += 1;
         c
     }
 
@@ -505,7 +511,7 @@ mod tests {
     #[test]
     fn select_star_from_catalog_bytecode_shape() {
         let (_dir, catalog) = fixture();
-        let code = compile_sql(&catalog, "select * from catalog;");
+        let code = compile_sql(&catalog, "select * from catalog;").instructions;
         // Note: an extra `Obj` from cc_select_constructor lands after `Return`
         // (dead code given the hardcoded select-* body); shape is preserved
         // here so the resolution path is what we're guarding.
@@ -525,7 +531,7 @@ mod tests {
     #[test]
     fn create_table_bytecode_shape() {
         let (_dir, catalog) = fixture();
-        let code = compile_sql(&catalog, "create table t (id int);");
+        let code = compile_sql(&catalog, "create table t (id int);").instructions;
         assert_eq!(code.len(), 9);
         assert!(matches!(code[0], Vop::Init { jmp: 7 }));
         assert!(matches!(code[1], Vop::Open { csr: 0, tbl: 0 }));
@@ -543,7 +549,7 @@ mod tests {
         // Guards the latent slot-vs-push bug: the single emitted cursor
         // must use index 0 so that vm.cursors.push lands in the expected slot.
         let (_dir, catalog) = fixture();
-        let code = compile_sql(&catalog, "select * from catalog;");
+        let code = compile_sql(&catalog, "select * from catalog;").instructions;
         for op in &code {
             match op {
                 Vop::Open { csr, .. }

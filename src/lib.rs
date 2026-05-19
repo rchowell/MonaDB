@@ -75,7 +75,7 @@ impl MonaDB {
         println!();
         println!("addr\toperation");
         println!("----\t---------");
-        for (addr, op) in program.iter().enumerate() {
+        for (addr, op) in program.instructions.iter().enumerate() {
             println!("{addr:04}\t{op:?}");
         }
         println!();

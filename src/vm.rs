@@ -9,18 +9,24 @@ use crate::transaction::{Transaction, TransactionMode};
 use crate::value::Value;
 use crate::{Result, unsupported};
 
-/// Program is a sequence of virtual machine instructions.
-pub type Program = Vec<Vop>;
+/// Program is a sequence of virtual machine instructions and relevant state.
+pub struct Program {
+    /// The number of cursor slots needed
+    pub cursors: usize,
+    /// The program's instruction set
+    pub instructions: Vec<Vop>,
+}
 
 /// Vop is a virtual machine instruction code.
 ///
-/// Operand naming conventions are strict 3-chars.
+/// Operand naming conventions are strict 3-chars
 ///   csr  – cursor slot
-///   tbl  – index into vm tables
-///   cst  – index into vm constants
+///   tbl  – a btree table oid
+///   cst  – index into vm constants (does not exist yet)
 ///   jmp  – jump target (absolute PC)
 ///   cnt  – count (arity, column count, …)
-///   key  – secondary-key discriminant (u8 tag, variant selector)
+///   key  – (does not exist yet)
+///   val  - inline (for now) values
 ///
 /// TODO: Make this Copy in the near future.
 ///
@@ -112,8 +118,8 @@ pub struct VM {
     storage: Storage,
     /// The program counter.
     pc: usize,
-    /// The program.
-    program: Program,
+    /// The program instructions
+    instructions: Vec<Vop>,
     /// The stack.
     stack: Vec<Value>,
     /// The open cursors, addressed by index; dropped before the transaction.
@@ -124,14 +130,16 @@ pub struct VM {
 
 impl VM {
     pub fn init(storage: Storage, program: Program) -> VM {
+        // Allocate an unopened cursor for each slot
+        let mut cursors = Vec::with_capacity(program.cursors);
+        cursors.resize_with(program.cursors, Cursor::new);
         VM {
             storage,
             pc: 0,
-            program,
+            instructions: program.instructions,
             stack: vec![],
             txn: None,
-            cursors: vec![],
-            // counters: vec![0; 10],
+            cursors,
         }
     }
 
@@ -144,7 +152,7 @@ impl VM {
     }
 
     fn pop(&mut self) -> Value {
-        self.stack.pop().unwrap()
+        self.stack.pop().expect("Stack is empty")
     }
 
     fn take(&mut self, n: usize) -> Vec<Value> {
@@ -160,7 +168,7 @@ impl VM {
     pub fn next(&mut self) -> Result<Option<Value>> {
         loop {
             // TODO: make vop 'Copy' then deref
-            let op = self.program[self.pc].clone();
+            let op = self.instructions[self.pc].clone();
             self.pc += 1;
             match &op {
                 Vop::Init { jmp } => {
@@ -314,11 +322,9 @@ impl VM {
                 // Cursor Instructions
                 //
                 Vop::Open { csr, tbl } => {
-                    // TODO: assign new cursor to cursors[csr], push is only ok right now
                     let txn = self.txn.as_ref().expect("Open before Transaction");
                     let btree = self.storage.open_btree(txn, *tbl)?;
-                    let cursor = Cursor::new(btree);
-                    self.cursors.push(cursor);
+                    self.cursors[*csr].open(btree);
                 }
                 Vop::Scan { csr, jmp} => {
                     let txn = self.txn.as_ref().expect("Scan before Transaction");

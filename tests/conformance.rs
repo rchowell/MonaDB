@@ -82,7 +82,7 @@ fn run_step(db: &mut MonaDB, step: &Step, idx: usize) -> Result<(), String> {
     match (&step.result, &step.error) {
         (Some(expected_yaml), None) => {
             let mut rows = db
-                .exec(&step.sql, false)
+                .exec(&step.sql, true)
                 .map_err(|e| format!("step {idx}: unexpected error: {e:?}"))?;
 
             let mut actual: Vec<Json> = Vec::new();
@@ -107,7 +107,7 @@ fn run_step(db: &mut MonaDB, step: &Step, idx: usize) -> Result<(), String> {
         }
         (None, Some(expected_cat)) => {
             let result = db
-                .exec(&step.sql, false)
+                .exec(&step.sql, true)
                 .and_then(|mut rows| {
                     while rows.next()?.is_some() {}
                     Ok(())
@@ -131,7 +131,7 @@ fn run_step(db: &mut MonaDB, step: &Step, idx: usize) -> Result<(), String> {
         (None, None) => {
             // fire-and-forget: must succeed, output is not checked
             let mut rows = db
-                .exec(&step.sql, false)
+                .exec(&step.sql, true)
                 .map_err(|e| format!("step {idx}: unexpected error: {e:?}"))?;
             while rows
                 .next()
