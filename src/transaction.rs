@@ -112,9 +112,9 @@ mod tests {
         (dir, storage)
     }
 
-    fn make_btree(storage: &Storage, name: &str) -> BTree {
+    fn make_btree(storage: &Storage, oid: u32) -> BTree {
         let mut txn = Transaction::write(storage).unwrap();
-        let btree = storage.create_btree(&mut txn, name).unwrap();
+        let btree = storage.create_btree(&mut txn, oid).unwrap();
         txn.commit().unwrap();
         btree
     }
@@ -128,7 +128,7 @@ mod tests {
     #[test]
     fn write_then_commit_persists() {
         let (_dir, storage) = open();
-        let btree = make_btree(&storage, "t");
+        let btree = make_btree(&storage, 1);
         let mut txn = Transaction::write(&storage).unwrap();
         btree.put(txn.as_rw().unwrap(), b"k", b"v").unwrap();
         txn.commit().unwrap();
@@ -140,7 +140,7 @@ mod tests {
     #[test]
     fn write_then_drop_aborts() {
         let (_dir, storage) = open();
-        let btree = make_btree(&storage, "t");
+        let btree = make_btree(&storage, 1);
         {
             let mut txn = Transaction::write(&storage).unwrap();
             btree.put(txn.as_rw().unwrap(), b"k", b"v").unwrap();
@@ -152,7 +152,7 @@ mod tests {
     #[test]
     fn abort_discards_writes() {
         let (_dir, storage) = open();
-        let btree = make_btree(&storage, "t");
+        let btree = make_btree(&storage, 1);
         let mut txn = Transaction::write(&storage).unwrap();
         btree.put(txn.as_rw().unwrap(), b"k", b"v").unwrap();
         txn.abort();
@@ -171,7 +171,7 @@ mod tests {
     #[test]
     fn as_ro_on_write_succeeds() {
         let (_dir, storage) = open();
-        let _btree = make_btree(&storage, "t");
+        let _btree = make_btree(&storage, 1);
         let txn = Transaction::write(&storage).unwrap();
         let _ = txn.as_ro();
     }
@@ -201,7 +201,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("test.db");
         let storage = Storage::open(&path).unwrap();
-        let btree = make_btree(&storage, "t");
+        let btree = make_btree(&storage, 1);
         let mut txn = Transaction::write(&storage).unwrap();
         btree.put(txn.as_rw().unwrap(), b"k", b"v").unwrap();
         drop(storage);
@@ -209,7 +209,7 @@ mod tests {
 
         let storage = Storage::open(&path).unwrap();
         let ro = Transaction::read(&storage).unwrap();
-        let btree = storage.open_btree(&ro, "t").unwrap();
+        let btree = storage.open_btree(&ro, 1).unwrap();
         assert_eq!(btree.get(ro.as_ro(), b"k").unwrap(), Some(b"v".as_slice()));
     }
 }

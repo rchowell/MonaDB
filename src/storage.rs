@@ -40,18 +40,27 @@ impl Storage {
         Ok(Self { env })
     }
 
-    /// Creates a new b-tree and returns a handle.
-    pub fn create_btree(&self, txn: &mut Transaction, name: &str) -> Result<BTree> {
+    /// Creates a new b-tree for the given oid and returns a handle.
+    pub fn create_btree(&self, txn: &mut Transaction, oid: u32) -> Result<BTree> {
         let wtxn = txn.as_rw()?;
-        let btree = self.env.create_database(wtxn, Some(name))?;
+        let btree = self.env.create_database(wtxn, Some(&hex(oid)))?;
         Ok(btree)
     }
 
-    pub fn open_btree(&self, txn: &Transaction, name: &str) -> Result<BTree> {
+    /// Opens the b-tree for the given oid.
+    pub fn open_btree(&self, txn: &Transaction, oid: u32) -> Result<BTree> {
         let rtxn = txn.as_ro();
-        let cursor = self.env.open_database(rtxn, Some(name))?.unwrap();
-        Ok(cursor)
+        let btree = self
+            .env
+            .open_database(rtxn, Some(&hex(oid)))?
+            .expect("btree does not exist");
+        Ok(btree)
     }
+}
+
+/// LMDB database name for a given oid; internal to storage.
+fn hex(oid: u32) -> String {
+    format!("{oid:08x}")
 }
 
 #[cfg(test)]
@@ -67,13 +76,13 @@ mod tests {
         {
             let storage = Storage::open(&path).unwrap();
             let mut txn = Transaction::write(&storage).unwrap();
-            let btree = storage.create_btree(&mut txn, "t").unwrap();
+            let btree = storage.create_btree(&mut txn, 1).unwrap();
             btree.put(txn.as_rw().unwrap(), b"k", b"v").unwrap();
             txn.commit().unwrap();
         }
         let storage = Storage::open(&path).unwrap();
         let txn = Transaction::read(&storage).unwrap();
-        let btree = storage.open_btree(&txn, "t").unwrap();
+        let btree = storage.open_btree(&txn, 1).unwrap();
         assert_eq!(btree.get(txn.as_ro(), b"k").unwrap(), Some(b"v".as_slice()));
     }
 
@@ -82,8 +91,8 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let storage = Storage::open(dir.path().join("t.db")).unwrap();
         let mut txn = Transaction::write(&storage).unwrap();
-        let a = storage.create_btree(&mut txn, "x").unwrap();
-        let b = storage.create_btree(&mut txn, "x").unwrap();
+        let a = storage.create_btree(&mut txn, 7).unwrap();
+        let b = storage.create_btree(&mut txn, 7).unwrap();
         a.put(txn.as_rw().unwrap(), b"k", b"v").unwrap();
         assert_eq!(b.get(txn.as_ro(), b"k").unwrap(), Some(b"v".as_slice()));
     }
@@ -93,7 +102,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let storage = Storage::open(dir.path().join("t.db")).unwrap();
         let mut txn = Transaction::write(&storage).unwrap();
-        let btree = storage.create_btree(&mut txn, "t").unwrap();
+        let btree = storage.create_btree(&mut txn, 1).unwrap();
         btree.put(txn.as_rw().unwrap(), b"k", b"v").unwrap();
         txn.commit().unwrap();
 
@@ -108,12 +117,15 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let storage = Storage::open(dir.path().join("t.db")).unwrap();
         let mut txn = Transaction::write(&storage).unwrap();
-        let btree = storage.create_btree(&mut txn, "t").unwrap();
+        let btree = storage.create_btree(&mut txn, 1).unwrap();
         btree.put(txn.as_rw().unwrap(), b"a", b"1").unwrap();
         txn.commit().unwrap();
 
         let snap = Transaction::read(&storage).unwrap();
-        assert_eq!(btree.get(snap.as_ro(), b"a").unwrap(), Some(b"1".as_slice()));
+        assert_eq!(
+            btree.get(snap.as_ro(), b"a").unwrap(),
+            Some(b"1".as_slice())
+        );
         assert_eq!(btree.get(snap.as_ro(), b"b").unwrap(), None);
 
         let mut w = Transaction::write(&storage).unwrap();

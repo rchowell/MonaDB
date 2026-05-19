@@ -106,7 +106,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let storage = Storage::open(dir.path().join("test.db")).unwrap();
         let mut txn = Transaction::write(&storage).unwrap();
-        let btree = storage.create_btree(&mut txn, "test").unwrap();
+        let btree = storage.create_btree(&mut txn, 1).unwrap();
         {
             let wtxn = txn.as_rw().unwrap();
             for (k, v) in rows {
@@ -120,7 +120,7 @@ mod tests {
     /// Opens a fresh read txn against the "test" btree.
     fn open_read(storage: &Storage) -> (Transaction, BTree) {
         let txn = Transaction::read(storage).unwrap();
-        let btree = storage.open_btree(&txn, "test").unwrap();
+        let btree = storage.open_btree(&txn, 1).unwrap();
         (txn, btree)
     }
 
@@ -324,7 +324,7 @@ mod tests {
     fn insert_visible_via_scan_in_same_txn() {
         let (_dir, storage) = fixture(&[]);
         let mut txn = Transaction::write(&storage).unwrap();
-        let btree = storage.open_btree(&txn, "test").unwrap();
+        let btree = storage.open_btree(&txn, 1).unwrap();
         let mut cursor = Cursor::new(btree);
         cursor.insert(&mut txn, b"k", b"v").unwrap();
         assert!(cursor.scan(&txn, None).unwrap());
@@ -335,7 +335,7 @@ mod tests {
     fn insert_fails_on_read_only_txn() {
         let (_dir, storage) = fixture(&[]);
         let mut ro = Transaction::read(&storage).unwrap();
-        let btree = storage.open_btree(&ro, "test").unwrap();
+        let btree = storage.open_btree(&ro, 1).unwrap();
         let cursor = Cursor::new(btree);
         let err = cursor.insert(&mut ro, b"k", b"v").unwrap_err();
         assert!(matches!(err, Error::InternalError(_)));
@@ -363,7 +363,7 @@ mod tests {
     fn drop_cursor_before_commit_is_safe() {
         let (_dir, storage) = fixture(&[(b"a", b"1"), (b"b", b"2")]);
         let txn = Transaction::read(&storage).unwrap();
-        let btree = storage.open_btree(&txn, "test").unwrap();
+        let btree = storage.open_btree(&txn, 1).unwrap();
         {
             let mut cursor = Cursor::new(btree);
             assert!(cursor.scan(&txn, None).unwrap());
@@ -375,7 +375,7 @@ mod tests {
     fn write_txn_commits_after_cursor_state() {
         let (_dir, storage) = fixture(&[]);
         let mut txn = Transaction::write(&storage).unwrap();
-        let btree = storage.open_btree(&txn, "test").unwrap();
+        let btree = storage.open_btree(&txn, 1).unwrap();
         {
             let cursor = Cursor::new(btree);
             cursor.insert(&mut txn, b"k", b"v").unwrap();

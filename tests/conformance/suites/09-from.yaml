@@ -75,7 +75,8 @@ tests:
     description: two sources separated by comma form a lateral cross product
     setup:
       - create table S;
-      - insert into S ({b: 10}, {b: 20});
+      - |
+        insert into S ({b: 10}, {b: 20});
     steps:
       - sql: |
           insert into T ({a: 1}, {a: 2});

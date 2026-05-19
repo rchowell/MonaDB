@@ -17,6 +17,7 @@ pub enum Error {
     Unknown,
     UnknownTable(String),
     UnknownFunction(String),
+    UnboundTable(String),
 }
 
 impl Error {
@@ -55,7 +56,7 @@ impl Error {
             result.push('\n');
             result
             }
-            _ => format!("{:?}", self),
+            _ => format!("{self:?}"),
         }
 
     }

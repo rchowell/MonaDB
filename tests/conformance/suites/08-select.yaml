@@ -12,7 +12,8 @@ tests:
     steps:
       - sql: |
           insert into T ({x: 1});
-      - sql: select . from T as t;
+      - sql: |
+          select . from T as t;
         result:
           - {t: {x: 1}}
 
@@ -21,7 +22,8 @@ tests:
     steps:
       - sql: |
           insert into T ({x: 1, y: 2});
-      - sql: select * from T as t;
+      - sql: |
+          select * from T as t;
         result:
           - {x: 1, y: 2}
 
@@ -30,7 +32,8 @@ tests:
     steps:
       - sql: |
           insert into T ({x: 1}, {x: 2});
-      - sql: select t.x from T as t order t.x;
+      - sql: |
+          select t.x from T as t order t.x;
         result: [1, 2]
 
   - id: select-expr-literal
@@ -38,7 +41,8 @@ tests:
     steps:
       - sql: |
           insert into T ({x: 1}, {x: 2});
-      - sql: select 7 from T as t order t.x;
+      - sql: |
+          select 7 from T as t order t.x;
         result: [7, 7]
 
   - id: select-expr-object
@@ -46,7 +50,8 @@ tests:
     steps:
       - sql: |
           insert into T ({x: 1});
-      - sql: "select {a: t.x} from T as t;"
+      - sql: |
+          "select {a: t.x} from T as t;"
         result:
           - {a: 1}
 
@@ -55,7 +60,8 @@ tests:
     steps:
       - sql: |
           insert into T ({x: 10});
-      - sql: select t.x as a from T as t;
+      - sql: |
+          select t.x as a from T as t;
         result:
           - {a: 10}
 
@@ -64,7 +70,8 @@ tests:
     steps:
       - sql: |
           insert into T ({x: 1, y: 2});
-      - sql: select t.x as a, t.y as b from T as t;
+      - sql: |
+          select t.x as a, t.y as b from T as t;
         result:
           - {a: 1, b: 2}
 
@@ -73,19 +80,18 @@ tests:
     steps:
       - sql: |
           insert into T ({x: 1});
-      - sql: select 1 as a, 'hi' as b from T as t;
+      - sql: |
+          select 1 as a, 'hi' as b from T as t;
         result:
           - {a: 1, b: "hi"}
-
-  # From a single source — branches
-  #-----------------------------------
 
   - id: from-bare-table
     description: from <ident> uses the table name as the implicit alias
     steps:
       - sql: |
           insert into T ({x: 1});
-      - sql: select T.x from T;
+      - sql: |
+          select T.x from T;
         result: [1]
 
   - id: from-table-with-as-alias
@@ -93,7 +99,8 @@ tests:
     steps:
       - sql: |
           insert into T ({x: 7});
-      - sql: select t.x from T as t;
+      - sql: |
+          select t.x from T as t;
         result: [7]
 
   - id: from-table-with-implicit-alias
@@ -101,5 +108,6 @@ tests:
     steps:
       - sql: |
           insert into T ({x: 9});
-      - sql: select t.x from T t;
+      - sql: |
+          select t.x from T t;
         result: [9]

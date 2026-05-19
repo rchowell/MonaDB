@@ -53,7 +53,7 @@ impl MonaDB {
     /// Execute the given sql statement(s).
     pub fn exec(&mut self, sql: &str, debug: bool) -> Result<Rows> {
         let statement = Self::parse(sql)?;
-        let program = Self::compile(statement)?;
+        let program = self.compile(statement)?;
         if debug {
             Self::debug(&program);
         }
@@ -67,9 +67,8 @@ impl MonaDB {
         Ok(p.parse(l)?)
     }
 
-    pub fn compile(statement: Statement) -> Result<Program> {
-        let c = Compiler::new();
-        c.compile(statement)
+    pub fn compile(&self, statement: Statement) -> Result<Program> {
+        Compiler::new(&self.catalog).compile(statement)
     }
 
     fn debug(program: &Program) {

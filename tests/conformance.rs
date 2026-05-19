@@ -1,10 +1,12 @@
 // Conformance test harness for the SQL language spec.
 //
 // Test data lives in tests/conformance/suites/*.yaml (see FORMAT.md for the schema).
-// Each suite function below is #[ignore] until Connection::memory() is implemented.
+// build.rs walks the suites directory and emits one #[test] per case into
+// $OUT_DIR/conformance_generated.rs, which is included at the bottom of this file.
 //
-// To run once that lands:
-//   cargo test conformance -- --ignored
+// Run: cargo test --test conformance
+// List: cargo test --test conformance -- --list
+// Single: cargo test --test conformance <suite>__<case>  e.g. select_clause__select_dot
 
 use monadb::error::Error;
 use monadb::MonaDB;
@@ -49,19 +51,6 @@ fn load_suite(path: &str) -> Suite {
         .unwrap_or_else(|e| panic!("cannot parse {path}: {e}"))
 }
 
-fn run_suite(path: &str) {
-    let suite = load_suite(path);
-    let mut failures: Vec<String> = Vec::new();
-    for test in &suite.tests {
-        if let Err(msg) = run_test(&suite, test) {
-            failures.push(format!("{}::{} — {}", suite.suite, test.id, msg));
-        }
-    }
-    if !failures.is_empty() {
-        panic!("\nconformance failures:\n{}", failures.join("\n"));
-    }
-}
-
 fn run_test(suite: &Suite, test: &TestCase) -> Result<(), String> {
     let mut db = MonaDB::memory()
         .map_err(|e| format!("MonaDB::memory() failed: {e:?}"))?;
@@ -78,7 +67,7 @@ fn run_test(suite: &Suite, test: &TestCase) -> Result<(), String> {
 fn exec_stmts(db: &mut MonaDB, stmts: &[String]) -> Result<(), String> {
     for stmt in stmts {
         let mut rows = db
-            .exec(stmt, false)
+            .exec(stmt, true)
             .map_err(|e| format!("setup/teardown stmt failed ({stmt:?}): {e:?}"))?;
         while rows
             .next()
@@ -162,7 +151,10 @@ fn run_step(db: &mut MonaDB, step: &Step, idx: usize) -> Result<(), String> {
 fn error_category(err: &Error) -> &'static str {
     match err {
         Error::SyntaxError(_) => "syntax",
-        Error::UnknownTable(_) | Error::UnknownFunction(_) | Error::Unsupported(_) => "static",
+        Error::UnknownTable(_)
+        | Error::UnboundTable(_)
+        | Error::UnknownFunction(_)
+        | Error::Unsupported(_) => "static",
         Error::IoError(_) | Error::Storage(_) => "storage",
         Error::InternalError(_) | Error::Unknown => "runtime",
         Error::Transaction(_) => "transaction",
@@ -192,19 +184,19 @@ fn json_eq(a: &Json, b: &Json) -> bool {
     }
 }
 
-// ── Suite test functions ───────────────────────────────────────────────────────
+// ── Per-case entry point (called from generated #[test] functions) ────────────
 
-#[test]
-fn conformance_01_literals() {
-    run_suite("tests/conformance/suites/01-literals.yaml");
+fn run_case(rel_path: &str, id: &str) {
+    let full = format!("tests/{rel_path}");
+    let suite = load_suite(&full);
+    let test = suite
+        .tests
+        .iter()
+        .find(|t| t.id == id)
+        .unwrap_or_else(|| panic!("test {id:?} not in {full}"));
+    if let Err(msg) = run_test(&suite, test) {
+        panic!("{}::{} — {msg}", suite.suite, id);
+    }
 }
 
-#[test]
-fn conformance_08_select() {
-    run_suite("tests/conformance/suites/08-select.yaml");
-}
-
-#[test]
-fn conformance_09_from() {
-    run_suite("tests/conformance/suites/09-from.yaml");
-}
+include!(concat!(env!("OUT_DIR"), "/conformance_generated.rs"));

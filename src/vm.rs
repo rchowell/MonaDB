@@ -1,9 +1,7 @@
 use std::mem::take;
 use std::vec;
-use std::fmt::Write;
 
 use crate::cursor::Cursor;
-use crate::storage::BTree;
 use crate::storage::Storage;
 use heed::byteorder::BigEndian;
 use heed::byteorder::ByteOrder;
@@ -50,8 +48,8 @@ pub enum Vop {
     NewOid { csr: usize },
     /// Creates a new btree named by the stack[0] oid.
     NewBtree,
-    /// Opens the table 'tbl' and binds to cursors[csr].
-    Open { csr: usize, tbl: String },
+    /// Opens the table at the given table oid and binds to cursors[csr].
+    Open { csr: usize, tbl: u32 },
     /// Create a new object on the stack.
     Obj,
     /// Assign a value to an object member.
@@ -205,14 +203,9 @@ impl VM {
                     self.push(oid);
                 }
                 Vop::NewBtree => {
-                    // The btree name is the hex of the big-endian oid.
-                    let oid = self.peek().as_oid();
+                    let tbl = self.peek().as_oid();
                     let txn = self.txn.as_mut().unwrap();
-                    let mut name = String::with_capacity(8);
-                    for b in oid.to_be_bytes() {
-                        write!(&mut name, "{b:02x}")?;
-                    }
-                    self.storage.create_btree(txn, name.as_str())?;
+                    self.storage.create_btree(txn, tbl)?;
                 }
                 Vop::Obj => {
                     self.stack.push(Value::object());
@@ -323,7 +316,7 @@ impl VM {
                 Vop::Open { csr, tbl } => {
                     // TODO: assign new cursor to cursors[csr], push is only ok right now
                     let txn = self.txn.as_ref().expect("Open before Transaction");
-                    let btree = self.storage.open_btree(txn, tbl)?;
+                    let btree = self.storage.open_btree(txn, *tbl)?;
                     let cursor = Cursor::new(btree);
                     self.cursors.push(cursor);
                 }
