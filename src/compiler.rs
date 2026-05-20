@@ -91,15 +91,21 @@ impl<'c> Compiler<'c> {
     fn cc_create(&mut self, create: Create) {
         self.txm = Some(TransactionMode::Write);
 
-        // Open the system catalog (oid=0).
-        let csr = self.next_cursor();
-        self.emit_open(csr, CATALOG_OID);
+        // Create the table definition JSON-value
+        let Create::Table(table_definition) = &create;
+        let val = json!({
+            "name": table_definition.name,
+            "type": "table",
+            "sql": create.sql(),
+        });
 
-        // Determine the next oid before creating the btree.
-        self.emit_new_oid(csr);
-        self.emit_new_btree();
-
-        // Create the record for insertion, NewBtree only peeks the stack, oid is on top.
+        // Creating a table is an insert to the catalog table.
+        //
+        // 0   Open { tbl=0 }      Open the 'catalog' system table (oid=0)
+        // 1   Push { val }        Push the table definition; the insert value.
+        // 2   NewOid              Push the next oid; the insert key
+        // 3   NewBtree            Create the LMDB btree before insertion (peek NewOid)
+        // 4   Insert              Pop the key then the value, then insert into the new btree
         //
         // No need to do any key encoding work, already on the stack. Just need to push
         // the value. The insert will encode both the key and value for now. In the near
@@ -107,28 +113,11 @@ impl<'c> Compiler<'c> {
         // and likely an EncodeKey(n) and EncodeVal instructions prior to insert. We do
         // not need this yet since we only have single oid keys and just encode within the
         // insert operation handler.
-        //
-        // Simplified where 'oid' is already top of stack from the NewOid instruction.
-        //
-        // 0    Push    { val }     -> push unencoded value {}
-        // 1    Insert  { csr }     -> val=encode(pop()); key=encode(pop()); cursor.put(key, val)
-        //
-        // Later I'll change it to be more like:
-        //
-        // - value is top of stack
-        // - extract key 0..N pushing all to stack
-        // - encode key(N), pop N and key encode
-        // - encode val, pop and value encode
-        // - stack is now encoded [value, key]
-        // - insert does val=pop(), key=pop(), insert(key, val).
-        //
-        let Create::Table(tbl) = &create;
-        let val = json!({
-            "name": tbl.name,
-            "type": "table",
-            "sql": create.sql(),
-        });
+        let csr = self.next_cursor();
+        self.emit_open(csr, CATALOG_OID);
         self.emit_push(val);
+        self.emit_new_oid(csr);
+        self.emit_new_btree();
         self.emit_insert(csr);
     }
 
@@ -146,9 +135,9 @@ impl<'c> Compiler<'c> {
         let csr = self.next_cursor();
         let tbl = self.catalog.get_table(&insert.target)?;
         self.emit_open(csr, tbl);
-        // Compile all insert values
         for val in insert.source {
             self.cc_expr(val)?;
+            self.emit_new_oid(csr);
             self.emit_insert(csr);
         }
         Ok(())

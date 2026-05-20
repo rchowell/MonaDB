@@ -7,6 +7,7 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 /// Top-level error type.
 #[derive(Default, Debug, Clone, PartialEq)]
 pub enum Error {
+    JsonError(String),
     IoError(String),
     InternalError(String),
     Storage(String),

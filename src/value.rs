@@ -95,7 +95,7 @@ impl Value {
         if let JsonValue::Object(members) = &self.json() {
             let members = members
                 .iter()
-                .map(|(k, v)| (k.to_string(), Self::Json(v.clone())))
+                .map(|(k, v)| (k.clone(), Self::Json(v.clone())))
                 .collect();
             Some(members)
         } else {
@@ -196,19 +196,17 @@ impl Value {
         }
     }
 
-    /// Set obj[key] = value
     pub fn set(&mut self, key: String, value: Value) {
-        if let JsonValue::Object(members) = &mut self.json().clone() {
-            members.insert(key, value.json().clone());
+        if let Value::Json(JsonValue::Object(members)) = self {
+            members.insert(key, value.into_json());
         }
     }
 
     pub fn spread(&mut self, value: Value) {
-        if let JsonValue::Object(members) = &mut self.json().clone() {
-            if let JsonValue::Object(other) = value.json().clone() {
+        if let Value::Json(JsonValue::Object(members)) = self
+            && let Value::Json(JsonValue::Object(other)) = value {
                 members.extend(other);
             }
-        }
     }
 
     pub fn encode(&self) -> Result<Vec<u8>> {

@@ -155,7 +155,7 @@ fn error_category(err: &Error) -> &'static str {
         | Error::UnboundTable(_)
         | Error::UnknownFunction(_)
         | Error::Unsupported(_) => "static",
-        Error::IoError(_) | Error::Storage(_) => "storage",
+        Error::JsonError(_) | Error::IoError(_) | Error::Storage(_) => "storage",
         Error::InternalError(_) | Error::Unknown => "runtime",
         Error::Transaction(_) => "transaction",
     }

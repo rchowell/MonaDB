@@ -179,8 +179,8 @@ impl VM {
                     unsupported!("drop table {table:?} (Phase 1: not yet wired through storage)");
                 }
                 Vop::Insert { csr } => {
-                    let val = self.pop().encode()?;
                     let key = self.pop().encode()?;
+                    let val = self.pop().encode()?;
                     let csr = &self.cursors[*csr];
                     let txn = self.txn.as_mut().expect("Insert before Transaction");
                     csr.insert(txn, &key, &val)?;
