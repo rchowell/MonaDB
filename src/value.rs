@@ -16,6 +16,7 @@ use std::ops::{Add, Div, Mul, Rem, Sub};
 /// first I want to get the DDL up.
 #[derive(Clone, Eq)]
 pub enum Value {
+    None,
     Json(JsonValue),
     Oid(u32),
     Bytes(Vec<u8>),
@@ -204,9 +205,10 @@ impl Value {
 
     pub fn spread(&mut self, value: Value) {
         if let Value::Json(JsonValue::Object(members)) = self
-            && let Value::Json(JsonValue::Object(other)) = value {
-                members.extend(other);
-            }
+            && let Value::Json(JsonValue::Object(other)) = value
+        {
+            members.extend(other);
+        }
     }
 
     pub fn encode(&self) -> Result<Vec<u8>> {
@@ -224,6 +226,7 @@ impl Value {
                 let buf = bytes.clone();
                 Ok(buf)
             }
+            Value::None => Ok(Vec::new()),
         }
     }
 

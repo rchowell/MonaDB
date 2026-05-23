@@ -3,8 +3,7 @@ use serde_json::json;
 use crate::catalog::{Catalog, CATALOG_OID};
 use crate::error::Error;
 use crate::ir::{
-    Constructor, Create, Expr, Insert, Jpe, Jpi, Jpk, Member, Obj, Op, Select, Source,
-    Statement, ToSql,
+    Constructor, Create, Expr, Insert, Jpe, Jpi, Jpk, Member, Obj, Op, Ref, Select, Source, Statement, ToSql
 };
 use crate::transaction::TransactionMode;
 use crate::value::Value;
@@ -23,7 +22,7 @@ macro_rules! unsupported {
 pub struct Compiler<'c> {
     catalog: &'c Catalog,
     code: Vec<Vop>,
-    vars: Vec<Var>,
+    bindings: Vec<Binding>,
     counters: usize,
     /// The transaction mode this program requires
     txm: Option<TransactionMode>,
@@ -32,7 +31,7 @@ pub struct Compiler<'c> {
 }
 
 /// Variable bindings where [depth] represents stack position.
-pub struct Var {
+pub struct Binding {
     pub name: String,
 }
 
@@ -42,7 +41,7 @@ impl<'c> Compiler<'c> {
         Compiler {
             catalog,
             code: vec![],
-            vars: vec![],
+            bindings: vec![],
             counters: 0,
             txm: None,
             next_cursor: 0,
@@ -168,28 +167,27 @@ impl<'c> Compiler<'c> {
         // to_patch.push((loop_, 1)); // <- patch loop (rewind) to next+1
 
         // Extract the table name, we don't bind anything.
-        let tbl_name = match &select.from.src {
-            Source::Table(table) => table,
-            Source::Path(path) => unsupported!("from path: {:?}", path),
-            Source::Value(_) => unsupported!("from value"),
-        }.clone();
+        let Source::Table(tbl_name) = &select.from.src;
 
         // Resolve name to its stable oid
         let tbl = self.catalog.get_table(&tbl_name)?;
 
         // open
+        // push -> prefix (None is full scan)
         // scan -> jmp=next
         // ....
         // next -> jmp=scan
         let csr = self.next_cursor();
         let jmp = self.pc() + 2;
         self.emit_open(csr, tbl);
+        // TODO: prefix scans
+        // self.emit_push(Value::None);
         self.emit_scan(csr, jmp);
         let scan_pc = self.pc();
 
         // body, hardcoded for select *
         self.emit_load(csr);
-        self.emit_return();
+        self.emit_yield();
 
         // TODO: offset
         // if let Some(counter) = cnt_skip {
@@ -231,7 +229,7 @@ impl<'c> Compiler<'c> {
             Constructor::Star => {
                 self.emit_obj();
                 let mut i = sos; // start-of-scope
-                let n = self.vars.len();
+                let n = self.bindings.len();
                 while i < n {
                     self.emit_load(i);
                     self.emit_obj_spread();
@@ -273,7 +271,7 @@ impl<'c> Compiler<'c> {
             Expr::Lit(val) => self.cc_expr_lit(val),
             Expr::Obj(obj) => self.cc_expr_obj(obj),
             Expr::Op(op) => self.cc_expr_op(op),
-            Expr::Var(var) => self.cc_expr_var(var),
+            Expr::Var(var) => self.cc_expr_var(&var),
         }
     }
 
@@ -337,14 +335,14 @@ impl<'c> Compiler<'c> {
         Ok(())
     }
 
-    fn cc_expr_var(&mut self, name: String) -> Result<()> {
-        for (idx, var) in self.vars.iter().enumerate() {
-            if var.name == name {
+    fn cc_expr_var(&mut self, var: &Ref) -> Result<()> {
+        for (idx, binding) in self.bindings.iter().enumerate() {
+            if binding.name == var.name {
                 self.emit_load(idx);
                 return Ok(());
             }
         }
-        unsupported!("undefined variable: {}", name)
+        unsupported!("undefined variable: {}", var.name)
     }
 
     //------------------------------
@@ -365,7 +363,7 @@ impl<'c> Compiler<'c> {
 
     /// Define a variable in the current scope.
     fn define(&mut self, name: String) {
-        self.vars.push(Var { name });
+        self.bindings.push(Binding { name });
     }
 
     /// Define a counter with the given value.
@@ -468,8 +466,8 @@ impl<'c> Compiler<'c> {
         self.code.push(Vop::Push { val: val.into() });
     }
 
-    fn emit_return(&mut self) {
-        self.code.push(Vop::Return);
+    fn emit_yield(&mut self) {
+        self.code.push(Vop::Yield);
     }
 
     fn emit_transaction(&mut self, txn: TransactionMode) {
@@ -509,7 +507,7 @@ mod tests {
         assert!(matches!(code[1], Vop::Open { csr: 0, tbl: 0 }));
         assert!(matches!(code[2], Vop::Scan { csr: 0, jmp: 7 }));
         assert!(matches!(code[3], Vop::Load { csr: 0 }));
-        assert!(matches!(code[4], Vop::Return));
+        assert!(matches!(code[4], Vop::Yield));
         assert!(matches!(code[5], Vop::Obj));
         assert!(matches!(code[6], Vop::Next { csr: 0, jmp: 3 }));
         assert!(matches!(code[7], Vop::Halt));
@@ -521,12 +519,13 @@ mod tests {
     fn create_table_bytecode_shape() {
         let (_dir, catalog) = fixture();
         let code = compile_sql(&catalog, "create table t (id int);").instructions;
+        dbg!(&code);
         assert_eq!(code.len(), 9);
         assert!(matches!(code[0], Vop::Init { jmp: 7 }));
         assert!(matches!(code[1], Vop::Open { csr: 0, tbl: 0 }));
-        assert!(matches!(code[2], Vop::NewOid { csr: 0 }));
-        assert!(matches!(code[3], Vop::NewBtree));
-        assert!(matches!(code[4], Vop::Push { .. }));
+        assert!(matches!(code[2], Vop::Push { .. }));
+        assert!(matches!(code[3], Vop::NewOid { csr: 0 }));
+        assert!(matches!(code[4], Vop::NewBtree));
         assert!(matches!(code[5], Vop::Insert { csr: 0 }));
         assert!(matches!(code[6], Vop::Halt));
         assert!(matches!(code[7], Vop::Transaction { txm: TransactionMode::Write }));

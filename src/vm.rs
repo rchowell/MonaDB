@@ -98,8 +98,8 @@ pub enum Vop {
     Pop,
     /// Push a literal onto the stack.
     Push { val: Value },
-    /// Returns the top value from the stack.
-    Return,
+    /// Yields the top value from the stack, pausing the VM step
+    Yield,
     /// Initializes a cursor's scan state
     Scan { csr: usize, jmp: usize },
     /// Open a transaction with the given mode
@@ -235,7 +235,7 @@ impl VM {
                     // TODO: no clone, we want copy.
                     self.push(val.clone());
                 }
-                Vop::Return => {
+                Vop::Yield => {
                     let val = self.pop();
                     return Ok(Some(val));
                 }

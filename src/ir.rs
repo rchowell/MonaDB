@@ -1,4 +1,4 @@
-use std::vec;
+use std::{ffi::CStr, vec};
 
 use crate::value::Value;
 
@@ -67,23 +67,15 @@ pub enum Constructor {
 #[derive(Debug)]
 pub enum Source {
     Table(String),
-    Path(Path),
-    Value(Value),
+    // Path(Path),
+    // Value(Value),
 }
 
 #[derive(Debug)]
 pub struct From {
     pub src: Source,
     pub var: String, // AS <var>
-}
-
-impl Default for From {
-    fn default() -> Self {
-        From {
-            src: Source::Value(Value::null()),
-            var: String::new(),
-        }
-    }
+    pub csr: Option<usize>,
 }
 
 pub type Where = Expr;
@@ -161,7 +153,16 @@ pub enum Expr {
     Jpe(Jpe),
     Lit(Value),
     Obj(Obj),
-    Var(String),
+    Var(Ref),
+}
+
+/// Represents an unbound our bound variable reference.
+#[derive(Debug)]
+pub struct Ref {
+    /// The unboudn variable name
+    pub name: String,
+    /// The bound cursor slot
+    pub cursor: Option<usize>,
 }
 
 pub type Obj = Vec<Member>;
@@ -252,25 +253,17 @@ pub fn select_item(expr: Expr, name: String) -> Member {
 pub fn from_table(tbl: String) -> From {
     let src = Source::Table(tbl.clone());
     let var = tbl.clone();
-    From { src, var }
+    From { src, var, csr: None }
 }
 
 #[inline]
 pub fn from_source(src: Source, var: String) -> From {
-    From { src, var }
+    From { src, var, csr: None }
 }
 
 #[inline]
 pub fn from_source_table(tbl: String) -> Source {
     Source::Table(tbl.clone())
-}
-
-#[inline]
-pub fn from_source_path(identifier: String, segments: Vec<Segment>) -> Source {
-    Source::Path(Path {
-        identifier,
-        segments,
-    })
 }
 
 #[inline]
@@ -404,8 +397,8 @@ pub fn selector_index(idx: usize) -> Selector {
 //------------------------------
 
 #[inline]
-pub fn expr_var(var: String) -> Expr {
-    Expr::Var(var)
+pub fn expr_var(name: String) -> Expr {
+    Expr::Var(Ref { name, cursor: None })
 }
 
 #[inline]
@@ -466,42 +459,42 @@ mod test {
             // Table
             "T",
             "Table",
-            // Basic paths
-            "T$.store.book.title",
-            "T$.store['book'].title",
-            "T$.store['book']['title']",
-            "T$.store.book.*",
-            "T$.store.book[0]",
-            "T$.store.book[0].title",
-            "T$.store.book[0]..title",
-            "T$.store.book[0]..*",
-            "T$.store.book[0]..*.*",
-            // Wildcard paths
-            "T$.store.*.title",
-            "T$.store.*[0]",
-            "T$.store.*[0].title",
-            "T$.store.*[0]..title",
-            "T$.store.*[0]..*",
-            "T$.store.*[0]..*.*",
-            // Array indices
-            "T$.store.book[0]",
-            "T$.store.book[1]",
-            "T$.store.book[-1]",
-            "T$.store.book[0,1]",
-            // Array slices
-            // "T$.store.book[0:2]",
-            // "T$.store.book[:2]",
-            // "T$.store.book[1:]",
-            // "T$.store.book[::2]",
-            // Recursive descent
-            "T$..book",
-            "T$..book.title",
-            "T$..book[0]",
-            "T$..book[0].title",
-            "T$..book[0]..title",
-            "T$..book[0]..*",
-            "T$..book[0]..*.*",
-            // Filters
+            // // Basic paths
+            // "T$.store.book.title",
+            // "T$.store['book'].title",
+            // "T$.store['book']['title']",
+            // "T$.store.book.*",
+            // "T$.store.book[0]",
+            // "T$.store.book[0].title",
+            // "T$.store.book[0]..title",
+            // "T$.store.book[0]..*",
+            // "T$.store.book[0]..*.*",
+            // // Wildcard paths
+            // "T$.store.*.title",
+            // "T$.store.*[0]",
+            // "T$.store.*[0].title",
+            // "T$.store.*[0]..title",
+            // "T$.store.*[0]..*",
+            // "T$.store.*[0]..*.*",
+            // // Array indices
+            // "T$.store.book[0]",
+            // "T$.store.book[1]",
+            // "T$.store.book[-1]",
+            // "T$.store.book[0,1]",
+            // // Array slices
+            // // "T$.store.book[0:2]",
+            // // "T$.store.book[:2]",
+            // // "T$.store.book[1:]",
+            // // "T$.store.book[::2]",
+            // // Recursive descent
+            // "T$..book",
+            // "T$..book.title",
+            // "T$..book[0]",
+            // "T$..book[0].title",
+            // "T$..book[0]..title",
+            // "T$..book[0]..*",
+            // "T$..book[0]..*.*",
+            // // Filters
             // "T$.store.book[?(@.price < 10)]",
             // "T$.store.book[?(@.price <= 10)]",
             // "T$.store.book[?(@.price > 10)]",

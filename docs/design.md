@@ -138,3 +138,26 @@ cursors. This keep-alive pattern is yolk-inspired.
 This could be a whole blog post, but I basically just ported my work
 from partiql kotlin to rust which is wadler-inspired.
 https://github.com/partiql/partiql-lang-kotlin/tree/main/partiql-ast/src/main/java/org/partiql/ast/sql
+
+
+## Compilation
+
+From Postgres, "The reason for separating raw parsing from semantic analysis is that system catalog lookups can only be done within a transaction, and we do not wish to start a transaction immediately upon receiving a query string.".
+
+This is exactly true for MonaDB too.
+
+1. Parse
+2. Bind
+3. Emit
+
+
+**Variable Binding**
+
+Well, I also just realized that I will need to have a cursor backed
+by an iterable/container value! 
+
+
+## Intermediate Representation
+
+One day I'll make the IR bump allocated, for now I'll do all owned
+with box/arc for self-references.

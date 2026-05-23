@@ -1,0 +1,1 @@
+https://antithesis.com/blog/2026/hegel/

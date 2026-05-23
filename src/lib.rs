@@ -9,6 +9,7 @@ mod value;
 mod lexer;
 mod storage;
 mod transaction;
+mod visitor;
 mod vm;
 
 // lalrpop module

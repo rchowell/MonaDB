@@ -132,7 +132,8 @@ From: ir::From = {
 
 FromSource: ir::Source = {
     <"ident">                   => ir::from_source_table(<>),
-    <"ident"> "$" <Segment+>    => ir::from_source_path(<>),
+    // TODO: unnest
+    // TODO: value
 };
 
 Where: ir::Where = "where" <Expr>;
