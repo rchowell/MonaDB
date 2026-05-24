@@ -3,9 +3,15 @@ suites:
   - file: suites/01-literals.yaml
     title: Literals
     spec_ref: "§3.1"
+  - file: suites/06-insert.yaml
+    title: insert
+    spec_ref: "§6.1"
   - file: suites/08-select.yaml
     title: select clause
     spec_ref: "§4.1"
   - file: suites/09-from.yaml
     title: from clause
     spec_ref: "§4.2"
+  - file: suites/10-where.yaml
+    title: where clause
+    spec_ref: "§4.4"

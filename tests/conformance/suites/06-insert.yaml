@@ -1,0 +1,122 @@
+suite: insert
+spec_ref: "§6.1"
+description: insert into table — single and multi-value expr lists.
+
+setup:
+  - create table T;
+
+tests:
+  - id: insert-single-row
+    description: one object in the values list produces one row
+    steps:
+      - sql: |
+          insert into T ({x: 1});
+      - sql: |
+          select * from T;
+        result:
+          - {x: 1}
+
+  - id: insert-multi-two-rows
+    description: two objects in one statement produce two rows
+    steps:
+      - sql: |
+          insert into T ({x: 1}, {x: 2});
+      - sql: |
+          select * from T;
+        result:
+          - {x: 1}
+          - {x: 2}
+
+  - id: insert-multi-five-rows
+    description: five objects in one statement are all persisted
+    steps:
+      - sql: |
+          insert into T ({x: 1}, {x: 2}, {x: 3}, {x: 4}, {x: 5});
+      - sql: |
+          select * from T;
+        result:
+          - {x: 1}
+          - {x: 2}
+          - {x: 3}
+          - {x: 4}
+          - {x: 5}
+
+  - id: insert-multi-equivalent-to-separate
+    description: one multi-value insert persists all rows
+    steps:
+      - sql: |
+          insert into T ({x: 1}, {x: 2}, {x: 3});
+      - sql: |
+          select * from T;
+        result:
+          - {x: 1}
+          - {x: 2}
+          - {x: 3}
+
+  - id: insert-multi-equivalent-separate-steps
+    description: three single-value inserts produce the same table as one multi-value insert
+    steps:
+      - sql: |
+          insert into T ({x: 1});
+      - sql: |
+          insert into T ({x: 2});
+      - sql: |
+          insert into T ({x: 3});
+      - sql: |
+          select * from T;
+        result:
+          - {x: 1}
+          - {x: 2}
+          - {x: 3}
+
+  - id: insert-multi-heterogeneous-objects
+    description: values in one insert may differ in shape
+    steps:
+      - sql: |
+          insert into T ({x: 1, y: 2}, {x: 3});
+      - sql: |
+          select * from T;
+        result:
+          - {x: 1, y: 2}
+          - {x: 3}
+
+  - id: insert-multi-scalar-literals
+    description: expr_list may contain scalar literals, not only objects
+    steps:
+      - sql: |
+          insert into T (1, 2, 3);
+      - sql: |
+          select * from T;
+        result: [1, 2, 3]
+
+  - id: insert-multi-multiline
+    description: values list may span multiple lines
+    steps:
+      - sql: |
+          insert into T (
+              {x: 1},
+              {x: 2},
+              {x: 3}
+          );
+      - sql: |
+          select * from T;
+        result:
+          - {x: 1}
+          - {x: 2}
+          - {x: 3}
+
+  - id: insert-unknown-table
+    description: inserting into an undeclared table is a static error
+    steps:
+      - sql: |
+          insert into Ghost ({x: 1});
+        error: static
+
+  - id: insert-empty-list
+    description: empty values list is a no-op
+    steps:
+      - sql: |
+          insert into T ();
+      - sql: |
+          select * from T;
+        result: []

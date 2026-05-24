@@ -52,8 +52,24 @@ impl Value {
     }
 
     #[inline]
-    pub fn string(value: String) -> Value {
-        Self::Json(JsonValue::String(value))
+    pub fn string(raw: String) -> Value {
+        Self::Json(JsonValue::String(parse_string_literal(&raw)))
+    }
+
+    /// SQL equality: `null = null` is true; `null = x` (x non-null) is false.
+    pub fn eq(&self, other: &Self) -> bool {
+        if self.is_null() || other.is_null() {
+            return self.is_null() && other.is_null();
+        }
+        self.json() == other.json()
+    }
+
+    /// SQL inequality: any comparison involving `null` is false (not true).
+    pub fn ne(&self, other: &Self) -> bool {
+        if self.is_null() || other.is_null() {
+            return false;
+        }
+        self.json() != other.json()
     }
 
     #[inline]
@@ -365,9 +381,33 @@ impl Rem for Value {
     }
 }
 
+fn parse_string_literal(raw: &str) -> String {
+    let bytes = raw.as_bytes();
+    if raw.len() >= 2
+        && ((bytes[0] == b'\'' && bytes[raw.len() - 1] == b'\'')
+            || (bytes[0] == b'"' && bytes[raw.len() - 1] == b'"'))
+    {
+        let quote = bytes[0] as char;
+        let inner = &raw[1..raw.len() - 1];
+        let mut out = String::new();
+        let mut chars = inner.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c == quote && chars.peek() == Some(&quote) {
+                chars.next();
+                out.push(quote);
+            } else {
+                out.push(c);
+            }
+        }
+        out
+    } else {
+        raw.to_string()
+    }
+}
+
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
-        self.json() == other.json()
+        self.eq(other)
     }
 }
 

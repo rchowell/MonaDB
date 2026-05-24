@@ -172,25 +172,17 @@ impl Compiler {
         self.emit_scan(csr, jmp);
         let scan_pc = self.pc();
 
-        // body, hardcoded for select *
+        let mut if_not_pc: Option<usize> = None;
+        if let Some(where_) = select.where_ {
+            self.cc_expr(where_)?;
+            self.emit_if_not(0);
+            if_not_pc = Some(self.pc());
+        }
+
+        // body
         self.emit_load(csr);
-        self.emit_yield();
-
-        // TODO: offset
-        // if let Some(counter) = cnt_skip {
-        //     self.emit_cnt_if_pos(counter, 0);
-        //     to_patch.push((self.pc(), 0)); // <- patch cnt_if_pos to next
-        // }
-
-        // TODO: where
-        // if let Some(where_) = select.where_ {
-        //     self.cc_expr(where_)?;
-        //     self.emit_if_not(0);
-        //     to_patch.push((self.pc(), 0)); // <- patch if_not to next
-        // }
-
-        // select
         self.cc_select_constructor(select.select, 1)?;
+        self.emit_yield();
 
         // TODO: limit
         // if let Some(counter) = cnt_take {
@@ -201,7 +193,10 @@ impl Compiler {
         // loop close
         self.emit_next(csr, scan_pc + 1);
         let next_pc = self.pc();
-        self.patch(scan_pc, next_pc + 1);
+        if let Some(pc) = if_not_pc {
+            self.patch(pc, next_pc)?;
+        }
+        self.patch(scan_pc, next_pc + 1)?;
 
         // TODO: scope tracking
         // self.vars.truncate(scope);
@@ -214,11 +209,7 @@ impl Compiler {
         match constructor {
             Constructor::None => (),
             Constructor::Star => {
-                // NOTE: the actual SELECT * body is hardcoded in cc_select (emit_load + emit_yield).
-                // This constructor handler is called after the body to handle the projection phase.
-                // For now, just emit the object frame marker. In the future, this would construct
-                // the projection tuple from the available cursor variables.
-                self.emit_obj();
+                // Row is already on the stack from emit_load in cc_select.
             }
             Constructor::Expr(expr) => self.cc_expr(expr)?,
             Constructor::List(members) => self.cc_expr_obj(members)?,
@@ -231,8 +222,12 @@ impl Compiler {
         // TODO: actual error handling
         match self.code.get_mut(src).unwrap() {
             Vop::Init { jmp }
-            | Vop::Next { csr: _, jmp}
-            | Vop::Scan { csr: _, jmp} => *jmp = dst,
+            | Vop::Next { csr: _, jmp }
+            | Vop::Scan { csr: _, jmp }
+            | Vop::If(jmp)
+            | Vop::IfNot(jmp)
+            | Vop::CntIfPos(_, jmp)
+            | Vop::CntIfZero(_, jmp) => *jmp = dst,
             _ => unsupported!("cannot patch instruction at pc[{}]", src),
         }
         Ok(())
@@ -255,7 +250,10 @@ impl Compiler {
             Expr::Lit(val) => self.cc_expr_lit(val),
             Expr::Obj(obj) => self.cc_expr_obj(obj),
             Expr::Op(op) => self.cc_expr_op(op),
-            Expr::Var(var) => Ok(self.cc_expr_var(&var)),
+            Expr::Var(var) => {
+                self.cc_expr_var(&var);
+                Ok(())
+            },
         }
     }
 
@@ -484,20 +482,29 @@ mod tests {
         let program = compile_sql(&storage, &catalog, "select * from catalog;");
         assert_eq!(program.cursors, 1);
         let code = program.instructions;
-        // Note: an extra `Obj` from cc_select_constructor lands after `Return`
-        // (dead code given the hardcoded select-* body); shape is preserved
-        // here so the resolution path is what we're guarding.
-        assert_eq!(code.len(), 10);
-        assert!(matches!(code[0], Vop::Init { jmp: 8 }));
+        assert_eq!(code.len(), 9);
+        assert!(matches!(code[0], Vop::Init { jmp: 7 }));
         assert!(matches!(code[1], Vop::Open { csr: 0, tbl: 0 }));
-        assert!(matches!(code[2], Vop::Scan { csr: 0, jmp: 7 }));
+        assert!(matches!(code[2], Vop::Scan { csr: 0, jmp: 6 }));
         assert!(matches!(code[3], Vop::Load { csr: 0 }));
         assert!(matches!(code[4], Vop::Yield));
-        assert!(matches!(code[5], Vop::Obj));
-        assert!(matches!(code[6], Vop::Next { csr: 0, jmp: 3 }));
-        assert!(matches!(code[7], Vop::Halt));
-        assert!(matches!(code[8], Vop::Transaction { txm: TransactionMode::Read }));
-        assert!(matches!(code[9], Vop::Jump { jmp: 1 }));
+        assert!(matches!(code[5], Vop::Next { csr: 0, jmp: 3 }));
+        assert!(matches!(code[6], Vop::Halt));
+        assert!(matches!(code[7], Vop::Transaction { txm: TransactionMode::Read }));
+        assert!(matches!(code[8], Vop::Jump { jmp: 1 }));
+    }
+
+    #[test]
+    fn select_where_true_bytecode_shape() {
+        let (_dir, storage, catalog) = fixture();
+        let program = compile_sql(&storage, &catalog, "select * from catalog where true;");
+        let code = program.instructions;
+        assert!(matches!(code[2], Vop::Scan { csr: 0, jmp: 8 }));
+        assert!(matches!(code[3], Vop::Push { .. }));
+        assert!(matches!(code[4], Vop::IfNot(7)));
+        assert!(matches!(code[5], Vop::Load { csr: 0 }));
+        assert!(matches!(code[6], Vop::Yield));
+        assert!(matches!(code[7], Vop::Next { csr: 0, jmp: 3 }));
     }
 
     #[test]

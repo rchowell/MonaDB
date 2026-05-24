@@ -115,14 +115,6 @@ tests:
         result:
           - {x: 10}
 
-  - id: from-where-filter
-    description: where clause filters rows from from
-    steps:
-      - sql: |
-          insert into T ({x: 1}, {x: 2}, {x: 3});
-      - sql: select t.x from T as t where t.x > 1 order t.x;
-        result: [2, 3]
-
   # Negative tests
   - id: from-unbound-table
     description: referencing an undeclared table is a static error

@@ -301,12 +301,12 @@ impl VM {
                 Vop::Eq => {
                     let r = self.pop();
                     let l = self.pop();
-                    self.push_bool(l == r);
+                    self.push_bool(l.eq(&r));
                 }
                 Vop::Ne => {
                     let r = self.pop();
                     let l = self.pop();
-                    self.push_bool(l != r);
+                    self.push_bool(l.ne(&r));
                 }
                 Vop::If(jmp) => {
                     if self.pop().is_truthy() {
