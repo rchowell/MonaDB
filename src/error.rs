@@ -19,6 +19,7 @@ pub enum Error {
     UnknownTable(String),
     UnknownFunction(String),
     UnboundTable(String),
+    BindError(String),
 }
 
 impl Error {

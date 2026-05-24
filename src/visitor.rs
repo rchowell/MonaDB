@@ -165,12 +165,13 @@ pub mod visit {
         v.visit_source(&i.src);
     }
 
-    pub fn visit_source<'ast, V>(_v: &mut V, i: &'ast Source)
+    pub fn visit_source<'ast, V>(v: &mut V, i: &'ast Source)
     where
         V: Visit<'ast> + ?Sized,
     {
         match i {
             Source::Table(_) => {}
+            Source::Unnest(expr) => v.visit_expr(expr),
         }
     }
 
@@ -460,9 +461,10 @@ pub mod visit_mut {
         v.visit_source_mut(&mut i.src);
     }
 
-    pub fn visit_source_mut<V: VisitMut + ?Sized>(_v: &mut V, i: &mut Source) {
+    pub fn visit_source_mut<V: VisitMut + ?Sized>(v: &mut V, i: &mut Source) {
         match i {
             Source::Table(_) => {}
+            Source::Unnest(expr) => v.visit_expr_mut(expr),
         }
     }
 
@@ -722,12 +724,14 @@ pub mod fold {
             src: f.fold_source(i.src),
             var: i.var,
             csr: i.csr,
+            oid: i.oid,
         }
     }
 
-    pub fn fold_source<F: Fold + ?Sized>(_f: &mut F, i: Source) -> Source {
+    pub fn fold_source<F: Fold + ?Sized>(f: &mut F, i: Source) -> Source {
         match i {
             Source::Table(name) => Source::Table(name),
+            Source::Unnest(expr) => Source::Unnest(Box::new(f.fold_expr(*expr))),
         }
     }
 

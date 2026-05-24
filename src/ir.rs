@@ -1,4 +1,4 @@
-use std::{ffi::CStr, vec};
+use std::vec;
 
 use crate::value::Value;
 
@@ -20,7 +20,7 @@ pub enum Create {
 
 #[derive(Debug)]
 pub struct Insert {
-    pub target: String,
+    pub target: Var,
     pub source: Vec<Expr>,
 }
 
@@ -67,15 +67,15 @@ pub enum Constructor {
 #[derive(Debug)]
 pub enum Source {
     Table(String),
-    // Path(Path),
-    // Value(Value),
+    Unnest(Box<Expr>), // lateral UNNEST; expr is bound against prior scope
 }
 
 #[derive(Debug)]
 pub struct From {
     pub src: Source,
     pub var: String, // AS <var>
-    pub csr: Option<usize>,
+    pub csr: Option<u32>,
+    pub oid: Option<u32>, // set by binder for Table sources
 }
 
 pub type Where = Expr;
@@ -85,6 +85,32 @@ pub enum Limit {
     Skip(u64),
     Take(u64),
     Slice(u64, u64),
+}
+
+///
+#[derive(Debug)]
+pub enum Scope {
+    Table,
+    Field,
+}
+
+/// Variable references are either to tables or a field at a cursor.
+#[derive(Debug)]
+pub struct Var {
+    /// The reference name we get from parsing.
+    pub name: String,
+    /// The bind is either the bound stack slot or
+    pub bind: Option<u32>,
+}
+
+impl Var {
+    /// Creates an unbound field-first reference.
+    pub fn unbound(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            bind: None,
+        }
+    }
 }
 
 //------------------------------
@@ -153,16 +179,7 @@ pub enum Expr {
     Jpe(Jpe),
     Lit(Value),
     Obj(Obj),
-    Var(Ref),
-}
-
-/// Represents an unbound our bound variable reference.
-#[derive(Debug)]
-pub struct Ref {
-    /// The unboudn variable name
-    pub name: String,
-    /// The bound cursor slot
-    pub cursor: Option<usize>,
+    Var(Var),
 }
 
 pub type Obj = Vec<Member>;
@@ -220,7 +237,10 @@ pub fn table_member(name: String, ty: Type) -> TableMember {
 
 #[inline]
 pub fn insert(target: String, source: Vec<Expr>) -> Insert {
-    Insert { target, source }
+    Insert {
+        target: Var::unbound(&target),
+        source,
+    }
 }
 
 #[inline]
@@ -251,14 +271,22 @@ pub fn select_item(expr: Expr, name: String) -> Member {
 
 #[inline]
 pub fn from_table(tbl: String) -> From {
-    let src = Source::Table(tbl.clone());
-    let var = tbl.clone();
-    From { src, var, csr: None }
+    From {
+        src: Source::Table(tbl.clone()),
+        var: tbl,
+        csr: None,
+        oid: None,
+    }
 }
 
 #[inline]
 pub fn from_source(src: Source, var: String) -> From {
-    From { src, var, csr: None }
+    From {
+        src,
+        var,
+        csr: None,
+        oid: None,
+    }
 }
 
 #[inline]
@@ -398,7 +426,7 @@ pub fn selector_index(idx: usize) -> Selector {
 
 #[inline]
 pub fn expr_var(name: String) -> Expr {
-    Expr::Var(Ref { name, cursor: None })
+    Expr::Var(Var::unbound(name.as_str()))
 }
 
 #[inline]

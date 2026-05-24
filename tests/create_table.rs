@@ -39,21 +39,21 @@ fn create_table_persists_catalog_and_btree() {
         let env = open_env(&path);
         let txn = env.read_txn().unwrap();
 
-        // Check that the table's btree was created
+        // Check that the table's btree was created (oid 1; oid 0 is the catalog)
         let _: BTree = env
-            .open_database(&txn, Some("00000000"))
+            .open_database(&txn, Some("00000001"))
             .unwrap()
-            .expect("per-table btree 00000000 should exist");
+            .expect("per-table btree 00000001 should exist");
 
-        // Check the catalog insert
+        // Check the catalog insert (catalog system table is oid 0)
         let catalog: BTree = env
-            .open_database(&txn, Some("catalog"))
+            .open_database(&txn, Some("00000000"))
             .unwrap()
             .expect("catalog sub-db should exist");
         let row = catalog
-            .get(&txn, &0u32.to_be_bytes())
+            .get(&txn, &1u32.to_be_bytes())
             .unwrap()
-            .expect("catalog row at oid=0");
+            .expect("catalog row at oid=1");
         let val: Value = serde_json::from_slice(row).unwrap();
         assert_eq!(val["name"], "t");
         assert_eq!(val["type"], "table");
@@ -83,28 +83,28 @@ fn create_table_persists_catalog_and_btree() {
         let env = open_env(&path);
         let txn = env.read_txn().unwrap();
         let catalog: BTree = env
-            .open_database(&txn, Some("catalog"))
+            .open_database(&txn, Some("00000000"))
             .unwrap()
             .expect("catalog sub-db should still exist");
 
         // Phase-A row is still present after reopen + second write.
         assert!(
-            catalog.get(&txn, &0u32.to_be_bytes()).unwrap().is_some(),
-            "oid=0 row from phase A should persist"
+            catalog.get(&txn, &1u32.to_be_bytes()).unwrap().is_some(),
+            "oid=1 row from phase A should persist"
         );
 
         // Phase-B row.
         let row = catalog
-            .get(&txn, &1u32.to_be_bytes())
+            .get(&txn, &2u32.to_be_bytes())
             .unwrap()
-            .expect("catalog row at oid=1");
+            .expect("catalog row at oid=2");
         let val: Value = serde_json::from_slice(row).unwrap();
         assert_eq!(val["name"], "u");
         assert_eq!(val["type"], "table");
 
         let _u_btree: BTree = env
-            .open_database(&txn, Some("00000001"))
+            .open_database(&txn, Some("00000002"))
             .unwrap()
-            .expect("per-table btree 00000001 should exist");
+            .expect("per-table btree 00000002 should exist");
     }
 }

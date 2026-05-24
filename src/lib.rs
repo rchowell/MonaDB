@@ -1,6 +1,7 @@
 pub mod error;
 pub mod ir;
 
+mod binder;
 mod catalog;
 mod compiler;
 mod cursor;
@@ -27,14 +28,14 @@ use lalrpop_util::lalrpop_mod;
 use storage::Storage;
 use tempfile::TempDir;
 
-use crate::{catalog::Catalog, ir::Statement, lexer::SqlLexer, parser::SqlParser, vm::*};
+use crate::{binder::Binder, catalog::Catalog, ir::Statement, lexer::SqlLexer, parser::SqlParser, vm::*};
 
 /// The user-facing database handle.
 pub struct MonaDB {
-    /// The single catalog interface.
-    catalog: Catalog,
     /// The storage engine over LMDB.
     storage: Storage,
+    /// The catalog reference for semantic analysis.
+    catalog: Catalog,
 }
 
 impl MonaDB {
@@ -42,9 +43,10 @@ impl MonaDB {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<MonaDB> {
         let storage = Storage::open(path)?;
         let catalog = Catalog::load(storage.clone())?;
-        Ok(MonaDB { catalog, storage })
+        Ok(MonaDB { storage, catalog })
     }
 
+    /// Open an in-memory database.
     pub fn memory() -> Result<MonaDB> {
         let tmp_dir = TempDir::new()?;
         let tmp_pth = tmp_dir.path().join("memory.db");
@@ -53,8 +55,9 @@ impl MonaDB {
 
     /// Execute the given sql statement(s).
     pub fn exec(&mut self, sql: &str, debug: bool) -> Result<Rows> {
-        let statement = Self::parse(sql)?;
-        let program = self.compile(statement)?;
+        let mut stmt = Self::parse(sql)?;
+        self.bind(&mut stmt)?;
+        let program = self.compile(stmt)?;
         if debug {
             Self::debug(&program);
         }
@@ -62,14 +65,26 @@ impl MonaDB {
         Ok(Rows::new(vm))
     }
 
+    /// Phase 1: Parse input string into our AST (no binding or compilation).
     pub fn parse(sql: &str) -> Result<Statement> {
         let l = SqlLexer::new(sql);
         let p = SqlParser::new();
         Ok(p.parse(l)?)
     }
 
-    pub fn compile(&self, statement: Statement) -> Result<Program> {
-        Compiler::new(&self.catalog).compile(statement)
+    /// Phase 2: Bind all tables and variable references in the AST.
+    fn bind(&self, statement: &mut Statement) -> Result<()> {
+        let cat = self.catalog.clone();
+        let txn = self.storage.read_txn()?;
+        let mut binder = Binder::new(cat, &txn);
+        binder.bind(statement)?;
+        txn.commit()
+    }
+
+    /// Phase 3: Compilation is pure bytecode generation.
+    fn compile(&self, statement: Statement) -> Result<Program> {
+        let cc = Compiler::new();
+        cc.compile(statement)
     }
 
     fn debug(program: &Program) {

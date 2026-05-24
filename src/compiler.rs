@@ -1,9 +1,9 @@
 use serde_json::json;
 
-use crate::catalog::{Catalog, CATALOG_OID};
+use crate::catalog::CATALOG_OID;
 use crate::error::Error;
 use crate::ir::{
-    Constructor, Create, Expr, Insert, Jpe, Jpi, Jpk, Member, Obj, Op, Ref, Select, Source, Statement, ToSql
+    Constructor, Create, Expr, Insert, Jpe, Jpi, Jpk, Member, Obj, Op, Var, Select, Source, Statement, ToSql
 };
 use crate::transaction::TransactionMode;
 use crate::value::Value;
@@ -19,32 +19,21 @@ macro_rules! unsupported {
 }
 
 /// Compiler translates SQL queries to Vops.
-pub struct Compiler<'c> {
-    catalog: &'c Catalog,
+pub struct Compiler {
     code: Vec<Vop>,
-    bindings: Vec<Binding>,
-    counters: usize,
+    /// Number of cursor slots required (max index + 1).
+    cursor_slots: usize,
     /// The transaction mode this program requires
     txm: Option<TransactionMode>,
-    /// This is the next available cursor slot index
-    next_cursor: usize,
-}
-
-/// Variable bindings where [depth] represents stack position.
-pub struct Binding {
-    pub name: String,
 }
 
 #[allow(dead_code, unused)]
-impl<'c> Compiler<'c> {
-    pub fn new(catalog: &'c Catalog) -> Compiler<'c> {
+impl Compiler {
+    pub fn new() -> Compiler {
         Compiler {
-            catalog,
             code: vec![],
-            bindings: vec![],
-            counters: 0,
+            cursor_slots: 0,
             txm: None,
-            next_cursor: 0,
         }
     }
 
@@ -80,9 +69,8 @@ impl<'c> Compiler<'c> {
             self.emit_jump(1);
         }
 
-        // Return the final program with appropriate counters
         Ok(Program {
-            cursors: self.next_cursor,
+            cursors: self.cursor_slots,
             instructions: self.code,
         })
     }
@@ -112,7 +100,7 @@ impl<'c> Compiler<'c> {
         // and likely an EncodeKey(n) and EncodeVal instructions prior to insert. We do
         // not need this yet since we only have single oid keys and just encode within the
         // insert operation handler.
-        let csr = self.next_cursor();
+        let csr = self.alloc_cursor();
         self.emit_open(csr, CATALOG_OID);
         self.emit_push(val);
         self.emit_new_oid(csr);
@@ -131,8 +119,8 @@ impl<'c> Compiler<'c> {
     fn cc_insert(&mut self, insert: Insert) -> Result<()> {
         self.ensure_txn(TransactionMode::Write);
         // Resolve table name to its oid (tbl) to open.
-        let csr = self.next_cursor();
-        let tbl = self.catalog.get_table(&insert.target)?;
+        let csr = self.alloc_cursor();
+        let tbl = insert.target.bind.expect("insert target should be bound to table oid");
         self.emit_open(csr, tbl);
         for val in insert.source {
             self.cc_expr(val)?;
@@ -166,18 +154,17 @@ impl<'c> Compiler<'c> {
         // loop open
         // to_patch.push((loop_, 1)); // <- patch loop (rewind) to next+1
 
-        // Extract the table name, we don't bind anything.
-        let Source::Table(tbl_name) = &select.from.src;
-
-        // Resolve name to its stable oid
-        let tbl = self.catalog.get_table(&tbl_name)?;
+        let csr = select.from.csr.expect("from source should be bound") as usize;
+        let tbl = match &select.from.src {
+            Source::Table(_) => select.from.oid.expect("bind pass must set oid for Table"),
+            Source::Unnest(_) => unsupported!("UNNEST FROM not yet compiled"),
+        };
 
         // open
         // push -> prefix (None is full scan)
         // scan -> jmp=next
         // ....
         // next -> jmp=scan
-        let csr = self.next_cursor();
         let jmp = self.pc() + 2;
         self.emit_open(csr, tbl);
         // TODO: prefix scans
@@ -223,18 +210,15 @@ impl<'c> Compiler<'c> {
         Ok(())
     }
 
-    fn cc_select_constructor(&mut self, constructor: Constructor, sos: usize) -> Result<()> {
+    fn cc_select_constructor(&mut self, constructor: Constructor, _sos: usize) -> Result<()> {
         match constructor {
             Constructor::None => (),
             Constructor::Star => {
+                // NOTE: the actual SELECT * body is hardcoded in cc_select (emit_load + emit_yield).
+                // This constructor handler is called after the body to handle the projection phase.
+                // For now, just emit the object frame marker. In the future, this would construct
+                // the projection tuple from the available cursor variables.
                 self.emit_obj();
-                let mut i = sos; // start-of-scope
-                let n = self.bindings.len();
-                while i < n {
-                    self.emit_load(i);
-                    self.emit_obj_spread();
-                    i += 1;
-                }
             }
             Constructor::Expr(expr) => self.cc_expr(expr)?,
             Constructor::List(members) => self.cc_expr_obj(members)?,
@@ -271,7 +255,7 @@ impl<'c> Compiler<'c> {
             Expr::Lit(val) => self.cc_expr_lit(val),
             Expr::Obj(obj) => self.cc_expr_obj(obj),
             Expr::Op(op) => self.cc_expr_op(op),
-            Expr::Var(var) => self.cc_expr_var(&var),
+            Expr::Var(var) => Ok(self.cc_expr_var(&var)),
         }
     }
 
@@ -335,14 +319,9 @@ impl<'c> Compiler<'c> {
         Ok(())
     }
 
-    fn cc_expr_var(&mut self, var: &Ref) -> Result<()> {
-        for (idx, binding) in self.bindings.iter().enumerate() {
-            if binding.name == var.name {
-                self.emit_load(idx);
-                return Ok(());
-            }
-        }
-        unsupported!("undefined variable: {}", var.name)
+    fn cc_expr_var(&mut self, var: &Var) {
+        let csr = var.bind.expect("all variables should be bound") as usize;
+        self.emit_load(csr);
     }
 
     //------------------------------
@@ -354,24 +333,16 @@ impl<'c> Compiler<'c> {
         self.code.len() - 1
     }
 
-    /// Returns the next available cursor index
-    fn next_cursor(&mut self) -> usize {
-        let c = self.next_cursor;
-        self.next_cursor += 1;
-        c
+    /// Record that cursor slot `csr` is in use.
+    fn use_cursor(&mut self, csr: usize) {
+        self.cursor_slots = self.cursor_slots.max(csr + 1);
     }
 
-    /// Define a variable in the current scope.
-    fn define(&mut self, name: String) {
-        self.bindings.push(Binding { name });
-    }
-
-    /// Define a counter with the given value.
-    fn define_counter(&mut self, n: u64) -> usize {
-        let c = self.counters;
-        self.emit_cnt_set(c, n);
-        self.counters += 1;
-        c
+    /// Allocate the next cursor slot.
+    fn alloc_cursor(&mut self) -> usize {
+        let csr = self.cursor_slots;
+        self.cursor_slots += 1;
+        csr
     }
 
     //------------------------------
@@ -407,6 +378,7 @@ impl<'c> Compiler<'c> {
     }
 
     fn emit_insert(&mut self, csr: usize) {
+        self.use_cursor(csr);
         self.code.push(Vop::Insert { csr });
     }
 
@@ -423,6 +395,7 @@ impl<'c> Compiler<'c> {
     }
 
     fn emit_load(&mut self, csr: usize) {
+        self.use_cursor(csr);
         self.code.push(Vop::Load { csr });
     }
 
@@ -431,10 +404,12 @@ impl<'c> Compiler<'c> {
     }
 
     fn emit_next(&mut self, csr: usize, jmp: usize) {
+        self.use_cursor(csr);
         self.code.push(Vop::Next { csr, jmp });
     }
 
     fn emit_new_oid(&mut self, csr: usize) {
+        self.use_cursor(csr);
         self.code.push(Vop::NewOid { csr });
     }
 
@@ -455,10 +430,12 @@ impl<'c> Compiler<'c> {
     }
 
     fn emit_open(&mut self, csr: usize, tbl: u32) {
+        self.use_cursor(csr);
         self.code.push(Vop::Open { csr, tbl });
     }
 
     fn emit_scan(&mut self, csr: usize, jmp: usize) {
+        self.use_cursor(csr);
         self.code.push(Vop::Scan { csr, jmp });
     }
 
@@ -478,27 +455,35 @@ impl<'c> Compiler<'c> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::catalog::Catalog;
     use crate::lexer::SqlLexer;
     use crate::parser::SqlParser;
     use crate::storage::Storage;
+    use crate::binder::Binder;
     use tempfile::TempDir;
 
-    fn fixture() -> (TempDir, Catalog) {
+    fn fixture() -> (TempDir, Storage, Catalog) {
         let dir = TempDir::new().unwrap();
         let storage = Storage::open(dir.path().join("test.db")).unwrap();
-        let catalog = Catalog::load(storage).unwrap();
-        (dir, catalog)
+        let catalog = Catalog::load(storage.clone()).unwrap();
+        (dir, storage, catalog)
     }
 
-    fn compile_sql(catalog: &Catalog, sql: &str) -> Program {
-        let stmt = SqlParser::new().parse(SqlLexer::new(sql)).unwrap();
-        Compiler::new(catalog).compile(stmt).unwrap()
+    fn compile_sql(storage: &Storage, catalog: &Catalog, sql: &str) -> Program {
+        let mut stmt = SqlParser::new().parse(SqlLexer::new(sql)).unwrap();
+        let txn = storage.read_txn().unwrap();
+        let mut binder = Binder::new(catalog.clone(), &txn);
+        binder.bind(&mut stmt).unwrap();
+        txn.commit().unwrap();
+        Compiler::new().compile(stmt).unwrap()
     }
 
     #[test]
     fn select_star_from_catalog_bytecode_shape() {
-        let (_dir, catalog) = fixture();
-        let code = compile_sql(&catalog, "select * from catalog;").instructions;
+        let (_dir, storage, catalog) = fixture();
+        let program = compile_sql(&storage, &catalog, "select * from catalog;");
+        assert_eq!(program.cursors, 1);
+        let code = program.instructions;
         // Note: an extra `Obj` from cc_select_constructor lands after `Return`
         // (dead code given the hardcoded select-* body); shape is preserved
         // here so the resolution path is what we're guarding.
@@ -517,9 +502,10 @@ mod tests {
 
     #[test]
     fn create_table_bytecode_shape() {
-        let (_dir, catalog) = fixture();
-        let code = compile_sql(&catalog, "create table t (id int);").instructions;
-        dbg!(&code);
+        let (_dir, storage, catalog) = fixture();
+        let program = compile_sql(&storage, &catalog, "create table t (id int);");
+        assert_eq!(program.cursors, 1);
+        let code = program.instructions;
         assert_eq!(code.len(), 9);
         assert!(matches!(code[0], Vop::Init { jmp: 7 }));
         assert!(matches!(code[1], Vop::Open { csr: 0, tbl: 0 }));
@@ -536,8 +522,10 @@ mod tests {
     fn select_cursor_index_is_zero() {
         // Guards the latent slot-vs-push bug: the single emitted cursor
         // must use index 0 so that vm.cursors.push lands in the expected slot.
-        let (_dir, catalog) = fixture();
-        let code = compile_sql(&catalog, "select * from catalog;").instructions;
+        let (_dir, storage, catalog) = fixture();
+        let program = compile_sql(&storage, &catalog, "select * from catalog;");
+        assert_eq!(program.cursors, 1);
+        let code = program.instructions;
         for op in &code {
             match op {
                 Vop::Open { csr, .. }

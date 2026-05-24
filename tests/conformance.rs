@@ -158,6 +158,7 @@ fn error_category(err: &Error) -> &'static str {
         Error::JsonError(_) | Error::IoError(_) | Error::Storage(_) => "storage",
         Error::InternalError(_) | Error::Unknown => "runtime",
         Error::Transaction(_) => "transaction",
+        Error::BindError(_) => "static",
     }
 }
 

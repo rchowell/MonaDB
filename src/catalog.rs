@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use heed::byteorder::{BigEndian, ByteOrder};
 use serde_json::json;
 
@@ -8,12 +10,13 @@ use crate::transaction::Transaction;
 /// Reserved oid for the catalog table itself.
 pub const CATALOG_OID: u32 = 0;
 
-/// Catalog handles all table metadata.
+/// Catalog handles all table metadata; cheap to clone.
+#[derive(Clone)]
 pub struct Catalog {
     /// Owned reference to the storage environment.
     storage: Storage,
-    /// Table of objects for plan binding.
-    objects: Table,
+    /// The 'catalog' table holds all objects (tables) like sqlite_master.
+    catalog: Arc<BTree>,
 }
 
 impl Catalog {
@@ -21,8 +24,8 @@ impl Catalog {
     pub fn load(storage: Storage) -> Result<Self> {
         // Bootstrap the catalog table if it doesn't exist
         let mut txn = Transaction::write(&storage)?;
-        let btree: BTree = storage.create_btree(&mut txn, CATALOG_OID)?;
         let key = CATALOG_OID.to_be_bytes();
+        let btree: BTree = storage.create_btree(&mut txn, CATALOG_OID)?;
         if btree.get(txn.as_ro(), &key)?.is_none() {
             let val = json!({
                 "name": "catalog",
@@ -33,15 +36,12 @@ impl Catalog {
             btree.put(txn.as_rw()?, &key, bytes.as_slice())?;
         }
         txn.commit()?;
-        // I don't think we actually need this, but out of scope for now
-        let objects = Table { name: "catalog".to_string(), btree };
-        Ok(Self { storage, objects })
+        Ok(Self { storage, catalog: Arc::new(btree) })
     }
 
-    /// Look up a table by name and return its stable oid.
-    pub fn get_table(&self, name: &str) -> Result<u32> {
-        let txn = Transaction::read(&self.storage)?;
-        let iter = self.objects.btree.iter(txn.as_ro())?;
+    /// Look up a table by name and return its stable oid using a provided transaction.
+    pub fn get_table(&self, txn: &Transaction, name: &str) -> Result<u32> {
+        let iter = self.catalog.iter(txn.as_ro())?;
         for entry in iter {
             let (key, val) = entry?;
             let val: serde_json::Value = serde_json::from_slice(val)?;
@@ -53,11 +53,4 @@ impl Catalog {
         }
         Err(Error::UnboundTable(name.to_string()))
     }
-}
-
-pub struct Table {
-    /// The name of the table.
-    pub name: String,
-    /// The inner LMDB database handle; useable across transactions.
-    pub btree: BTree,
 }

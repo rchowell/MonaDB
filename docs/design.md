@@ -155,9 +155,3 @@ This is exactly true for MonaDB too.
 
 Well, I also just realized that I will need to have a cursor backed
 by an iterable/container value! 
-
-
-## Intermediate Representation
-
-One day I'll make the IR bump allocated, for now I'll do all owned
-with box/arc for self-references.
