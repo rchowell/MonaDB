@@ -87,7 +87,6 @@ pub enum Limit {
     Slice(u64, u64),
 }
 
-///
 #[derive(Debug)]
 pub enum Scope {
     Table,
@@ -536,7 +535,7 @@ pub fn expr_not_in_list(x: Expr, list: Vec<Expr>) -> Expr {
 
 #[cfg(test)]
 mod test {
-    use crate::{display::ToSql, lexer::SqlLexer, parser::SqlParser};
+    use crate::{lexer::SqlLexer, parser::SqlParser};
 
     use super::*;
 

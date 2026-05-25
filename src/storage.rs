@@ -1,4 +1,3 @@
-use crate::cursor::Cursor;
 use crate::transaction::Transaction;
 
 use std::path::Path;
@@ -42,12 +41,12 @@ impl Storage {
 
     /// Returns a new read transaction.
     pub fn read_txn(&self) -> Result<Transaction> {
-        Transaction::read(&self)
+        Transaction::read(self)
     }
 
     /// Returns a new read transaction.
     pub fn write_txn(&self) -> Result<Transaction> {
-        Transaction::write(&self)
+        Transaction::write(self)
     }
 
     /// Creates a new b-tree for the given oid and returns a handle.

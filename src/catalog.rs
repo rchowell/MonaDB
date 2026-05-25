@@ -13,15 +13,13 @@ pub const CATALOG_OID: u32 = 0;
 /// Catalog handles all table metadata; cheap to clone.
 #[derive(Clone)]
 pub struct Catalog {
-    /// Owned reference to the storage environment.
-    storage: Storage,
-    /// The 'catalog' table holds all objects (tables) like sqlite_master.
+    /// The 'catalog' table holds all objects (tables) like `sqlite_master`.
     catalog: Arc<BTree>,
 }
 
 impl Catalog {
     /// Loads the catalog from the storage environment.
-    pub fn load(storage: Storage) -> Result<Self> {
+    pub fn load(storage: &Storage) -> Result<Self> {
         // Bootstrap the catalog table if it doesn't exist
         let mut txn = Transaction::write(&storage)?;
         let key = CATALOG_OID.to_be_bytes();
@@ -36,7 +34,7 @@ impl Catalog {
             btree.put(txn.as_rw()?, &key, bytes.as_slice())?;
         }
         txn.commit()?;
-        Ok(Self { storage, catalog: Arc::new(btree) })
+        Ok(Self { catalog: Arc::new(btree) })
     }
 
     /// Look up a table by name and return its stable oid using a provided transaction.

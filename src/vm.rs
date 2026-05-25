@@ -7,7 +7,7 @@ use heed::byteorder::BigEndian;
 use heed::byteorder::ByteOrder;
 use crate::transaction::{Transaction, TransactionMode};
 use crate::value::Value;
-use crate::{Result, unsupported};
+use crate::Result;
 
 /// Program is a sequence of virtual machine instructions and relevant state.
 pub struct Program {
@@ -34,8 +34,6 @@ pub struct Program {
 pub enum Vop {
     /// Initialize the virtual machine, then jump to jmp.
     Init { jmp: usize },
-    /// Consider replacing with a `Delete` instruction on the catalog table.
-    Drop { table: String },
     /// Insert a value into the given cursor (csr) where key=stack[0] value=stack[1].
     Insert { csr: usize },
     /// Jump to the instruction at jmp.
@@ -192,9 +190,6 @@ impl VM {
                 Vop::Init { jmp } => {
                     // TODO: initialize any state
                     self.pc = *jmp;
-                }
-                Vop::Drop { table } => {
-                    unsupported!("drop table {table:?} (Phase 1: not yet wired through storage)");
                 }
                 Vop::Insert { csr } => {
                     let key = self.pop().encode()?;
@@ -431,16 +426,16 @@ impl VM {
                 //
                 // Counter Instructions
                 //
-                Vop::CntSet(c, v) => {
+                Vop::CntSet(_c, _v) => {
                     // self.counters[*c] = *v;
                 }
-                Vop::CntIfPos(c, jmp) => {
+                Vop::CntIfPos(_c, _jmp) => {
                     // if self.counters[*c] > 0 {
                     //     self.counters[*c] -= 1;
                     //     self.pc = *jmp;
                     // }
                 }
-                Vop::CntIfZero(c, jmp) => {
+                Vop::CntIfZero(_c, _jmp) => {
                     // if self.counters[*c] == 0 {
                     //     self.pc = *jmp;
                     // } else {

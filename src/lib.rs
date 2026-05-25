@@ -28,7 +28,10 @@ use lalrpop_util::lalrpop_mod;
 use storage::Storage;
 use tempfile::TempDir;
 
-use crate::{binder::Binder, catalog::Catalog, ir::Statement, lexer::SqlLexer, parser::SqlParser, vm::*};
+use crate::{
+    binder::Binder, catalog::Catalog, ir::Statement, lexer::SqlLexer, parser::SqlParser,
+    vm::{Program, Rows, VM},
+};
 
 /// The user-facing database handle.
 pub struct MonaDB {
@@ -42,7 +45,7 @@ impl MonaDB {
     /// Open or create a database at the given path.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<MonaDB> {
         let storage = Storage::open(path)?;
-        let catalog = Catalog::load(storage.clone())?;
+        let catalog = Catalog::load(&storage)?;
         Ok(MonaDB { storage, catalog })
     }
 

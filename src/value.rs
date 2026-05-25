@@ -52,6 +52,7 @@ impl Value {
     }
 
     #[inline]
+    #[allow(clippy::needless_pass_by_value)] // for .lalrpop
     pub fn string(raw: String) -> Value {
         Self::Json(JsonValue::String(parse_string_literal(&raw)))
     }
@@ -285,39 +286,6 @@ impl Display for Value {
 impl Debug for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.json().to_string())
-    }
-}
-
-/// Object initializer.
-pub struct Obj {
-    members: Map<String, JsonValue>,
-}
-
-impl Obj {
-    pub fn init() -> Self {
-        Self {
-            members: Map::new(),
-        }
-    }
-
-    pub fn clear(&mut self) {
-        self.members.clear();
-    }
-
-    pub fn assign(&mut self, name: &str, value: Value) {
-        self.members.insert(name.to_string(), value.json().clone());
-    }
-
-    pub fn spread(&mut self, value: Value) {
-        if let Some(mut members) = value.members() {
-            // unpack inner JsonValue to get (String, JsonValue) tuples
-            self.members
-                .extend(members.drain(..).map(|v| (v.0, v.1.json().clone())));
-        }
-    }
-
-    pub fn build(&self) -> Value {
-        Value::Json(JsonValue::Object(self.members.clone()))
     }
 }
 

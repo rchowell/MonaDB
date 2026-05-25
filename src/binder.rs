@@ -10,7 +10,6 @@ pub struct Binder<'txn> {
     txn: &'txn Transaction,
     /// Catalog for table lookups, gets us the table 'oid'.
     catalog: Catalog,
-    ///
     scope: Scope,
     //
     next_cursor: u32,
@@ -69,7 +68,7 @@ impl VisitMut for Binder<'_> {
             Err(err) => {
                 self.errors.push(err);
             }
-        };
+        }
         // Add the cursor alias to the scope, then descend.
         self.scope.push(from.var.clone(), csr);
         visit_from_mut(self, from);
@@ -135,11 +134,6 @@ impl Scope {
         }
         None
     }
-
-    /// Check if a name exists in the scope.
-    fn contains(&self, name: &str) -> bool {
-        self.bindings.iter().any(|e| e.name == name)
-    }
 }
 
 #[cfg(test)]
@@ -152,11 +146,10 @@ mod test {
             .exec("create table users (id int, name string);", false)
             .unwrap();
         // TODO: fix this, no need to consume rows to ensure transaction is committed
-        loop {
+        'l: loop {
             match rows.next() {
                 Ok(Some(_)) => {}
-                Ok(None) => break,
-                Err(_) => break,
+                Ok(None) | Err(_) => break 'l,
             }
         }
         db
@@ -232,8 +225,7 @@ mod test {
         loop {
             match create_rows.next() {
                 Ok(Some(_)) => {}
-                Ok(None) => break,
-                Err(_) => break,
+                Ok(None) | Err(_) => break,
             }
         }
         let mut insert_rows = db.exec("insert into items ({id: 1});", false).unwrap();
@@ -241,8 +233,7 @@ mod test {
         loop {
             match insert_rows.next() {
                 Ok(Some(_)) => {}
-                Ok(None) => break,
-                Err(_) => break,
+                Ok(None) | Err(_) => break,
             }
         }
         let mut rows = db.exec("select u.id from items as u;", false).unwrap();

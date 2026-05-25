@@ -7,7 +7,8 @@ use crate::ir::{
 };
 use crate::transaction::TransactionMode;
 use crate::value::Value;
-use crate::{Program, Result, Vop};
+use crate::vm::{Program, Vop};
+use crate::{Result};
 use std::vec;
 
 #[macro_export]
@@ -353,10 +354,6 @@ impl Compiler {
     // INSTRUCTIONS
     //------------------------------
 
-    fn emit_drop(&mut self, table: String) {
-        self.code.push(Vop::Drop { table });
-    }
-
     fn emit_cnt_set(&mut self, counter: usize, value: u64) {
         self.code.push(Vop::CntSet(counter, value));
     }
@@ -469,7 +466,7 @@ mod tests {
     fn fixture() -> (TempDir, Storage, Catalog) {
         let dir = TempDir::new().unwrap();
         let storage = Storage::open(dir.path().join("test.db")).unwrap();
-        let catalog = Catalog::load(storage.clone()).unwrap();
+        let catalog = Catalog::load(&storage).unwrap();
         (dir, storage, catalog)
     }
 
