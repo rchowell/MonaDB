@@ -3,7 +3,7 @@ use serde_json::json;
 use crate::catalog::CATALOG_OID;
 use crate::error::Error;
 use crate::ir::{
-    Call, Constructor, Create, Expr, Insert, Jpe, Jpi, Jpk, Member, Obj, Var, Select, Source, Statement, ToSql
+    Call, Constructor, Create, Expr, Insert, Jpe, Jpi, Jpk, Limit, Member, Obj, Var, Select, Source, Statement, ToSql
 };
 use crate::transaction::TransactionMode;
 use crate::value::Value;
@@ -24,6 +24,8 @@ pub struct Compiler {
     code: Vec<Vop>,
     /// Number of cursor slots required (max index + 1).
     cursor_slots: usize,
+    /// Number of counter slots required (one per allocated counter).
+    counter_slots: usize,
     /// The transaction mode this program requires
     txm: Option<TransactionMode>,
 }
@@ -34,6 +36,7 @@ impl Compiler {
         Compiler {
             code: vec![],
             cursor_slots: 0,
+            counter_slots: 0,
             txm: None,
         }
     }
@@ -70,6 +73,7 @@ impl Compiler {
 
         Ok(Program {
             cursors: self.cursor_slots,
+            counters: self.counter_slots,
             instructions: self.code,
         })
     }
@@ -123,24 +127,31 @@ impl Compiler {
 
     fn cc_select(&mut self, select: Select) -> Result<()> {
         self.ensure_txn(TransactionMode::Read);
-        // TODO: track current scope
-        // let scope = self.vars.len();
-        // let counters = self.counters;
-        // let mut to_patch: Vec<Patch> = vec![];
 
-        // TODO: initialize counters before the loop
-        // let mut cnt_skip: Option<usize> = None;
-        // let mut cnt_take: Option<usize> = None;
-        // if let Some(limit) = &select.limit {
-        //     match limit {
-        //         Limit::Skip(n) => cnt_skip = self.define_counter(*n).into(),
-        //         Limit::Take(n) => cnt_take = self.define_counter(*n).into(),
-        //         Limit::Slice(n, m) => {
-        //             cnt_skip = self.define_counter(*n).into();
-        //             cnt_take = self.define_counter(*m).into();
-        //         }
-        //     }
-        // }
+        // Initialize the limit counters before the loop.
+        // 
+        // Limit N..M is half-open [N, M); skip N rows, then take M - N.
+        // saturating, so M <= N yields nothing. Could be a static analysis
+        // error, but this is fine.
+        let mut cnt_skip: Option<usize> = None;
+        let mut cnt_take: Option<usize> = None;
+        if let Some(limit) = &select.limit {
+            let (skip, take) = match limit {
+                Limit::Skip(n) => (Some(*n), None),
+                Limit::Take(n) => (None, Some(*n)),
+                Limit::Slice(n, m) => (Some(*n), Some(m.saturating_sub(*n))),
+            };
+            if let Some(n) = skip {
+                let c = self.alloc_counter();
+                self.emit_cnt_set(c, n);
+                cnt_skip = Some(c);
+            }
+            if let Some(n) = take {
+                let c = self.alloc_counter();
+                self.emit_cnt_set(c, n);
+                cnt_take = Some(c);
+            }
+        }
 
         let csr = select.from.csr.expect("from source should be bound") as usize;
         let tbl = match &select.from.src {
@@ -167,16 +178,22 @@ impl Compiler {
             if_not_pc = Some(self.pc());
         }
 
-        // body
+        // Skip (apply offset), then take (apply limit).
+        let mut skip_pc: Option<usize> = None;
+        if let Some(c) = cnt_skip {
+            self.emit_cnt_if_pos(c, 0);
+            skip_pc = Some(self.pc());
+        }
+        let mut take_pc: Option<usize> = None;
+        if let Some(c) = cnt_take {
+            self.emit_cnt_if_zero(c, 0);
+            take_pc = Some(self.pc());
+        }
+
+        // loop body
         self.emit_load(csr);
         self.cc_select_constructor(select.select, 1)?;
         self.emit_yield();
-
-        // TODO: limit
-        // if let Some(counter) = cnt_take {
-        //     self.emit_cnt_if_zero(counter, 0);
-        //     to_patch.push((self.pc(), 1)); // <- patch cnt_if_zero to next+1
-        // }
 
         // loop close
         self.emit_next(csr, scan_pc + 1);
@@ -184,11 +201,19 @@ impl Compiler {
         if let Some(pc) = if_not_pc {
             self.patch(pc, next_pc)?;
         }
-        self.patch(scan_pc, next_pc + 1)?;
 
-        // TODO: scope tracking
-        // self.vars.truncate(scope);
-        // self.counters = counters;
+        // A spent skip jumps to Next
+        if let Some(pc) = skip_pc {
+            self.patch(pc, next_pc)?;
+        }
+
+        // An exhausted take breaks the loop; jump past Next
+        if let Some(pc) = take_pc {
+            self.patch(pc, next_pc + 1)?;
+        }
+
+        // An exhausted scan breaks the loop; jump past Next
+        self.patch(scan_pc, next_pc + 1)?;
 
         Ok(())
     }
@@ -348,6 +373,13 @@ impl Compiler {
         let csr = self.cursor_slots;
         self.cursor_slots += 1;
         csr
+    }
+
+    /// Allocate the next counter slot.
+    fn alloc_counter(&mut self) -> usize {
+        let cnt = self.counter_slots;
+        self.counter_slots += 1;
+        cnt
     }
 
     //------------------------------

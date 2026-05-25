@@ -18,3 +18,6 @@ suites:
   - file: suites/11-predicates.yaml
     title: predicates
     spec_ref: "§8"
+  - file: suites/12-limit.yaml
+    title: limit clause
+    spec_ref: "§4.7"

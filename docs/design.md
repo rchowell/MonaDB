@@ -133,6 +133,53 @@ lifetimes in the code. This is for self-reference and the lifetime invariants ar
 upheld where storage lives longer than a transaction, which lives longer than all
 cursors. This keep-alive pattern is yolk-inspired.
 
+## Limit
+
+The `limit` clause slices the row stream by position using python-style
+half-open ranges: `limit N` takes the first N, `limit N..` skips N, and
+`limit N..M` is the half-open `[N, M)` skip N then take `M - N`. The bounds
+are integer literals, so I resolve them at compile time; there is no runtime
+limit expression like sqlite (yet?).
+
+I slice with two count-down counters (skip and take) — held in a
+dedicated `counters` array on the VM rather than on the value stack. This
+mirrors how cursors get their own slots: counters are addressed by index and
+live beside the stack, not on it. Three instructions manage them:
+
+```rs
+CntSet(cnt, val)     // counters[cnt] = val
+CntIfPos(cnt, jmp)   // if counters[cnt] > 0 { decrement; jump }       -- skip
+CntIfZero(cnt, jmp)  // if counters[cnt] == 0 { jump } else decrement  -- take
+```
+
+`CntSet` runs once before the loop. The two checks sit inside the loop body,
+after the where filter and before we load and yield the row, so the slice
+applies to the post-filter stream just as sqlite's offset counts only
+qualifying rows. A spent skip jumps to `Next` (drop this row, advance); an
+exhausted take jumps to `Halt` (stop the scan entirely).
+
+```
+addr	instruction	      comment
+----	-----------	      -------
+...	  Scan	            
+      [where]	          residual filter, IfNot  -> Next
+      CntIfPos(skip)	  skip > 0: drop row,     -> Next
+      CntIfZero(take)	  take == 0: done,        -> Halt
+      Load
+      [select]
+      Yield
+      Next	            jmp -> top of loop body
+      Halt
+```
+
+sqlite checks its limit *after* emitting a row with a decrement-then-test
+opcode (`DecrJumpZero`). I check *before* emitting with a test-then-decrement
+opcode, which is why the take check must precede the body — a post-yield check
+with these semantics emits one row too many. Both shapes yield exactly the
+requested count; they are duals. I also don't fold skip and take into a single
+`limit + offset` counter the way sqlite's `OffsetLimit` does. That would be nice
+for bounding a top-N sort, and I have no `order` yet.
+
 ## Display
 
 This could be a whole blog post, but I basically just ported my work

@@ -16,3 +16,4 @@ Things I need to remember to do.
 - feat: lateral joins
 - perf: arena IRs
 - perf: constant pool
+- tidy: we can reduce all slot primitives

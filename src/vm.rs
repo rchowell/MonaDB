@@ -13,6 +13,8 @@ use crate::Result;
 pub struct Program {
     /// The number of cursor slots needed
     pub cursors: usize,
+    /// The number of counter slots needed
+    pub counters: usize,
     /// The program's instruction set
     pub instructions: Vec<Vop>,
 }
@@ -140,6 +142,8 @@ pub struct VM {
     stack: Vec<Value>,
     /// The open cursors, addressed by index; dropped before the transaction.
     cursors: Vec<Cursor>,
+    /// The limit counters, addressed by index.
+    counters: Vec<u64>,
     /// The open transaction handle; dropped last.
     txn: Option<Transaction>,
 }
@@ -156,6 +160,7 @@ impl VM {
             stack: vec![],
             txn: None,
             cursors,
+            counters: vec![0; program.counters],
         }
     }
 
@@ -426,21 +431,21 @@ impl VM {
                 //
                 // Counter Instructions
                 //
-                Vop::CntSet(_c, _v) => {
-                    // self.counters[*c] = *v;
+                Vop::CntSet(c, v) => {
+                    self.counters[*c] = *v;
                 }
-                Vop::CntIfPos(_c, _jmp) => {
-                    // if self.counters[*c] > 0 {
-                    //     self.counters[*c] -= 1;
-                    //     self.pc = *jmp;
-                    // }
+                Vop::CntIfPos(c, jmp) => {
+                    if self.counters[*c] > 0 {
+                        self.counters[*c] -= 1;
+                        self.pc = *jmp;
+                    }
                 }
-                Vop::CntIfZero(_c, _jmp) => {
-                    // if self.counters[*c] == 0 {
-                    //     self.pc = *jmp;
-                    // } else {
-                    //     self.counters[*c] -= 1;
-                    // }
+                Vop::CntIfZero(c, jmp) => {
+                    if self.counters[*c] == 0 {
+                        self.pc = *jmp;
+                    } else {
+                        self.counters[*c] -= 1;
+                    }
                 }
             }
         }
