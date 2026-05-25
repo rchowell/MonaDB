@@ -1,0 +1,526 @@
+suite: predicates
+spec_ref: "§8"
+description: |
+  Primitive predicates and boolean connectives. Tests project the predicate
+  through SELECT so the truth value is shown directly. A small section at the
+  end pins the WHERE-boundary rule that a null predicate excludes the row.
+  Scope: comparisons with null, IS [NOT] NULL, IS [NOT] {TRUE|FALSE|UNKNOWN},
+  AND/OR/NOT, BETWEEN, IN-list.
+
+setup:
+  - create table T;
+  - |
+    insert into T ({});
+
+tests:
+
+  - id: is-null-true
+    steps:
+      - sql: |
+          select null is null from T;
+        result: [true]
+
+  - id: is-null-false
+    steps:
+      - sql: |
+          select 1 is null from T;
+        result: [false]
+
+  - id: is-not-null-on-null
+    steps:
+      - sql: |
+          select null is not null from T;
+        result: [false]
+
+  - id: is-not-null-on-value
+    steps:
+      - sql: |
+          select 1 is not null from T;
+        result: [true]
+
+  - id: is-null-on-null-column
+    setup:
+      - create table S;
+      - |
+        insert into S ({x: null});
+    steps:
+      - sql: |
+          select s.x is null from S as s;
+        result: [true]
+
+  - id: is-null-on-absent-key
+    setup:
+      - create table S;
+      - |
+        insert into S ({});
+    steps:
+      - sql: |
+          select s.x is null from S as s;
+        result: [true]
+
+  - id: is-not-null-on-present-key
+    setup:
+      - create table S;
+      - |
+        insert into S ({x: 1});
+    steps:
+      - sql: |
+          select s.x is not null from S as s;
+        result: [true]
+
+  - id: true-is-true
+    steps:
+      - sql: |
+          select true is true from T;
+        result: [true]
+
+  - id: false-is-true
+    steps:
+      - sql: |
+          select false is true from T;
+        result: [false]
+
+  - id: null-is-true
+    steps:
+      - sql: |
+          select null is true from T;
+        result: [false]
+
+  - id: true-is-false
+    steps:
+      - sql: |
+          select true is false from T;
+        result: [false]
+
+  - id: false-is-false
+    steps:
+      - sql: |
+          select false is false from T;
+        result: [true]
+
+  - id: null-is-false
+    steps:
+      - sql: |
+          select null is false from T;
+        result: [false]
+
+  - id: true-is-unknown
+    steps:
+      - sql: |
+          select true is unknown from T;
+        result: [false]
+
+  - id: false-is-unknown
+    steps:
+      - sql: |
+          select false is unknown from T;
+        result: [false]
+
+  - id: null-is-unknown
+    steps:
+      - sql: |
+          select null is unknown from T;
+        result: [true]
+
+  - id: true-is-not-true
+    steps:
+      - sql: |
+          select true is not true from T;
+        result: [false]
+
+  - id: null-is-not-true
+    steps:
+      - sql: |
+          select null is not true from T;
+        result: [true]
+
+  - id: null-is-not-false
+    steps:
+      - sql: |
+          select null is not false from T;
+        result: [true]
+
+  - id: null-is-not-unknown
+    steps:
+      - sql: |
+          select null is not unknown from T;
+        result: [false]
+
+  - id: not-true
+    steps:
+      - sql: |
+          select not true from T;
+        result: [false]
+
+  - id: not-false
+    steps:
+      - sql: |
+          select not false from T;
+        result: [true]
+
+  - id: not-null
+    steps:
+      - sql: |
+          select not null from T;
+        result: [null]
+
+  - id: double-not
+    steps:
+      - sql: |
+          select not not true from T;
+        result: [true]
+
+  - id: and-t-t
+    steps:
+      - sql: |
+          select true and true from T;
+        result: [true]
+
+  - id: and-t-f
+    steps:
+      - sql: |
+          select true and false from T;
+        result: [false]
+
+  - id: and-t-n
+    steps:
+      - sql: |
+          select true and null from T;
+        result: [null]
+
+  - id: and-f-t
+    steps:
+      - sql: |
+          select false and true from T;
+        result: [false]
+
+  - id: and-f-f
+    steps:
+      - sql: |
+          select false and false from T;
+        result: [false]
+
+  - id: and-f-n
+    description: false-dominance, false AND null is false
+    steps:
+      - sql: |
+          select false and null from T;
+        result: [false]
+
+  - id: and-n-t
+    steps:
+      - sql: |
+          select null and true from T;
+        result: [null]
+
+  - id: and-n-f
+    description: false-dominance, null AND false is false
+    steps:
+      - sql: |
+          select null and false from T;
+        result: [false]
+
+  - id: and-n-n
+    steps:
+      - sql: |
+          select null and null from T;
+        result: [null]
+
+  - id: or-t-t
+    steps:
+      - sql: |
+          select true or true from T;
+        result: [true]
+
+  - id: or-t-f
+    steps:
+      - sql: |
+          select true or false from T;
+        result: [true]
+
+  - id: or-t-n
+    description: true-dominance, true OR null is true
+    steps:
+      - sql: |
+          select true or null from T;
+        result: [true]
+
+  - id: or-f-t
+    steps:
+      - sql: |
+          select false or true from T;
+        result: [true]
+
+  - id: or-f-f
+    steps:
+      - sql: |
+          select false or false from T;
+        result: [false]
+
+  - id: or-f-n
+    steps:
+      - sql: |
+          select false or null from T;
+        result: [null]
+
+  - id: or-n-t
+    description: true-dominance, null OR true is true
+    steps:
+      - sql: |
+          select null or true from T;
+        result: [true]
+
+  - id: or-n-f
+    steps:
+      - sql: |
+          select null or false from T;
+        result: [null]
+
+  - id: or-n-n
+    steps:
+      - sql: |
+          select null or null from T;
+        result: [null]
+
+  - id: and-binds-tighter-than-or
+    description: "a OR b AND c parses as a OR (b AND c)"
+    steps:
+      - sql: |
+          select false or true and false from T;
+        result: [false]
+
+  - id: not-binds-tighter-than-and
+    description: "NOT a AND b parses as (NOT a) AND b"
+    steps:
+      - sql: |
+          select not false and true from T;
+        result: [true]
+
+  - id: parens-override-precedence
+    steps:
+      - sql: |
+          select (false or true) and false from T;
+        result: [false]
+
+  - id: between-inside
+    steps:
+      - sql: |
+          select 5 between 1 and 10 from T;
+        result: [true]
+
+  - id: between-low-boundary
+    steps:
+      - sql: |
+          select 1 between 1 and 10 from T;
+        result: [true]
+
+  - id: between-high-boundary
+    steps:
+      - sql: |
+          select 10 between 1 and 10 from T;
+        result: [true]
+
+  - id: between-below-range
+    steps:
+      - sql: |
+          select 0 between 1 and 10 from T;
+        result: [false]
+
+  - id: between-above-range
+    steps:
+      - sql: |
+          select 11 between 1 and 10 from T;
+        result: [false]
+
+  - id: between-reversed-bounds
+    description: asymmetric BETWEEN, a > b yields false
+    steps:
+      - sql: |
+          select 5 between 10 and 1 from T;
+        result: [false]
+
+  - id: not-between-inside
+    steps:
+      - sql: |
+          select 5 not between 1 and 10 from T;
+        result: [false]
+
+  - id: not-between-outside
+    steps:
+      - sql: |
+          select 11 not between 1 and 10 from T;
+        result: [true]
+
+  - id: between-on-column
+    setup:
+      - create table N;
+      - |
+        insert into N ({x: 5});
+    steps:
+      - sql: |
+          select n.x between 1 and 10 from N as n;
+        result: [true]
+
+  - id: string-lt
+    description: strings order lexicographically
+    steps:
+      - sql: |
+          select 'a' < 'b' from T;
+        result: [true]
+
+  - id: string-gt
+    steps:
+      - sql: |
+          select 'b' > 'a' from T;
+        result: [true]
+
+  - id: string-ge-equal
+    steps:
+      - sql: |
+          select 'a' >= 'a' from T;
+        result: [true]
+
+  - id: string-between-inside
+    steps:
+      - sql: |
+          select 'b' between 'a' and 'c' from T;
+        result: [true]
+
+  - id: string-between-outside
+    steps:
+      - sql: |
+          select 'd' between 'a' and 'c' from T;
+        result: [false]
+
+  - id: in-hit
+    steps:
+      - sql: |
+          select 2 in (1, 2, 3) from T;
+        result: [true]
+
+  - id: in-miss
+    steps:
+      - sql: |
+          select 99 in (1, 2, 3) from T;
+        result: [false]
+
+  - id: in-single-element
+    steps:
+      - sql: |
+          select 1 in (1) from T;
+        result: [true]
+
+  - id: in-string
+    steps:
+      - sql: |
+          select 'bob' in ('alice', 'bob', 'carol') from T;
+        result: [true]
+
+  - id: not-in-hit
+    steps:
+      - sql: |
+          select 2 not in (1, 2, 3) from T;
+        result: [false]
+
+  - id: not-in-miss
+    steps:
+      - sql: |
+          select 99 not in (1, 2, 3) from T;
+        result: [true]
+
+  - id: in-on-column
+    setup:
+      - create table N;
+      - |
+        insert into N ({x: 2});
+    steps:
+      - sql: |
+          select n.x in (1, 2, 3) from N as n;
+        result: [true]
+
+  - id: eq-null-null
+    description: pin existing semantics, null = null is true
+    steps:
+      - sql: |
+          select null = null from T;
+        result: [true]
+
+  - id: eq-null-value
+    description: pin existing semantics, null = 1 is false
+    steps:
+      - sql: |
+          select null = 1 from T;
+        result: [false]
+
+  - id: ne-null-value
+    description: pin existing semantics, null contaminates ne to false
+    steps:
+      - sql: |
+          select null != 1 from T;
+        result: [false]
+
+  - id: ne-null-null
+    description: pin existing semantics, null != null is false
+    steps:
+      - sql: |
+          select null != null from T;
+        result: [false]
+
+  - id: lt-null
+    description: pin existing semantics, ordering with null is false
+    steps:
+      - sql: |
+          select null < 1 from T;
+        result: [false]
+
+  - id: where-null-excludes
+    description: a null predicate result excludes the row at the where boundary
+    setup:
+      - create table N;
+      - |
+        insert into N ({x: 1});
+    steps:
+      - sql: |
+          select n.x from N as n where null and n.x > 0;
+        result: []
+
+  - id: where-true-includes-all
+    setup:
+      - create table N;
+      - |
+        insert into N ({x: 1}, {x: 2});
+    steps:
+      - sql: |
+          select n.x from N as n where true or null;
+        result: [1, 2]
+
+  - id: where-and-filters
+    setup:
+      - create table N;
+      - |
+        insert into N ({x: 2, y: 5});
+    steps:
+      - sql: |
+          select n.x from N as n where n.x > 1 and n.y > 0;
+        result: [2]
+
+  - id: where-or-filters
+    setup:
+      - create table N;
+      - |
+        insert into N ({x: 3});
+    steps:
+      - sql: |
+          select n.x from N as n where n.x = 1 or n.x = 3;
+        result: [3]
+
+  - id: where-is-null-filters
+    setup:
+      - create table N;
+      - |
+        insert into N ({x: 1}, {x: null}, {x: 3});
+    steps:
+      - sql: |
+          select * from N where N.x is null;
+        result:
+          - {x: null}

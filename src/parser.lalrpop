@@ -38,16 +38,23 @@ extern {
         "["         => Token::BracketL,
         "]"         => Token::BracketR,
         // keywords
+        "and"       => Token::And,
         "as"        => Token::As,
+        "between"   => Token::Between,
         "create"    => Token::Create,
         "delete"    => Token::Delete,
         "drop"      => Token::Drop,
+        "in"        => Token::In,
+        "is"        => Token::Is,
         "limit"     => Token::Limit,
         "from"      => Token::From,
         "insert"    => Token::Insert,
         "into"      => Token::Into,
+        "not"       => Token::Not,
+        "or"        => Token::Or,
         "select"    => Token::Select,
         "table"     => Token::Table,
+        "unknown"   => Token::Unknown,
         "where"     => Token::Where,
         // types
         "t_bool"    => Token::TypeBool,
@@ -227,35 +234,61 @@ Selector: ir::Selector = {
 // EXPRESSIONS
 //------------------------------
 
-Expr: ir::Expr = {
-
-    #[precedence(level="0")]
+Atom: ir::Expr = {
     "ident"                         => ir::expr_var(<>),
     <"ident"> "(" <List<Expr>> ")"  => ir::expr_call(<>),
     Value                           => ir::expr_lit(<>),
     "{" <Members> "}"               => ir::expr_obj(<>),
     "(" <Expr> ")"                  => <>,
+};
+
+Expr: ir::Expr = {
+    #[precedence(level="0")]
+    Atom                        => <>,
 
     #[precedence(level="1")]    #[assoc(side="left")]
     <Expr> "[" <Expr> "]"       => ir::expr_jpe(<>),
     <Expr> "." <"ident">        => ir::expr_jpk(<>),
 
     #[precedence(level="2")]    #[assoc(side="left")]
-    <Expr> "*" <Expr>           => ir::expr_op("*", <>),
-    <Expr> "/" <Expr>           => ir::expr_op("/", <>),
-    <Expr> "%" <Expr>           => ir::expr_op("%", <>),
+    <Expr> "*" <Expr>           => ir::expr_binary("*", <>),
+    <Expr> "/" <Expr>           => ir::expr_binary("/", <>),
+    <Expr> "%" <Expr>           => ir::expr_binary("%", <>),
 
     #[precedence(level="3")]    #[assoc(side="left")]
-    <Expr> "+" <Expr>           => ir::expr_op("+", <>),
-    <Expr> "-" <Expr>           => ir::expr_op("-", <>),
+    <Expr> "+" <Expr>           => ir::expr_binary("+", <>),
+    <Expr> "-" <Expr>           => ir::expr_binary("-", <>),
 
     #[precedence(level="4")]    #[assoc(side="left")]
-    <Expr> "<" <Expr>           => ir::expr_op("<", <>),
-    <Expr> "<=" <Expr>          => ir::expr_op("<=", <>),
-    <Expr> "=" <Expr>           => ir::expr_op("=", <>),
-    <Expr> ">" <Expr>           => ir::expr_op(">", <>),
-    <Expr> ">=" <Expr>          => ir::expr_op(">=", <>),
-    <Expr> "!=" <Expr>          => ir::expr_op("!=", <>),
+    <Expr> "<" <Expr>           => ir::expr_binary("<", <>),
+    <Expr> "<=" <Expr>          => ir::expr_binary("<=", <>),
+    <Expr> "=" <Expr>           => ir::expr_binary("=", <>),
+    <Expr> ">" <Expr>           => ir::expr_binary(">", <>),
+    <Expr> ">=" <Expr>          => ir::expr_binary(">=", <>),
+    <Expr> "!=" <Expr>          => ir::expr_binary("!=", <>),
+
+    #[precedence(level="5")]                    #[assoc(side="left")]
+    <Expr> "is" "null"                          => ir::expr_is_null(<>),
+    <Expr> "is" "not" "null"                    => ir::expr_is_not_null(<>),
+    <Expr> "is" "true"                          => ir::expr_is_true(<>),
+    <Expr> "is" "false"                         => ir::expr_is_false(<>),
+    <Expr> "is" "unknown"                       => ir::expr_is_unknown(<>),
+    <Expr> "is" "not" "true"                    => ir::expr_is_not_true(<>),
+    <Expr> "is" "not" "false"                   => ir::expr_is_not_false(<>),
+    <Expr> "is" "not" "unknown"                 => ir::expr_is_not_unknown(<>),
+    <Expr> "between" <Expr> "and" <Expr>        => ir::expr_between(<>),
+    <Expr> "not" "between" <Expr> "and" <Expr>  => ir::expr_not_between(<>),
+    <Expr> "in" "(" <List<Expr>> ")"            => ir::expr_in_list(<>),
+    <Expr> "not" "in" "(" <List<Expr>> ")"      => ir::expr_not_in_list(<>),
+
+    #[precedence(level="6")]
+    "not" <Expr>                => ir::expr_not(<>),
+
+    #[precedence(level="7")]    #[assoc(side="left")]
+    <Expr> "and" <Expr>         => ir::expr_binary("and", <>),
+
+    #[precedence(level="8")]    #[assoc(side="left")]
+    <Expr> "or" <Expr>          => ir::expr_binary("or", <>),
 }
 
 Value: Value = {

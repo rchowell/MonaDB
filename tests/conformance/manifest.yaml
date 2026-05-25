@@ -15,3 +15,6 @@ suites:
   - file: suites/10-where.yaml
     title: where clause
     spec_ref: "§4.4"
+  - file: suites/11-predicates.yaml
+    title: predicates
+    spec_ref: "§8"

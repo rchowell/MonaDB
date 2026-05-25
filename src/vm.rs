@@ -90,6 +90,24 @@ pub enum Vop {
     Eq,
     /// Not equal to two values on the stack.
     Ne,
+    /// Logical NOT with 3VL semantics.
+    Not,
+    /// Logical AND with 3VL semantics (false-dominant).
+    And,
+    /// Logical OR with 3VL semantics (true-dominant).
+    Or,
+    /// Definite-bool: true iff top is null.
+    IsNull,
+    /// Definite-bool: true iff top is the boolean true.
+    IsTrue,
+    /// Definite-bool: true iff top is the boolean false.
+    IsFalse,
+    /// Definite-bool: true iff top is null.
+    IsUnknown,
+    /// Ternary range check: pop b, a, x; push x >= a && x <= b.
+    Between,
+    /// Variadic membership: pop n list values then target; push target in list.
+    InList(usize),
     /// If the value on the stack is true, jump to p1.
     If(usize),
     /// If the value on the stack is false, jump to p1.
@@ -308,6 +326,74 @@ impl VM {
                     let l = self.pop();
                     self.push_bool(l.ne(&r));
                 }
+                Vop::Not => {
+                    let v = self.pop();
+                    match to_bool(&v) {
+                        Some(true) => self.push_bool(false),
+                        Some(false) => self.push_bool(true),
+                        None => self.push(Value::null()),
+                    }
+                }
+                Vop::And => {
+                    let r = self.pop();
+                    let l = self.pop();
+                    let lv = to_bool(&l);
+                    let rv = to_bool(&r);
+                    if lv == Some(false) || rv == Some(false) {
+                        self.push_bool(false);
+                    } else if lv == Some(true) && rv == Some(true) {
+                        self.push_bool(true);
+                    } else {
+                        self.push(Value::null());
+                    }
+                }
+                Vop::Or => {
+                    let r = self.pop();
+                    let l = self.pop();
+                    let lv = to_bool(&l);
+                    let rv = to_bool(&r);
+                    if lv == Some(true) || rv == Some(true) {
+                        self.push_bool(true);
+                    } else if lv == Some(false) && rv == Some(false) {
+                        self.push_bool(false);
+                    } else {
+                        self.push(Value::null());
+                    }
+                }
+                Vop::IsNull => {
+                    let v = self.pop();
+                    self.push_bool(v.is_null());
+                }
+                Vop::IsTrue => {
+                    let v = self.pop();
+                    self.push_bool(to_bool(&v) == Some(true));
+                }
+                Vop::IsFalse => {
+                    let v = self.pop();
+                    self.push_bool(to_bool(&v) == Some(false));
+                }
+                Vop::IsUnknown => {
+                    let v = self.pop();
+                    self.push_bool(v.is_null());
+                }
+                Vop::Between => {
+                    let b = self.pop();
+                    let a = self.pop();
+                    let x = self.pop();
+                    self.push_bool(x.ge(&a) && x.le(&b));
+                }
+                Vop::InList(n) => {
+                    let items = self.take(*n);
+                    let target = self.pop();
+                    let mut hit = false;
+                    for item in &items {
+                        if target.eq(item) {
+                            hit = true;
+                            break;
+                        }
+                    }
+                    self.push_bool(hit);
+                }
                 Vop::If(jmp) => {
                     if self.pop().is_truthy() {
                         self.pc = *jmp;
@@ -364,6 +450,12 @@ impl VM {
             }
         }
     }
+}
+
+/// This coerces a value to unknown (None), true, false. It is not precisely
+/// what I want, but good enough for now. It's for 3VL.
+fn to_bool(v: &Value) -> Option<bool> {
+    if v.is_null() { None } else { Some(v.is_truthy()) }
 }
 
 /// Pull-based result iterator over a running VM. Produced by `MonaDB::exec`.

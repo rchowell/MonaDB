@@ -173,7 +173,7 @@ pub type ExprRef = Box<Expr>;
 
 #[derive(Debug)]
 pub enum Expr {
-    Op(Op),
+    Call(Call),
     Jpi(Jpi),
     Jpk(Jpk),
     Jpe(Jpe),
@@ -184,12 +184,10 @@ pub enum Expr {
 
 pub type Obj = Vec<Member>;
 
-// TODO unary operators
 #[derive(Debug)]
-pub struct Op {
-    pub sym: String,
-    pub lhs: ExprRef,
-    pub rhs: ExprRef,
+pub struct Call {
+    pub name: String,
+    pub args: Vec<Expr>,
 }
 
 #[derive(Debug)]
@@ -430,11 +428,6 @@ pub fn expr_var(name: String) -> Expr {
 }
 
 #[inline]
-pub fn expr_call(name: String, _: Vec<Expr>) -> Expr {
-    unimplemented!("function calls, found: {}", name)
-}
-
-#[inline]
 pub fn expr_lit(val: Value) -> Expr {
     Expr::Lit(val)
 }
@@ -461,12 +454,84 @@ pub fn expr_obj(obj: Obj) -> Expr {
 }
 
 #[inline]
-pub fn expr_op(sym: &str, lhs: Expr, rhs: Expr) -> Expr {
-    Expr::Op(Op {
-        sym: sym.to_string(),
-        lhs: Box::new(lhs),
-        rhs: Box::new(rhs),
+pub fn expr_binary(sym: &str, lhs: Expr, rhs: Expr) -> Expr {
+    Expr::Call(Call {
+        name: sym.to_string(),
+        args: vec![lhs, rhs],
     })
+}
+
+#[inline]
+pub fn expr_call(name: String, args: Vec<Expr>) -> Expr {
+    Expr::Call(Call { name, args })
+}
+
+#[inline]
+pub fn expr_not(arg: Expr) -> Expr {
+    Expr::Call(Call { name: "not".to_string(), args: vec![arg] })
+}
+
+#[inline]
+pub fn expr_is_null(arg: Expr) -> Expr {
+    Expr::Call(Call { name: "is_null".to_string(), args: vec![arg] })
+}
+
+#[inline]
+pub fn expr_is_not_null(arg: Expr) -> Expr {
+    expr_not(expr_is_null(arg))
+}
+
+#[inline]
+pub fn expr_is_true(arg: Expr) -> Expr {
+    Expr::Call(Call { name: "is_true".to_string(), args: vec![arg] })
+}
+
+#[inline]
+pub fn expr_is_false(arg: Expr) -> Expr {
+    Expr::Call(Call { name: "is_false".to_string(), args: vec![arg] })
+}
+
+#[inline]
+pub fn expr_is_unknown(arg: Expr) -> Expr {
+    Expr::Call(Call { name: "is_unknown".to_string(), args: vec![arg] })
+}
+
+#[inline]
+pub fn expr_is_not_true(arg: Expr) -> Expr {
+    expr_not(expr_is_true(arg))
+}
+
+#[inline]
+pub fn expr_is_not_false(arg: Expr) -> Expr {
+    expr_not(expr_is_false(arg))
+}
+
+#[inline]
+pub fn expr_is_not_unknown(arg: Expr) -> Expr {
+    expr_not(expr_is_unknown(arg))
+}
+
+#[inline]
+pub fn expr_between(x: Expr, a: Expr, b: Expr) -> Expr {
+    Expr::Call(Call { name: "between".to_string(), args: vec![x, a, b] })
+}
+
+#[inline]
+pub fn expr_not_between(x: Expr, a: Expr, b: Expr) -> Expr {
+    expr_not(expr_between(x, a, b))
+}
+
+#[inline]
+pub fn expr_in_list(x: Expr, list: Vec<Expr>) -> Expr {
+    let mut args = Vec::with_capacity(list.len() + 1);
+    args.push(x);
+    args.extend(list);
+    Expr::Call(Call { name: "in_list".to_string(), args })
+}
+
+#[inline]
+pub fn expr_not_in_list(x: Expr, list: Vec<Expr>) -> Expr {
+    expr_not(expr_in_list(x, list))
 }
 
 #[cfg(test)]

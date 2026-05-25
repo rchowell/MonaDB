@@ -142,19 +142,3 @@ tests:
       - sql: select T.x from T where T.x > 1;
         result: [2, 3]
 
-  # Spec placeholders — and/or not in grammar yet
-  - id: where-and-placeholder
-    description: "placeholder: and short-circuit (expect syntax until grammar)"
-    steps:
-      - sql: |
-          insert into T ({x: 1, y: 5});
-      - sql: select * from T where T.x > 0 and T.y < 10;
-        error: syntax
-
-  - id: where-or-placeholder
-    description: "placeholder: or short-circuit (expect syntax until grammar)"
-    steps:
-      - sql: |
-          insert into T ({x: 1, y: 5});
-      - sql: select * from T where T.x > 10 or T.y < 10;
-        error: syntax

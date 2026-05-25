@@ -89,14 +89,22 @@ pub enum Token {
     //-------------------------
     // Keywords
     //-------------------------
+    #[token("and")]
+    And,
     #[token("as")]
     As,
+    #[token("between")]
+    Between,
     #[token("create")]
     Create,
     #[token("delete")]
     Delete,
     #[token("drop")]
     Drop,
+    #[token("in")]
+    In,
+    #[token("is")]
+    Is,
     #[token("limit")]
     Limit,
     #[token("from")]
@@ -105,10 +113,16 @@ pub enum Token {
     Insert,
     #[token("into")]
     Into,
+    #[token("not")]
+    Not,
+    #[token("or")]
+    Or,
     #[token("select")]
     Select,
     #[token("table")]
     Table,
+    #[token("unknown")]
+    Unknown,
     #[token("where")]
     Where,
     //-------------------------

@@ -81,8 +81,8 @@ pub mod visit {
             visit_expr(self, i);
         }
 
-        fn visit_op(&mut self, i: &'ast Op) {
-            visit_op(self, i);
+        fn visit_call(&mut self, i: &'ast Call) {
+            visit_call(self, i);
         }
 
         fn visit_jpi(&mut self, i: &'ast Jpi) {
@@ -276,7 +276,7 @@ pub mod visit {
         V: Visit<'ast> + ?Sized,
     {
         match i {
-            Expr::Op(op) => v.visit_op(op),
+            Expr::Call(call) => v.visit_call(call),
             Expr::Jpi(jpi) => v.visit_jpi(jpi),
             Expr::Jpk(jpk) => v.visit_jpk(jpk),
             Expr::Jpe(jpe) => v.visit_jpe(jpe),
@@ -289,12 +289,13 @@ pub mod visit {
         }
     }
 
-    pub fn visit_op<'ast, V>(v: &mut V, i: &'ast Op)
+    pub fn visit_call<'ast, V>(v: &mut V, i: &'ast Call)
     where
         V: Visit<'ast> + ?Sized,
     {
-        v.visit_expr(&i.lhs);
-        v.visit_expr(&i.rhs);
+        for arg in &i.args {
+            v.visit_expr(arg);
+        }
     }
 
     pub fn visit_jpi<'ast, V>(v: &mut V, i: &'ast Jpi)
@@ -398,8 +399,8 @@ pub mod visit_mut {
             visit_expr_mut(self, i);
         }
 
-        fn visit_op_mut(&mut self, i: &mut Op) {
-            visit_op_mut(self, i);
+        fn visit_call_mut(&mut self, i: &mut Call) {
+            visit_call_mut(self, i);
         }
 
         fn visit_jpi_mut(&mut self, i: &mut Jpi) {
@@ -539,7 +540,7 @@ pub mod visit_mut {
 
     pub fn visit_expr_mut<V: VisitMut + ?Sized>(v: &mut V, i: &mut Expr) {
         match i {
-            Expr::Op(op) => v.visit_op_mut(op),
+            Expr::Call(call) => v.visit_call_mut(call),
             Expr::Jpi(jpi) => v.visit_jpi_mut(jpi),
             Expr::Jpk(jpk) => v.visit_jpk_mut(jpk),
             Expr::Jpe(jpe) => v.visit_jpe_mut(jpe),
@@ -552,9 +553,10 @@ pub mod visit_mut {
         }
     }
 
-    pub fn visit_op_mut<V: VisitMut + ?Sized>(v: &mut V, i: &mut Op) {
-        v.visit_expr_mut(&mut i.lhs);
-        v.visit_expr_mut(&mut i.rhs);
+    pub fn visit_call_mut<V: VisitMut + ?Sized>(v: &mut V, i: &mut Call) {
+        for arg in &mut i.args {
+            v.visit_expr_mut(arg);
+        }
     }
 
     pub fn visit_jpi_mut<V: VisitMut + ?Sized>(v: &mut V, i: &mut Jpi) {
@@ -649,8 +651,8 @@ pub mod fold {
             fold_expr(self, i)
         }
 
-        fn fold_op(&mut self, i: Op) -> Op {
-            fold_op(self, i)
+        fn fold_call(&mut self, i: Call) -> Call {
+            fold_call(self, i)
         }
 
         fn fold_jpi(&mut self, i: Jpi) -> Jpi {
@@ -807,7 +809,7 @@ pub mod fold {
 
     pub fn fold_expr<F: Fold + ?Sized>(f: &mut F, i: Expr) -> Expr {
         match i {
-            Expr::Op(op) => Expr::Op(f.fold_op(op)),
+            Expr::Call(call) => Expr::Call(f.fold_call(call)),
             Expr::Jpi(jpi) => Expr::Jpi(f.fold_jpi(jpi)),
             Expr::Jpk(jpk) => Expr::Jpk(f.fold_jpk(jpk)),
             Expr::Jpe(jpe) => Expr::Jpe(f.fold_jpe(jpe)),
@@ -819,11 +821,10 @@ pub mod fold {
         }
     }
 
-    pub fn fold_op<F: Fold + ?Sized>(f: &mut F, i: Op) -> Op {
-        Op {
-            sym: i.sym,
-            lhs: Box::new(f.fold_expr(*i.lhs)),
-            rhs: Box::new(f.fold_expr(*i.rhs)),
+    pub fn fold_call<F: Fold + ?Sized>(f: &mut F, i: Call) -> Call {
+        Call {
+            name: i.name,
+            args: i.args.into_iter().map(|e| f.fold_expr(e)).collect(),
         }
     }
 
@@ -881,7 +882,7 @@ mod tests {
         let stmt = parse("select * from T where a > 0;");
         let mut c = ExprCounter::default();
         c.visit_statement(&stmt);
-        // `a > 0` is Op(>, Var(a), Lit(0)) — three Expr nodes.
+        // `a > 0` is Call(">", [Var(a), Lit(0)]) — three Expr nodes.
         assert_eq!(c.0, 3);
     }
 

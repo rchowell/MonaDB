@@ -413,42 +413,32 @@ impl PartialEq for Value {
 
 impl PartialOrd for Value {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        if let (JsonValue::Number(a), JsonValue::Number(b)) = (&self.json(), &other.json()) {
-            a.as_f64().partial_cmp(&b.as_f64())
-        } else {
-            None
+        match (self.json(), other.json()) {
+            (JsonValue::Number(a), JsonValue::Number(b)) => a.as_f64().partial_cmp(&b.as_f64()),
+            (JsonValue::String(a), JsonValue::String(b)) => Some(a.cmp(b)),
+            _ => None,
         }
     }
 
     fn lt(&self, other: &Self) -> bool {
-        if let (JsonValue::Number(a), JsonValue::Number(b)) = (&self.json(), &other.json()) {
-            a.as_f64().unwrap() < b.as_f64().unwrap()
-        } else {
-            false
-        }
+        matches!(self.partial_cmp(other), Some(std::cmp::Ordering::Less))
     }
 
     fn le(&self, other: &Self) -> bool {
-        if let (JsonValue::Number(a), JsonValue::Number(b)) = (&self.json(), &other.json()) {
-            a.as_f64().unwrap() <= b.as_f64().unwrap()
-        } else {
-            false
-        }
+        matches!(
+            self.partial_cmp(other),
+            Some(std::cmp::Ordering::Less | std::cmp::Ordering::Equal)
+        )
     }
 
     fn gt(&self, other: &Self) -> bool {
-        if let (JsonValue::Number(a), JsonValue::Number(b)) = (&self.json(), &other.json()) {
-            a.as_f64().unwrap() > b.as_f64().unwrap()
-        } else {
-            false
-        }
+        matches!(self.partial_cmp(other), Some(std::cmp::Ordering::Greater))
     }
 
     fn ge(&self, other: &Self) -> bool {
-        if let (JsonValue::Number(a), JsonValue::Number(b)) = (&self.json(), &other.json()) {
-            a.as_f64().unwrap() >= b.as_f64().unwrap()
-        } else {
-            false
-        }
+        matches!(
+            self.partial_cmp(other),
+            Some(std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)
+        )
     }
 }

@@ -3,7 +3,7 @@ use serde_json::json;
 use crate::catalog::CATALOG_OID;
 use crate::error::Error;
 use crate::ir::{
-    Constructor, Create, Expr, Insert, Jpe, Jpi, Jpk, Member, Obj, Op, Var, Select, Source, Statement, ToSql
+    Call, Constructor, Create, Expr, Insert, Jpe, Jpi, Jpk, Member, Obj, Var, Select, Source, Statement, ToSql
 };
 use crate::transaction::TransactionMode;
 use crate::value::Value;
@@ -50,9 +50,7 @@ impl Compiler {
         // addr M:      Halt            -> end of body
         #[allow(clippy::single_match_else)]
         match statement {
-            Statement::Create(create) => self.cc_create(create),
-            // Statement::Delete(delete) => self.cc_delete(delete)?,
-            // Statement::Drop(drop) => self.cc_drop(drop),
+            Statement::Create(create) => self.cc_create(&create),
             Statement::Insert(insert) => self.cc_insert(insert)?,
             Statement::Select(select) => self.cc_select(select)?,
             _ => unsupported!("statement not supported: {:?}", statement),
@@ -75,7 +73,7 @@ impl Compiler {
         })
     }
 
-    fn cc_create(&mut self, create: Create) {
+    fn cc_create(&mut self, create: &Create) {
         self.txm = Some(TransactionMode::Write);
 
         // Create the table definition JSON-value
@@ -106,14 +104,6 @@ impl Compiler {
         self.emit_new_oid(csr);
         self.emit_new_btree();
         self.emit_insert(csr);
-    }
-
-    fn cc_drop(&mut self, table: String) {
-        self.emit_drop(table);
-    }
-
-    fn cc_delete(&mut self, table: String) -> Result<()> {
-        unsupported!("delete")
     }
 
     fn cc_insert(&mut self, insert: Insert) -> Result<()> {
@@ -151,9 +141,6 @@ impl Compiler {
         //     }
         // }
 
-        // loop open
-        // to_patch.push((loop_, 1)); // <- patch loop (rewind) to next+1
-
         let csr = select.from.csr.expect("from source should be bound") as usize;
         let tbl = match &select.from.src {
             Source::Table(_) => select.from.oid.expect("bind pass must set oid for Table"),
@@ -167,7 +154,7 @@ impl Compiler {
         // next -> jmp=scan
         let jmp = self.pc() + 2;
         self.emit_open(csr, tbl);
-        // TODO: prefix scans
+        // TODO: prefix scans with None sentinel
         // self.emit_push(Value::None);
         self.emit_scan(csr, jmp);
         let scan_pc = self.pc();
@@ -244,12 +231,15 @@ impl Compiler {
 
     fn cc_expr(&mut self, expr: Expr) -> Result<()> {
         match expr {
+            Expr::Call(call) => self.cc_expr_call(call),
             Expr::Jpe(jpe) => self.cc_expr_jpe(jpe),
             Expr::Jpi(jpi) => self.cc_expr_jpi(jpi),
             Expr::Jpk(jpk) => self.cc_expr_jpk(jpk),
-            Expr::Lit(val) => self.cc_expr_lit(val),
+            Expr::Lit(val) => {
+                self.cc_expr_lit(val);
+                Ok(())
+            },
             Expr::Obj(obj) => self.cc_expr_obj(obj),
-            Expr::Op(op) => self.cc_expr_op(op),
             Expr::Var(var) => {
                 self.cc_expr_var(&var);
                 Ok(())
@@ -257,22 +247,39 @@ impl Compiler {
         }
     }
 
-    fn cc_expr_op(&mut self, op: Op) -> Result<()> {
-        self.cc_expr(*op.lhs)?;
-        self.cc_expr(*op.rhs)?;
-        match op.sym.as_str() {
-            "*" => self.code.push(Vop::Mul),
-            "/" => self.code.push(Vop::Div),
-            "+" => self.code.push(Vop::Add),
-            "-" => self.code.push(Vop::Sub),
-            "<" => self.code.push(Vop::Lt),
-            "<=" => self.code.push(Vop::Le),
-            "=" => self.code.push(Vop::Eq),
-            ">=" => self.code.push(Vop::Ge),
-            ">" => self.code.push(Vop::Gt),
-            "!=" => self.code.push(Vop::Ne),
-            _ => return Err(Error::UnknownFunction(op.sym.clone())),
+    #[allow(clippy::len_zero)]
+    fn cc_expr_call(&mut self, call: Call) -> Result<()> {
+        let Call { name, args } = call;
+        let (arity_ok, op) = match name.as_str() {
+            "*"   => (args.len() == 2, Vop::Mul),
+            "/"   => (args.len() == 2, Vop::Div),
+            "%"   => (args.len() == 2, Vop::Rem),
+            "+"   => (args.len() == 2, Vop::Add),
+            "-"   => (args.len() == 2, Vop::Sub),
+            "<"   => (args.len() == 2, Vop::Lt),
+            "<="  => (args.len() == 2, Vop::Le),
+            "="   => (args.len() == 2, Vop::Eq),
+            ">="  => (args.len() == 2, Vop::Ge),
+            ">"   => (args.len() == 2, Vop::Gt),
+            "!="  => (args.len() == 2, Vop::Ne),
+            "and" => (args.len() == 2, Vop::And),
+            "or"  => (args.len() == 2, Vop::Or),
+            "not"         => (args.len() == 1, Vop::Not),
+            "is_null"     => (args.len() == 1, Vop::IsNull),
+            "is_true"     => (args.len() == 1, Vop::IsTrue),
+            "is_false"    => (args.len() == 1, Vop::IsFalse),
+            "is_unknown"  => (args.len() == 1, Vop::IsUnknown),
+            "between"     => (args.len() == 3, Vop::Between),
+            "in_list"     => (args.len() >= 1, Vop::InList(args.len().saturating_sub(1))),
+            _ => return Err(Error::UnknownFunction(name)),
         };
+        if !arity_ok {
+            return Err(Error::UnknownFunction(name));
+        }
+        for arg in args {
+            self.cc_expr(arg)?;
+        }
+        self.code.push(op);
         Ok(())
     }
 
@@ -295,9 +302,8 @@ impl Compiler {
         Ok(())
     }
 
-    fn cc_expr_lit(&mut self, value: Value) -> Result<()> {
+    fn cc_expr_lit(&mut self, value: Value) {
         self.emit_push(value);
-        Ok(())
     }
 
     fn cc_expr_obj(&mut self, obj: Obj) -> Result<()> {
