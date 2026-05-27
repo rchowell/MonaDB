@@ -473,7 +473,7 @@ fn to_bool(v: &Value) -> Option<bool> {
     }
 }
 
-/// Pull-based result iterator over a running VM. Produced by `MonaDB::exec`.
+/// Pull-based iterator over a running VM.
 pub struct Rows {
     vm: VM,
 }
@@ -483,7 +483,17 @@ impl Rows {
         Self { vm }
     }
 
+    /// Returns the next 'row' i.e. a JSON value.
     pub fn next(&mut self) -> Result<Option<Value>> {
         self.vm.next()
+    }
+
+    /// Completes the statement and commits its transaction.
+    pub fn finish(mut self) -> Result<u64> {
+        let mut n = 0;
+        while self.next()?.is_some() {
+            n += 1;
+        }
+        Ok(n)
     }
 }

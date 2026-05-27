@@ -144,16 +144,7 @@ mod test {
 
     fn db_fixture() -> MonaDB {
         let mut db = MonaDB::memory().unwrap();
-        let mut rows = db
-            .exec("create table users (id int, name string);", false)
-            .unwrap();
-        // TODO: fix this, no need to consume rows to ensure transaction is committed
-        'l: loop {
-            match rows.next() {
-                Ok(Some(_)) => {}
-                Ok(None) | Err(_) => break 'l,
-            }
-        }
+        db.execute("create table users (id int, name string);").unwrap();
         db
     }
 
@@ -175,8 +166,7 @@ mod test {
     fn test_bind_cross_join_assigns_distinct_cursors() {
         let mut db = MonaDB::memory().unwrap();
         for ddl in ["create table A;", "create table B;"] {
-            let mut rows = db.exec(ddl, false).unwrap();
-            while matches!(rows.next(), Ok(Some(_))) {}
+            db.execute(ddl).unwrap();
         }
         let mut stmt = MonaDB::parse("select * from A as a, B as b;").unwrap();
         db.bind(&mut stmt).unwrap();
@@ -194,8 +184,7 @@ mod test {
     #[test]
     fn test_bind_lateral_source_is_deferred() {
         let mut db = MonaDB::memory().unwrap();
-        let mut rows = db.exec("create table T;", false).unwrap();
-        while matches!(rows.next(), Ok(Some(_))) {}
+        db.execute("create table T;").unwrap();
         let mut stmt = MonaDB::parse("select * from T as t, t.items as item;").unwrap();
         let result = db.bind(&mut stmt);
         assert!(matches!(result, Err(Error::BindError(_))));
@@ -204,8 +193,7 @@ mod test {
     #[test]
     fn test_bind_array_literal_source_is_deferred() {
         let mut db = MonaDB::memory().unwrap();
-        let mut rows = db.exec("create table T;", false).unwrap();
-        while matches!(rows.next(), Ok(Some(_))) {}
+        db.execute("create table T;").unwrap();
         let mut stmt = MonaDB::parse("select x from [1, 2, 3] as x;").unwrap();
         let result = db.bind(&mut stmt);
         assert!(matches!(result, Err(Error::BindError(_))));
@@ -262,23 +250,9 @@ mod test {
     #[test]
     fn test_exec_select_with_explicit_alias() {
         let mut db = MonaDB::memory().unwrap();
-        let mut create_rows = db.exec("create table items (id int);", false).unwrap();
-        // Consume rows to ensure transaction is committed
-        loop {
-            match create_rows.next() {
-                Ok(Some(_)) => {}
-                Ok(None) | Err(_) => break,
-            }
-        }
-        let mut insert_rows = db.exec("insert into items ({id: 1});", false).unwrap();
-        // Consume rows
-        loop {
-            match insert_rows.next() {
-                Ok(Some(_)) => {}
-                Ok(None) | Err(_) => break,
-            }
-        }
-        let mut rows = db.exec("select u.id from items as u;", false).unwrap();
+        db.execute("create table items (id int);").unwrap();
+        db.execute("insert into items ({id: 1});").unwrap();
+        let mut rows = db.query("select u.id from items as u;", false).unwrap();
         let row = rows.next().unwrap();
         assert!(row.is_some());
     }

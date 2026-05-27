@@ -63,14 +63,8 @@ fn run_test(suite: &Suite, test: &TestCase) -> Result<(), String> {
 
 fn exec_stmts(db: &mut MonaDB, stmts: &[String]) -> Result<(), String> {
     for stmt in stmts {
-        let mut rows = db
-            .exec(stmt, true)
+        db.execute(stmt)
             .map_err(|e| format!("setup/teardown stmt failed ({stmt:?}): {e:?}"))?;
-        while rows
-            .next()
-            .map_err(|e| format!("setup/teardown stmt error ({stmt:?}): {e:?}"))?
-            .is_some()
-        {}
     }
     Ok(())
 }
@@ -79,7 +73,7 @@ fn run_step(db: &mut MonaDB, step: &Step, idx: usize) -> Result<(), String> {
     match (&step.result, &step.error) {
         (Some(expected_yaml), None) => {
             let mut rows = db
-                .exec(&step.sql, true)
+                .query(&step.sql, true)
                 .map_err(|e| format!("step {idx}: unexpected error: {e:?}"))?;
 
             let mut actual: Vec<Json> = Vec::new();
@@ -103,12 +97,9 @@ fn run_step(db: &mut MonaDB, step: &Step, idx: usize) -> Result<(), String> {
             }
         }
         (None, Some(expected_cat)) => {
-            let result = db.exec(&step.sql, true).and_then(|mut rows| {
-                while rows.next()?.is_some() {}
-                Ok(())
-            });
+            let result = db.execute(&step.sql);
             match result {
-                Ok(()) => {
+                Ok(_) => {
                     return Err(format!(
                         "step {idx}: expected '{expected_cat}' error but succeeded"
                     ));
@@ -125,14 +116,8 @@ fn run_step(db: &mut MonaDB, step: &Step, idx: usize) -> Result<(), String> {
         }
         (None, None) => {
             // fire-and-forget: must succeed, output is not checked
-            let mut rows = db
-                .exec(&step.sql, true)
+            db.execute(&step.sql)
                 .map_err(|e| format!("step {idx}: unexpected error: {e:?}"))?;
-            while rows
-                .next()
-                .map_err(|e| format!("step {idx}: error during execution: {e:?}"))?
-                .is_some()
-            {}
         }
         (Some(_), Some(_)) => {
             return Err(format!(

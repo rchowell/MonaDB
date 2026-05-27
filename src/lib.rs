@@ -60,8 +60,10 @@ impl MonaDB {
         Self::open(&tmp_pth)
     }
 
-    /// Execute the given sql statement(s).
-    pub fn exec(&mut self, sql: &str, debug: bool) -> Result<Rows> {
+    /// Run a query, returning a lazy iterator over its result rows. The
+    /// statement's transaction commits once the iterator is exhausted.
+    /// Mirrors rusqlite's `Connection::query`.
+    pub fn query(&mut self, sql: &str, debug: bool) -> Result<Rows> {
         let mut stmt = Self::parse(sql)?;
         self.bind(&mut stmt)?;
         let program = self.compile(stmt)?;
@@ -70,6 +72,12 @@ impl MonaDB {
         }
         let vm = VM::init(self.storage.clone(), program);
         Ok(Rows::new(vm))
+    }
+
+    /// Run a statement to completion, committing it, and return the number of
+    /// rows produced. Mirrors rusqlite's `Connection::execute`.
+    pub fn execute(&mut self, sql: &str) -> Result<u64> {
+        self.query(sql, false)?.finish()
     }
 
     /// Phase 1: Parse input string into our AST (no binding or compilation).
@@ -116,7 +124,7 @@ mod tests {
         let db_path = dir.path().join("test.db");
         let mut db = MonaDB::open(&db_path).unwrap();
 
-        db.exec("create table t (id int);", true).unwrap();
-        // let _ = db.exec("select * from t;", true);
+        db.execute("create table t (id int);").unwrap();
+        // let _ = db.query("select * from t;", true);
     }
 }

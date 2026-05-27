@@ -21,8 +21,7 @@ fn open_env(path: &Path) -> Env<WithoutTls> {
 }
 
 fn run(db: &mut MonaDB, sql: &str) {
-    let mut rows = db.exec(sql, false).unwrap();
-    while rows.next().unwrap().is_some() {}
+    db.execute(sql).unwrap();
 }
 
 #[test]
