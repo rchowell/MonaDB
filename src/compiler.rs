@@ -153,76 +153,116 @@ impl Compiler {
             }
         }
 
-        let csr = select.from.csr.expect("from source should be bound") as usize;
-        let tbl = match &select.from.src {
-            Source::Table(_) => select.from.oid.expect("bind pass must set oid for Table"),
-            Source::Unnest(_) => unsupported!("UNNEST FROM not yet compiled"),
-        };
-
-        // open
-        // push -> prefix (None is full scan)
-        // scan -> jmp=next
-        // ....
-        // next -> jmp=scan
-        let jmp = self.pc() + 2;
-        self.emit_open(csr, tbl);
-        // TODO: prefix scans with None sentinel
-        // self.emit_push(Value::None);
-        self.emit_scan(csr, jmp);
-        let scan_pc = self.pc();
-
-        let mut if_not_pc: Option<usize> = None;
-        if let Some(where_) = select.where_ {
-            self.cc_expr(where_)?;
-            self.emit_if_not(0);
-            if_not_pc = Some(self.pc());
+        let Select { from, where_, select: constructor, .. } = select;
+        if from.is_empty() {
+            unsupported!("select requires a from clause");
         }
 
-        // Skip (apply offset), then take (apply limit).
-        let mut skip_pc: Option<usize> = None;
+        // The (alias, cursor) bindings in item order; drive `*` and `.` forms.
+        let bindings: Vec<(String, usize)> = from
+            .iter()
+            .map(|f| (f.var.clone(), f.csr.expect("from item should be bound") as usize))
+            .collect();
+
+        // Open all sources first
+        for f in &from {
+            match &f.src {
+                Source::Table(_) => {
+                    let csr = f.csr.expect("from item should be bound") as usize;
+                    let oid = f.oid.expect("bind pass must set oid for Table");
+                    self.emit_open(csr, oid);
+                }
+                Source::Value(_) => unsupported!("value/lateral sources are not yet supported"),
+            }
+        }
+
+        // Nest one scan loop per source, outer (from[0]) to inner. scan_pc[i] is
+        // source i's Scan op; its exhaust edge is patched once `exit` is known.
+        // 
+        let mut scan_pc = Vec::with_capacity(bindings.len());
+        for (_, csr) in &bindings {
+            self.emit_scan(*csr, 0);
+            scan_pc.push(self.pc());
+        }
+
+        // Innermost body: predicate filter, then offset/limit, then projection.
+        let mut where_fail = None;
+        if let Some(where_) = where_ {
+            self.cc_expr(where_)?;
+            self.emit_if_not(0);
+            where_fail = Some(self.pc());
+        }
+
+        // Compile the offset (skip)
+        let mut skip_pc = None;
         if let Some(c) = cnt_skip {
             self.emit_cnt_if_pos(c, 0);
             skip_pc = Some(self.pc());
         }
-        let mut take_pc: Option<usize> = None;
+
+        // Compile the limit (take)
+        let mut take_pc = None;
         if let Some(c) = cnt_take {
             self.emit_cnt_if_zero(c, 0);
             take_pc = Some(self.pc());
         }
 
-        // loop body
-        self.emit_load(csr);
-        self.cc_select_constructor(select.select, 1)?;
+        // Compile the 'select' projection (constructor).
+        self.cc_select_constructor(constructor, &bindings)?;
         self.emit_yield();
 
-        // loop close
-        self.emit_next(csr, scan_pc + 1);
-        let next_pc = self.pc();
-        if let Some(pc) = if_not_pc {
-            self.patch(pc, next_pc)?;
+        // Close all the loops (Next) and record where to patch the scan ops.
+        let n = scan_pc.len();
+        let mut next_pc = vec![0usize; n];
+        for i in (0..n).rev() {
+            self.emit_next(bindings[i].1, scan_pc[i] + 1);
+            next_pc[i] = self.pc();
         }
 
-        // A spent skip jumps to Next
+        // Patch all the scan ops
+        let exit = self.pc() + 1;
+        self.patch(scan_pc[0], exit)?;
+        for i in 1..n {
+            self.patch(scan_pc[i], next_pc[i - 1])?;
+        }
+        let inner = next_pc[n - 1];
+        if let Some(pc) = where_fail {
+            self.patch(pc, inner)?;
+        }
         if let Some(pc) = skip_pc {
-            self.patch(pc, next_pc)?;
+            self.patch(pc, inner)?;
         }
-
-        // An exhausted take breaks the loop; jump past Next
         if let Some(pc) = take_pc {
-            self.patch(pc, next_pc + 1)?;
+            self.patch(pc, exit)?;
         }
-
-        // An exhausted scan breaks the loop; jump past Next
-        self.patch(scan_pc, next_pc + 1)?;
-
         Ok(())
     }
 
-    fn cc_select_constructor(&mut self, constructor: Constructor, _sos: usize) -> Result<()> {
+    fn cc_select_constructor(
+        &mut self,
+        constructor: Constructor,
+        bindings: &[(String, usize)],
+    ) -> Result<()> {
         match constructor {
-            Constructor::None => (),
+            // Identity `.` means project the binding tuple
+            Constructor::None => {
+                self.emit_obj();
+                for (var, csr) in bindings {
+                    self.emit_load(*csr);
+                    self.emit_obj_assign(var.clone());
+                }
+            }
+            // Spread `*` means merge all binding values into an object
             Constructor::Star => {
-                // Row is already on the stack from emit_load in cc_select.
+                if let [(_, csr)] = bindings {
+                    self.emit_load(*csr);
+                } else {
+                    self.emit_obj();
+                    for (_, csr) in bindings {
+                        self.emit_load(*csr);
+                        self.emit_obj_spread();
+                    }
+                }
             }
             Constructor::Expr(expr) => self.cc_expr(expr)?,
             Constructor::List(members) => self.cc_expr_obj(members)?,
@@ -246,7 +286,7 @@ impl Compiler {
         Ok(())
     }
 
-    /// Ensures the program as at least the given transaction mode
+    /// Ensures the program has at least the given transaction mode
     fn ensure_txn(&mut self, txn: TransactionMode) {
         self.txm = Some(txn.coalesce(self.txm));
     }
@@ -266,6 +306,7 @@ impl Compiler {
                 Ok(())
             },
             Expr::Obj(obj) => self.cc_expr_obj(obj),
+            Expr::Array(items) => self.cc_expr_array(items),
             Expr::Var(var) => {
                 self.cc_expr_var(&var);
                 Ok(())
@@ -345,6 +386,15 @@ impl Compiler {
                     self.emit_obj_spread();
                 }
             }
+        }
+        Ok(())
+    }
+
+    fn cc_expr_array(&mut self, items: Vec<Expr>) -> Result<()> {
+        self.emit_arr();
+        for item in items {
+            self.cc_expr(item)?;
+            self.emit_arr_push();
         }
         Ok(())
     }
@@ -460,6 +510,14 @@ impl Compiler {
 
     fn emit_obj_spread(&mut self) {
         self.code.push(Vop::ObjSpread);
+    }
+
+    fn emit_arr(&mut self) {
+        self.code.push(Vop::Arr);
+    }
+
+    fn emit_arr_push(&mut self) {
+        self.code.push(Vop::ArrPush);
     }
 
     fn emit_open(&mut self, csr: usize, tbl: u32) {

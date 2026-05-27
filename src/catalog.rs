@@ -34,7 +34,9 @@ impl Catalog {
             btree.put(txn.as_rw()?, &key, bytes.as_slice())?;
         }
         txn.commit()?;
-        Ok(Self { catalog: Arc::new(btree) })
+        Ok(Self {
+            catalog: Arc::new(btree),
+        })
     }
 
     /// Look up a table by name and return its stable oid using a provided transaction.

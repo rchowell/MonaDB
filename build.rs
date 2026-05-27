@@ -24,11 +24,15 @@ fn generate_conformance_tests() {
         println!("cargo:rerun-if-changed={}", path.display());
 
         let yaml = std::fs::read_to_string(&path).unwrap();
-        let suite: SuiteIndex = serde_yaml::from_str(&yaml)
-            .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        let suite: SuiteIndex =
+            serde_yaml::from_str(&yaml).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
 
         let suite_ident = sanitize(&suite.suite);
-        let rel = path.strip_prefix("tests/").unwrap().to_string_lossy().into_owned();
+        let rel = path
+            .strip_prefix("tests/")
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
 
         for tc in &suite.tests {
             let test_ident = sanitize(&tc.id);

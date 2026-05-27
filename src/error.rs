@@ -1,5 +1,5 @@
-use lalrpop_util::ParseError;
 use crate::lexer::Token;
+use lalrpop_util::ParseError;
 
 /// Top-level result type.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -23,46 +23,43 @@ pub enum Error {
 }
 
 impl Error {
-
     pub fn pretty(&self, input: &str) -> String {
         match self {
             Error::SyntaxError(hint) => {
-            let mut result = String::new();
-            let lines: Vec<&str> = input.lines().collect();
-            let line_number = input[..hint.location].lines().count();
-            let column_number = hint.location - input[..hint.location].rfind('\n').unwrap_or(0);
+                let mut result = String::new();
+                let lines: Vec<&str> = input.lines().collect();
+                let line_number = input[..hint.location].lines().count();
+                let column_number = hint.location - input[..hint.location].rfind('\n').unwrap_or(0);
 
-            // header
-            result.push('\n');
-            result.push_str("error: ");
-            result.push_str(&hint.message);
-            result.push('\n');
-            result.push_str("  │\n");
-
-            // location
-            if let Some(line) = lines.get(line_number.saturating_sub(1)) {
-                result.push_str("  │ ");
-                result.push_str(line);
+                // header
                 result.push('\n');
-                result.push_str("  │ ");
-                result.push_str(&" ".repeat(column_number));
-                result.push('^');
+                result.push_str("error: ");
+                result.push_str(&hint.message);
                 result.push('\n');
-            }
+                result.push_str("  │\n");
 
-            // expected
-            if !hint.expected.is_empty() {
-                result.push_str("  └─ hint: expected ");
-                result.push_str(&hint.expected.join(", "));
-            }
-            result.push('\n');
-            result
+                // location
+                if let Some(line) = lines.get(line_number.saturating_sub(1)) {
+                    result.push_str("  │ ");
+                    result.push_str(line);
+                    result.push('\n');
+                    result.push_str("  │ ");
+                    result.push_str(&" ".repeat(column_number));
+                    result.push('^');
+                    result.push('\n');
+                }
+
+                // expected
+                if !hint.expected.is_empty() {
+                    result.push_str("  └─ hint: expected ");
+                    result.push_str(&hint.expected.join(", "));
+                }
+                result.push('\n');
+                result
             }
             _ => format!("{self:?}"),
         }
-
     }
-    
 }
 
 #[macro_export]
@@ -124,7 +121,7 @@ impl From<ParseError<usize, Token, Error>> for Error {
                     expected,
                 };
                 Error::SyntaxError(hint)
-            },
+            }
             ParseError::ExtraToken { token } => {
                 let hint = Hint {
                     message: "extra token".to_string(),
@@ -132,7 +129,7 @@ impl From<ParseError<usize, Token, Error>> for Error {
                     expected: vec![],
                 };
                 Error::SyntaxError(hint)
-            },
+            }
         }
     }
 }

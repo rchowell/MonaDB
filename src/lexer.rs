@@ -10,7 +10,7 @@ pub struct SqlLexer<'input> {
 }
 
 impl<'input> SqlLexer<'input> {
-    #[must_use] 
+    #[must_use]
     pub fn new(input: &'input str) -> Self {
         Self {
             tokens: Token::lexer(input).spanned(),
@@ -24,9 +24,7 @@ impl Iterator for SqlLexer<'_> {
     fn next(&mut self) -> Option<Self::Item> {
         self.tokens
             .next()
-            .map(|(token, span)| {
-                Ok((span.start, token?, span.end))
-            })
+            .map(|(token, span)| Ok((span.start, token?, span.end)))
     }
 }
 

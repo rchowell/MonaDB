@@ -131,17 +131,9 @@ SelectBlock: ir::Select =
     <Where?>
     <Limit?> => ir::select_block(<>);
 
-// TODO from <expr>
-From: ir::From = {
-    "from" <"ident">                    => ir::from_table(<>),
-    "from" <FromSource> "as"? <"ident"> => ir::from_source(<>),
-};
+From: Vec<ir::From> = "from" <List<FromItem>>;
 
-FromSource: ir::Source = {
-    <"ident">                   => ir::from_source_table(<>),
-    // TODO: unnest
-    // TODO: value
-};
+FromItem: ir::From = <Expr> <("as"? <"ident">)?> => ir::from_item(<>);
 
 Where: ir::Where = "where" <Expr>;
 
@@ -239,6 +231,7 @@ Atom: ir::Expr = {
     <"ident"> "(" <List<Expr>> ")"  => ir::expr_call(<>),
     Value                           => ir::expr_lit(<>),
     "{" <Members> "}"               => ir::expr_obj(<>),
+    "[" <List<Expr>> "]"            => ir::expr_array(<>),
     "(" <Expr> ")"                  => <>,
 };
 

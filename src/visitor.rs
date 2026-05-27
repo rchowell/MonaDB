@@ -148,7 +148,9 @@ pub mod visit {
     where
         V: Visit<'ast> + ?Sized,
     {
-        v.visit_from(&i.from);
+        for f in &i.from {
+            v.visit_from(f);
+        }
         if let Some(w) = &i.where_ {
             v.visit_expr(w);
         }
@@ -171,7 +173,7 @@ pub mod visit {
     {
         match i {
             Source::Table(_) => {}
-            Source::Unnest(expr) => v.visit_expr(expr),
+            Source::Value(expr) => v.visit_expr(expr),
         }
     }
 
@@ -284,6 +286,11 @@ pub mod visit {
             Expr::Obj(members) => {
                 for m in members {
                     v.visit_member(m);
+                }
+            }
+            Expr::Array(items) => {
+                for e in items {
+                    v.visit_expr(e);
                 }
             }
         }
@@ -448,7 +455,9 @@ pub mod visit_mut {
     }
 
     pub fn visit_select_mut<V: VisitMut + ?Sized>(v: &mut V, i: &mut Select) {
-        v.visit_from_mut(&mut i.from);
+        for f in &mut i.from {
+            v.visit_from_mut(f);
+        }
         if let Some(w) = &mut i.where_ {
             v.visit_expr_mut(w);
         }
@@ -465,7 +474,7 @@ pub mod visit_mut {
     pub fn visit_source_mut<V: VisitMut + ?Sized>(v: &mut V, i: &mut Source) {
         match i {
             Source::Table(_) => {}
-            Source::Unnest(expr) => v.visit_expr_mut(expr),
+            Source::Value(expr) => v.visit_expr_mut(expr),
         }
     }
 
@@ -548,6 +557,11 @@ pub mod visit_mut {
             Expr::Obj(members) => {
                 for m in members {
                     v.visit_member_mut(m);
+                }
+            }
+            Expr::Array(items) => {
+                for e in items {
+                    v.visit_expr_mut(e);
                 }
             }
         }
@@ -714,7 +728,7 @@ pub mod fold {
 
     pub fn fold_select<F: Fold + ?Sized>(f: &mut F, i: Select) -> Select {
         Select {
-            from: f.fold_from(i.from),
+            from: i.from.into_iter().map(|x| f.fold_from(x)).collect(),
             where_: i.where_.map(|w| f.fold_expr(w)),
             limit: i.limit.map(|l| f.fold_limit(l)),
             select: f.fold_constructor(i.select),
@@ -733,7 +747,7 @@ pub mod fold {
     pub fn fold_source<F: Fold + ?Sized>(f: &mut F, i: Source) -> Source {
         match i {
             Source::Table(name) => Source::Table(name),
-            Source::Unnest(expr) => Source::Unnest(Box::new(f.fold_expr(*expr))),
+            Source::Value(expr) => Source::Value(Box::new(f.fold_expr(*expr))),
         }
     }
 
@@ -817,6 +831,7 @@ pub mod fold {
             Expr::Obj(members) => {
                 Expr::Obj(members.into_iter().map(|m| f.fold_member(m)).collect())
             }
+            Expr::Array(items) => Expr::Array(items.into_iter().map(|e| f.fold_expr(e)).collect()),
             Expr::Var(name) => Expr::Var(name),
         }
     }
@@ -916,7 +931,7 @@ mod tests {
         let Statement::Select(s) = &folded else {
             panic!("expected select")
         };
-        assert!(matches!(s.from.src, Source::Table(_)));
+        assert!(matches!(s.from[0].src, Source::Table(_)));
         assert!(s.where_.is_some());
     }
 }

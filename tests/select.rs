@@ -65,9 +65,18 @@ fn rows_yields_one_at_a_time() {
     run(&mut db, "create table b (id int);");
     run(&mut db, "create table c (id int);");
     let mut rows = db.exec("select * from catalog;", false).unwrap();
-    assert_eq!(rows.next().unwrap().unwrap().jpk("name").unwrap().as_str(), Some("a"));
-    assert_eq!(rows.next().unwrap().unwrap().jpk("name").unwrap().as_str(), Some("b"));
-    assert_eq!(rows.next().unwrap().unwrap().jpk("name").unwrap().as_str(), Some("c"));
+    assert_eq!(
+        rows.next().unwrap().unwrap().jpk("name").unwrap().as_str(),
+        Some("a")
+    );
+    assert_eq!(
+        rows.next().unwrap().unwrap().jpk("name").unwrap().as_str(),
+        Some("b")
+    );
+    assert_eq!(
+        rows.next().unwrap().unwrap().jpk("name").unwrap().as_str(),
+        Some("c")
+    );
     assert!(rows.next().unwrap().is_none());
 }
 

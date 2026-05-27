@@ -6,10 +6,10 @@ mod catalog;
 mod compiler;
 mod cursor;
 mod display;
-mod value;
 mod lexer;
 mod storage;
 mod transaction;
+mod value;
 mod visitor;
 mod vm;
 
@@ -29,7 +29,11 @@ use storage::Storage;
 use tempfile::TempDir;
 
 use crate::{
-    binder::Binder, catalog::Catalog, ir::Statement, lexer::SqlLexer, parser::SqlParser,
+    binder::Binder,
+    catalog::Catalog,
+    ir::Statement,
+    lexer::SqlLexer,
+    parser::SqlParser,
     vm::{Program, Rows, VM},
 };
 

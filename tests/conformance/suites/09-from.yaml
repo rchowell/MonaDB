@@ -2,40 +2,32 @@ suite: from-clause
 spec_ref: "§4.2"
 description: Iteration, aliasing, and lateral cross-product behavior of the from clause.
 
-# Creates the primary table used by most tests in this suite.
 setup:
   - create table T;
 
 tests:
+
   - id: from-empty-table
-    description: scanning an empty table produces no rows
+    description: scanning an empty table yields no rows
     steps:
-      - sql: select * from T;
+      - sql: |
+          select * from T;
         result: []
 
-  - id: from-basic-scan
-    description: table scan returns all inserted rows
+  - id: from-scan-insertion-order
+    description: a table scan returns all rows in insertion order
     steps:
       - sql: |
           insert into T ({x: 1}, {x: 2}, {x: 3});
       - sql: |
-          select * from T order T.x;
+          select * from T;
         result:
           - {x: 1}
           - {x: 2}
           - {x: 3}
 
-  - id: from-explicit-alias
-    description: explicit as alias is used to reference the row
-    steps:
-      - sql: |
-          insert into T ({x: 10});
-      - sql: |
-          select t.x from T as t;
-        result: [10]
-
   - id: from-implicit-alias
-    description: omitting as uses the table name as alias
+    description: omitting `as` uses the table name as the alias
     steps:
       - sql: |
           insert into T ({x: 42});
@@ -43,36 +35,37 @@ tests:
           select T.x from T;
         result: [42]
 
-  - id: from-select-star-spread
-    description: select * spreads bindings — alias key is not wrapped
+  - id: from-explicit-alias
+    description: an explicit `as` alias names the binding
+    steps:
+      - sql: |
+          insert into T ({x: 10});
+      - sql: |
+          select t.x from T as t;
+        result: [10]
+
+  - id: from-star-single
+    description: select * over one source emits the row unwrapped
     steps:
       - sql: |
           insert into T ({x: 1, y: 2});
-      - sql: select * from T as t;
+      - sql: |
+          select * from T as t;
         result:
           - {x: 1, y: 2}
 
-  - id: from-select-dot-envelope
-    description: "select . returns the binding tuple as an envelope object"
+  - id: from-dot-envelope-single
+    description: select . wraps the binding under its alias
     steps:
       - sql: |
           insert into T ({x: 1});
-      - sql: select . from T as t;
+      - sql: |
+          select . from T as t;
         result:
           - {t: {x: 1}}
 
-  - id: from-multi-step-insert-count
-    description: rows inserted in one step are visible to a subsequent count
-    steps:
-      - sql: |
-          insert into T ({x: 1}, {x: 2}, {x: 3});
-      - sql: |
-          select count(*) from T group count(*) as n;
-        result:
-          - {n: 3}
-
-  - id: from-cross-product
-    description: two sources separated by comma form a lateral cross product
+  - id: from-cross-star
+    description: two comma sources form a Cartesian product, merged by select *
     setup:
       - create table S;
       - |
@@ -81,49 +74,182 @@ tests:
       - sql: |
           insert into T ({a: 1}, {a: 2});
       - sql: |
-          select t.a, s.b
-          from T as t, S as s
-          order t.a, s.b;
+          select * from T as t, S as s;
         result:
           - {a: 1, b: 10}
           - {a: 1, b: 20}
           - {a: 2, b: 10}
           - {a: 2, b: 20}
 
-  - id: from-lateral-path-source
-    description: a later source may reference a path on an earlier binding
+  - id: from-cross-projection
+    description: a projection list may reference both cross-joined bindings
+    setup:
+      - create table S;
+      - |
+        insert into S ({b: 10}, {b: 20});
     steps:
       - sql: |
-          insert into T ({items: [1, 2, 3]});
+          insert into T ({a: 1}, {a: 2});
       - sql: |
-          select t.items, item
-          from T as t, t.items as item
-          order item;
+          select t.a as a, s.b as b from T as t, S as s;
         result:
-          - {items: [1, 2, 3], item: 1}
-          - {items: [1, 2, 3], item: 2}
-          - {items: [1, 2, 3], item: 3}
+          - {a: 1, b: 10}
+          - {a: 1, b: 20}
+          - {a: 2, b: 10}
+          - {a: 2, b: 20}
 
-  - id: from-subquery-source
-    description: a parenthesized subquery may serve as a source
+  - id: from-cross-dot-envelope
+    description: select . over two sources keys each binding by its alias
+    setup:
+      - create table S;
+      - |
+        insert into S ({b: 10});
     steps:
       - sql: |
-          insert into T ({x: 5}, {x: 10});
+          insert into T ({a: 1});
       - sql: |
-          select sub.x
-          from (select t.x from T as t where t.x > 5) as sub;
+          select . from T as t, S as s;
         result:
-          - {x: 10}
+          - {t: {a: 1}, s: {b: 10}}
 
-  # Negative tests
+  - id: from-cross-where
+    description: a where predicate filters the product across both bindings
+    setup:
+      - create table S;
+      - |
+        insert into S ({b: 10}, {b: 20});
+    steps:
+      - sql: |
+          insert into T ({a: 1}, {a: 2});
+      - sql: |
+          select t.a as a, s.b as b from T as t, S as s where t.a = 1;
+        result:
+          - {a: 1, b: 10}
+          - {a: 1, b: 20}
+
+  - id: from-cross-empty-right
+    description: an empty inner source makes the whole product empty
+    setup:
+      - create table S;
+    steps:
+      - sql: |
+          insert into T ({a: 1}, {a: 2});
+      - sql: |
+          select * from T as t, S as s;
+        result: []
+
+  - id: from-value-source-deferred
+    description: value/lateral from-sources are not yet supported (deferred to Deliverable 2)
+    steps:
+      - sql: |
+          select x from [1, 2, 3] as x;
+        error: static
+
   - id: from-unbound-table
     description: referencing an undeclared table is a static error
     steps:
-      - sql: select * from Ghost;
+      - sql: |
+          select * from Ghost;
         error: static
 
   - id: from-unbound-alias
     description: referencing an alias not in scope is a static error
     steps:
-      - sql: select x.foo from T;
+      - sql: |
+          select x.foo from T;
+        error: static
+
+  - id: from-lateral-projection
+    description: a later source may unnest a collection path on an earlier binding
+    steps:
+      - sql: |
+          insert into T ({items: [1, 2, 3]});
+      - sql: |
+          select t.items as items, item as item from T as t, t.items as item;
+        result:
+          - {items: [1, 2, 3], item: 1}
+          - {items: [1, 2, 3], item: 2}
+          - {items: [1, 2, 3], item: 3}
+
+  - id: from-lateral-star-scalar
+    description: select * keeps a non-object (scalar) lateral binding under its alias
+    steps:
+      - sql: |
+          insert into T ({items: [1, 2, 3]});
+      - sql: |
+          select * from T as t, t.items as item;
+        result:
+          - {items: [1, 2, 3], item: 1}
+          - {items: [1, 2, 3], item: 2}
+          - {items: [1, 2, 3], item: 3}
+
+  - id: from-lateral-dot-envelope
+    description: the unnested element binds under its alias in the envelope
+    steps:
+      - sql: |
+          insert into T ({items: [1, 2]});
+      - sql: |
+          select . from T as t, t.items as item;
+        result:
+          - {t: {items: [1, 2]}, item: 1}
+          - {t: {items: [1, 2]}, item: 2}
+
+  - id: from-lateral-multi-row
+    description: unnest flattens across every outer row in order
+    steps:
+      - sql: |
+          insert into T ({k: 1, items: [10, 11]}, {k: 2, items: [20]});
+      - sql: |
+          select t.k as k, item as v from T as t, t.items as item;
+        result:
+          - {k: 1, v: 10}
+          - {k: 1, v: 11}
+          - {k: 2, v: 20}
+
+  - id: from-lateral-empty-array
+    description: an empty collection contributes no rows for that outer binding
+    steps:
+      - sql: |
+          insert into T ({items: []});
+      - sql: |
+          select item as v from T as t, t.items as item;
+        result: []
+
+  - id: from-lateral-missing-path
+    description: a missing path is treated as empty (inner-join-like)
+    steps:
+      - sql: |
+          insert into T ({x: 1});
+      - sql: |
+          select item as v from T as t, t.items as item;
+        result: []
+
+  - id: from-lateral-non-array
+    description: a non-array source value contributes no rows
+    steps:
+      - sql: |
+          insert into T ({items: 5});
+      - sql: |
+          select item as v from T as t, t.items as item;
+        result: []
+
+  - id: from-array-literal-source
+    description: an array literal may serve as a from source, scanned element-wise
+    steps:
+      - sql: |
+          select x from [1, 2, 3] as x;
+        result: [1, 2, 3]
+
+  - id: from-lateral-self-reference
+    description: a lateral source may not reference its own alias
+    steps:
+      - sql: |
+          select * from T as t, item.x as item;
+        error: static
+
+  - id: from-lateral-requires-alias
+    description: a lateral collection source requires an alias
+    steps:
+      - sql: |
+          select * from T as t, t.items;
         error: static

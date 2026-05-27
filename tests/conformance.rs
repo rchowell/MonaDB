@@ -8,8 +8,8 @@
 // List: cargo test --test conformance -- --list
 // Single: cargo test --test conformance <suite>__<case>  e.g. select_clause__select_dot
 
-use monadb::error::Error;
 use monadb::MonaDB;
+use monadb::error::Error;
 use serde::Deserialize;
 use serde_json::Value as Json;
 
@@ -45,15 +45,12 @@ struct Step {
 // ── Harness ───────────────────────────────────────────────────────────────────
 
 fn load_suite(path: &str) -> Suite {
-    let yaml = std::fs::read_to_string(path)
-        .unwrap_or_else(|_| panic!("cannot read {path}"));
-    serde_yaml::from_str(&yaml)
-        .unwrap_or_else(|e| panic!("cannot parse {path}: {e}"))
+    let yaml = std::fs::read_to_string(path).unwrap_or_else(|_| panic!("cannot read {path}"));
+    serde_yaml::from_str(&yaml).unwrap_or_else(|e| panic!("cannot parse {path}: {e}"))
 }
 
 fn run_test(suite: &Suite, test: &TestCase) -> Result<(), String> {
-    let mut db = MonaDB::memory()
-        .map_err(|e| format!("MonaDB::memory() failed: {e:?}"))?;
+    let mut db = MonaDB::memory().map_err(|e| format!("MonaDB::memory() failed: {e:?}"))?;
     exec_stmts(&mut db, &suite.setup)?;
     exec_stmts(&mut db, &test.setup)?;
     for (i, step) in test.steps.iter().enumerate() {
@@ -106,17 +103,15 @@ fn run_step(db: &mut MonaDB, step: &Step, idx: usize) -> Result<(), String> {
             }
         }
         (None, Some(expected_cat)) => {
-            let result = db
-                .exec(&step.sql, true)
-                .and_then(|mut rows| {
-                    while rows.next()?.is_some() {}
-                    Ok(())
-                });
+            let result = db.exec(&step.sql, true).and_then(|mut rows| {
+                while rows.next()?.is_some() {}
+                Ok(())
+            });
             match result {
                 Ok(()) => {
                     return Err(format!(
                         "step {idx}: expected '{expected_cat}' error but succeeded"
-                    ))
+                    ));
                 }
                 Err(e) => {
                     let actual_cat = error_category(&e);
@@ -140,7 +135,9 @@ fn run_step(db: &mut MonaDB, step: &Step, idx: usize) -> Result<(), String> {
             {}
         }
         (Some(_), Some(_)) => {
-            return Err(format!("step {idx}: both 'result' and 'error' set — invalid test case"));
+            return Err(format!(
+                "step {idx}: both 'result' and 'error' set — invalid test case"
+            ));
         }
     }
     Ok(())

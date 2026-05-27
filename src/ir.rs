@@ -46,7 +46,7 @@ pub struct TableMember {
 
 #[derive(Debug)]
 pub struct Select {
-    pub from: From,
+    pub from: Vec<From>,
     // pub with: Option<Expr>,
     pub where_: Option<Where>,
     // group
@@ -67,7 +67,7 @@ pub enum Constructor {
 #[derive(Debug)]
 pub enum Source {
     Table(String),
-    Unnest(Box<Expr>), // lateral UNNEST; expr is bound against prior scope
+    Value(Box<Expr>),
 }
 
 #[derive(Debug)]
@@ -178,6 +178,7 @@ pub enum Expr {
     Jpe(Jpe),
     Lit(Value),
     Obj(Obj),
+    Array(Vec<Expr>),
     Var(Var),
 }
 
@@ -251,7 +252,7 @@ pub fn select(select: Constructor, block: Select) -> Select {
 }
 
 #[inline]
-pub fn select_block(from: From, where_: Option<Where>, limit: Option<Limit>) -> Select {
+pub fn select_block(from: Vec<From>, where_: Option<Where>, limit: Option<Limit>) -> Select {
     Select {
         from,
         where_,
@@ -260,35 +261,29 @@ pub fn select_block(from: From, where_: Option<Where>, limit: Option<Limit>) -> 
     }
 }
 
-// select_item with alias.
 #[inline]
 pub fn select_item(expr: Expr, name: String) -> Member {
     Member::Assign(name, expr)
 }
 
+/// Variable without path is assumed to be a table reference. I should
+/// probably fix up the grammar here, but this is a reasonable start.
 #[inline]
-pub fn from_table(tbl: String) -> From {
-    From {
-        src: Source::Table(tbl.clone()),
-        var: tbl,
-        csr: None,
-        oid: None,
+pub fn from_item(src: Expr, alias: Option<String>) -> From {
+    match src {
+        Expr::Var(var) => From {
+            var: alias.unwrap_or_else(|| var.name.clone()),
+            src: Source::Table(var.name),
+            csr: None,
+            oid: None,
+        },
+        expr => From {
+            var: alias.unwrap_or_default(),
+            src: Source::Value(Box::new(expr)),
+            csr: None,
+            oid: None,
+        },
     }
-}
-
-#[inline]
-pub fn from_source(src: Source, var: String) -> From {
-    From {
-        src,
-        var,
-        csr: None,
-        oid: None,
-    }
-}
-
-#[inline]
-pub fn from_source_table(tbl: String) -> Source {
-    Source::Table(tbl.clone())
 }
 
 #[inline]
@@ -423,7 +418,7 @@ pub fn selector_index(idx: usize) -> Selector {
 
 #[inline]
 pub fn expr_var(name: String) -> Expr {
-    Expr::Var(Var::unbound(name.as_str()))
+    Expr::Var(Var::unbound(&name))
 }
 
 #[inline]
@@ -453,6 +448,11 @@ pub fn expr_obj(obj: Obj) -> Expr {
 }
 
 #[inline]
+pub fn expr_array(items: Vec<Expr>) -> Expr {
+    Expr::Array(items)
+}
+
+#[inline]
 pub fn expr_binary(sym: &str, lhs: Expr, rhs: Expr) -> Expr {
     Expr::Call(Call {
         name: sym.to_string(),
@@ -467,12 +467,18 @@ pub fn expr_call(name: String, args: Vec<Expr>) -> Expr {
 
 #[inline]
 pub fn expr_not(arg: Expr) -> Expr {
-    Expr::Call(Call { name: "not".to_string(), args: vec![arg] })
+    Expr::Call(Call {
+        name: "not".to_string(),
+        args: vec![arg],
+    })
 }
 
 #[inline]
 pub fn expr_is_null(arg: Expr) -> Expr {
-    Expr::Call(Call { name: "is_null".to_string(), args: vec![arg] })
+    Expr::Call(Call {
+        name: "is_null".to_string(),
+        args: vec![arg],
+    })
 }
 
 #[inline]
@@ -482,17 +488,26 @@ pub fn expr_is_not_null(arg: Expr) -> Expr {
 
 #[inline]
 pub fn expr_is_true(arg: Expr) -> Expr {
-    Expr::Call(Call { name: "is_true".to_string(), args: vec![arg] })
+    Expr::Call(Call {
+        name: "is_true".to_string(),
+        args: vec![arg],
+    })
 }
 
 #[inline]
 pub fn expr_is_false(arg: Expr) -> Expr {
-    Expr::Call(Call { name: "is_false".to_string(), args: vec![arg] })
+    Expr::Call(Call {
+        name: "is_false".to_string(),
+        args: vec![arg],
+    })
 }
 
 #[inline]
 pub fn expr_is_unknown(arg: Expr) -> Expr {
-    Expr::Call(Call { name: "is_unknown".to_string(), args: vec![arg] })
+    Expr::Call(Call {
+        name: "is_unknown".to_string(),
+        args: vec![arg],
+    })
 }
 
 #[inline]
@@ -512,7 +527,10 @@ pub fn expr_is_not_unknown(arg: Expr) -> Expr {
 
 #[inline]
 pub fn expr_between(x: Expr, a: Expr, b: Expr) -> Expr {
-    Expr::Call(Call { name: "between".to_string(), args: vec![x, a, b] })
+    Expr::Call(Call {
+        name: "between".to_string(),
+        args: vec![x, a, b],
+    })
 }
 
 #[inline]
@@ -525,7 +543,10 @@ pub fn expr_in_list(x: Expr, list: Vec<Expr>) -> Expr {
     let mut args = Vec::with_capacity(list.len() + 1);
     args.push(x);
     args.extend(list);
-    Expr::Call(Call { name: "in_list".to_string(), args })
+    Expr::Call(Call {
+        name: "in_list".to_string(),
+        args,
+    })
 }
 
 #[inline]

@@ -1,13 +1,13 @@
 use std::mem::take;
 use std::vec;
 
+use crate::Result;
 use crate::cursor::Cursor;
 use crate::storage::Storage;
-use heed::byteorder::BigEndian;
-use heed::byteorder::ByteOrder;
 use crate::transaction::{Transaction, TransactionMode};
 use crate::value::Value;
-use crate::Result;
+use heed::byteorder::BigEndian;
+use heed::byteorder::ByteOrder;
 
 /// Program is a sequence of virtual machine instructions and relevant state.
 pub struct Program {
@@ -62,6 +62,10 @@ pub enum Vop {
     ObjAssign(String),
     /// Spread a value into an object.
     ObjSpread,
+    /// Create a new array on the stack.
+    Arr,
+    /// Append the top value to the array beneath it.
+    ArrPush,
     /// Set a counter to a value.
     CntSet(usize, u64),
     /// If the counter is greater than 0, decrement it and jump to p1.
@@ -246,6 +250,14 @@ impl VM {
                     let obj = self.peek();
                     obj.spread(val);
                 }
+                Vop::Arr => {
+                    self.stack.push(Value::array());
+                }
+                Vop::ArrPush => {
+                    let val = self.pop();
+                    let arr = self.peek();
+                    arr.push(val);
+                }
                 Vop::Pop => {
                     let _ = self.pop();
                 }
@@ -412,20 +424,19 @@ impl VM {
                     let btree = self.storage.open_btree(txn, *tbl)?;
                     self.cursors[*csr].open(btree);
                 }
-                Vop::Scan { csr, jmp} => {
+                Vop::Scan { csr, jmp } => {
                     let txn = self.txn.as_ref().expect("Scan before Transaction");
                     if !self.cursors[*csr].scan(txn, None)? {
                         self.pc = *jmp;
                     }
                 }
-                Vop::Next { csr, jmp} => {
+                Vop::Next { csr, jmp } => {
                     if self.cursors[*csr].next()? {
                         self.pc = *jmp;
                     }
                 }
                 Vop::Load { csr } => {
-                    let (_, val) = self.cursors[*csr].current().expect("Load on unpositioned cursor");
-                    let val = Value::decode(val)?;
+                    let val = self.cursors[*csr].load()?;
                     self.push(val);
                 }
                 //
@@ -455,7 +466,11 @@ impl VM {
 /// This coerces a value to unknown (None), true, false. It is not precisely
 /// what I want, but good enough for now. It's for 3VL.
 fn to_bool(v: &Value) -> Option<bool> {
-    if v.is_null() { None } else { Some(v.is_truthy()) }
+    if v.is_null() {
+        None
+    } else {
+        Some(v.is_truthy())
+    }
 }
 
 /// Pull-based result iterator over a running VM. Produced by `MonaDB::exec`.

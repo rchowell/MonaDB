@@ -111,3 +111,23 @@ tests:
       - sql: |
           select t.x from T t;
         result: [9]
+
+  - id: select-expr-array
+    description: an array literal builds an array from its element expressions
+    steps:
+      - sql: |
+          insert into T ({x: 7});
+      - sql: |
+          select [1, 2, t.x] as a from T as t;
+        result:
+          - {a: [1, 2, 7]}
+
+  - id: select-expr-array-nested
+    description: array literals may nest
+    steps:
+      - sql: |
+          insert into T ({x: 1});
+      - sql: |
+          select [[1, 2], [3]] as a from T as t;
+        result:
+          - {a: [[1, 2], [3]]}

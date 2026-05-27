@@ -2,7 +2,7 @@ use crate::catalog::Catalog;
 use crate::error::{Error, Result};
 use crate::ir::{Expr, From, Insert, Source, Statement};
 use crate::transaction::Transaction;
-use crate::visitor::visit_mut::{VisitMut, visit_expr_mut, visit_from_mut, visit_insert_mut};
+use crate::visitor::visit_mut::{VisitMut, visit_expr_mut, visit_insert_mut};
 
 /// The binder assigns cursor slots and resolves variable references.
 pub struct Binder<'txn> {
@@ -45,33 +45,29 @@ impl<'txn> Binder<'txn> {
         self.next_cursor += 1;
         id
     }
-
 }
 
 impl VisitMut for Binder<'_> {
-    /// The 'from' clause introduces bindings in its source + var
+    /// Allocates a new cursor slot, resolving tables and adding bindings.
     fn visit_from_mut(&mut self, i: &mut From) {
-        let from = i;
-        // Allocate the new cursor slot.
+        let var = i.var.clone();
         let csr = self.next_cursor();
-        from.csr = Some(csr);
-        // Extract the table name, no visit here.
-        let table_name = match &from.src {
-            Source::Table(name) => name,
-            Source::Unnest(_) => unimplemented!(),
-        };
-        // Look up the table OID in the catalog
-        match self.catalog.get_table(self.txn, table_name) {
-            Ok(oid) => {
-                from.oid = Some(oid);
+        i.csr = Some(csr);
+        match &i.src {
+            Source::Table(name) => {
+                let name = name.clone();
+                match self.catalog.get_table(self.txn, &name) {
+                    Ok(oid) => i.oid = Some(oid),
+                    Err(err) => self.errors.push(err),
+                }
+                self.scope.push(var, csr);
             }
-            Err(err) => {
-                self.errors.push(err);
+            Source::Value(_) => {
+                self.errors.push(Error::BindError(
+                    "value/lateral sources are not yet supported".to_string(),
+                ));
             }
         }
-        // Add the cursor alias to the scope, then descend.
-        self.scope.push(from.var.clone(), csr);
-        visit_from_mut(self, from);
     }
 
     fn visit_insert_mut(&mut self, i: &mut Insert) {
@@ -85,7 +81,9 @@ impl VisitMut for Binder<'_> {
     }
 
     fn visit_expr_mut(&mut self, i: &mut Expr) {
-        if let Expr::Var(var) = i && var.bind.is_none() {
+        if let Expr::Var(var) = i
+            && var.bind.is_none()
+        {
             var.bind = self.scope.resolve(&var.name);
             if var.bind.is_none() {
                 let err = Error::BindError(format!("unresolved variable: {}", &var.name));
@@ -129,7 +127,7 @@ impl Scope {
     fn resolve(&self, name: &str) -> Option<u32> {
         for binding in self.bindings.iter().rev() {
             if binding.name == name {
-                return Some(binding.csr)
+                return Some(binding.csr);
             }
         }
         None
@@ -138,7 +136,11 @@ impl Scope {
 
 #[cfg(test)]
 mod test {
-    use crate::{MonaDB, error::Error, ir::{Constructor, Expr, Statement}};
+    use crate::{
+        MonaDB,
+        error::Error,
+        ir::{Constructor, Expr, Statement},
+    };
 
     fn db_fixture() -> MonaDB {
         let mut db = MonaDB::memory().unwrap();
@@ -165,8 +167,48 @@ mod test {
         let Statement::Select(sel) = stmt else {
             panic!("Expected a select statement")
         };
-        assert_eq!(sel.from.csr, Some(0));
-        assert!(sel.from.oid.is_some());
+        assert_eq!(sel.from[0].csr, Some(0));
+        assert!(sel.from[0].oid.is_some());
+    }
+
+    #[test]
+    fn test_bind_cross_join_assigns_distinct_cursors() {
+        let mut db = MonaDB::memory().unwrap();
+        for ddl in ["create table A;", "create table B;"] {
+            let mut rows = db.exec(ddl, false).unwrap();
+            while matches!(rows.next(), Ok(Some(_))) {}
+        }
+        let mut stmt = MonaDB::parse("select * from A as a, B as b;").unwrap();
+        db.bind(&mut stmt).unwrap();
+        let Statement::Select(sel) = stmt else {
+            panic!("expected Select")
+        };
+        assert_eq!(sel.from[0].csr, Some(0));
+        assert_eq!(sel.from[1].csr, Some(1));
+        assert!(sel.from[0].oid.is_some() && sel.from[1].oid.is_some());
+    }
+
+    // Lateral / value sources are deferred (Deliverable 2). For now the binder
+    // rejects them with a static BindError; these tests guard that deferral and
+    // become the starting spec when lateral sources are reintroduced.
+    #[test]
+    fn test_bind_lateral_source_is_deferred() {
+        let mut db = MonaDB::memory().unwrap();
+        let mut rows = db.exec("create table T;", false).unwrap();
+        while matches!(rows.next(), Ok(Some(_))) {}
+        let mut stmt = MonaDB::parse("select * from T as t, t.items as item;").unwrap();
+        let result = db.bind(&mut stmt);
+        assert!(matches!(result, Err(Error::BindError(_))));
+    }
+
+    #[test]
+    fn test_bind_array_literal_source_is_deferred() {
+        let mut db = MonaDB::memory().unwrap();
+        let mut rows = db.exec("create table T;", false).unwrap();
+        while matches!(rows.next(), Ok(Some(_))) {}
+        let mut stmt = MonaDB::parse("select x from [1, 2, 3] as x;").unwrap();
+        let result = db.bind(&mut stmt);
+        assert!(matches!(result, Err(Error::BindError(_))));
     }
 
     #[test]

@@ -4,7 +4,7 @@ use heed::EnvFlags;
 use heed::EnvOpenOptions;
 use heed::byteorder::BigEndian;
 use heed::byteorder::ByteOrder;
-use heed::types::{Bytes};
+use heed::types::Bytes;
 use serde_json::Value;
 use serde_json::json;
 
@@ -34,7 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let env = open()?;
 
     // BEGIN TRANSACTION 1
-    // 
+    //
     // ```
     // create table foo;
     // ```
@@ -73,16 +73,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     //
     // END TRANSACTION 1
 
-
     // BEGIN TRANSACTION 2
-    // 
+    //
     // ```
     // insert into foo ({ x: 1, y: 2 });
     // ```
     //
     // 01: BEGIN WRITE TRANSACTION
     let mut txn = env.write_txn()?;
-    // 
+    //
     // 02: OPEN CURSOR c=0, table='foo'
     let c0 = env.open_database(&txn, Some("foo"))?;
     let c0: Cursor = c0.expect("Table 'foo' does not exist.");
@@ -127,32 +126,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-    // env -> transaction -> db(s)
+// env -> transaction -> db(s)
 
-    // you can iterate over ranges too!!!
-    // let range = 35..=42;
-    // let iter = db.range(&wtxn, &range)?;
+// you can iterate over ranges too!!!
+// let range = 35..=42;
+// let iter = db.range(&wtxn, &range)?;
 
-    // for row in iter {
-    //     let val = row?;
-    //     dbg!(val);
-    // }
+// for row in iter {
+//     let val = row?;
+//     dbg!(val);
+// }
 
-    // let rets: Result<_, _> = db.range(&wtxn, &range)?.collect();
-    // let rets: Vec<(i64, _)> = rets?;
+// let rets: Result<_, _> = db.range(&wtxn, &range)?.collect();
+// let rets: Vec<(i64, _)> = rets?;
 
-    // let expected = vec![(35, "c"), (42, "d")];
-    // assert_eq!(rets, expected);
-    // dbg!(expected);
+// let expected = vec![(35, "c"), (42, "d")];
+// assert_eq!(rets, expected);
+// dbg!(expected);
 
-    // // even delete a range of keys
-    // let range = 35..=42;
-    // let deleted: usize = db.delete_range(&mut wtxn, &range)?;
-    // dbg!(deleted);
+// // even delete a range of keys
+// let range = 35..=42;
+// let deleted: usize = db.delete_range(&mut wtxn, &range)?;
+// dbg!(deleted);
 
-    // let rets: Result<_, _> = db.iter(&wtxn)?.collect();
-    // let rets: Vec<(i64, _)> = rets?;
-    // let expected = vec![(0, "a"), (68, "b")];
+// let rets: Result<_, _> = db.iter(&wtxn)?.collect();
+// let rets: Vec<(i64, _)> = rets?;
+// let expected = vec![(0, "a"), (68, "b")];
 
-    // assert_eq!(deleted, 2);
-    // assert_eq!(rets, expected);
+// assert_eq!(deleted, 2);
+// assert_eq!(rets, expected);

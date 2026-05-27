@@ -14,6 +14,8 @@ Things I need to remember to do.
 - feat: upserts
 - feat: functions
 - feat: lateral joins
+- feat: derived binding names
 - perf: arena IRs
 - perf: constant pool
 - tidy: we can reduce all slot primitives
+- tidy: use the partiql 'RelCorrelate' modeling

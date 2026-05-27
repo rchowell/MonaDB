@@ -2,17 +2,18 @@ use heed::types::Bytes;
 use heed::{RoIter, RoPrefix, RoRevIter, RoRevPrefix};
 
 use crate::error::{Error, Result};
+use crate::value::Value;
 use crate::{storage::BTree, transaction::Transaction};
 
-/// Cursor controls btree traversal.
+/// Cursor controls traversal of a persistent btree row source.
+/// I think we can collapse this further to only two types with
+/// the outer cursor then inner scan with table and value variants.
 #[derive(Default)]
 pub struct Cursor {
     /// Inner btree handle for creating scan states.
     btree: Option<BTree>,
-    /// Inner scan state upon which we call next.
-    scan: Option<Scan>,
-    /// Current (key,val) owned bytes
-    curr: Option<(Vec<u8>, Vec<u8>)>,
+    /// Inner scan state upon which we call next/load/current.
+    scan: Option<TableScan>,
 }
 
 impl Cursor {
@@ -34,27 +35,36 @@ impl Cursor {
         let rtxn = txn.as_ro();
         let iter = btree.iter(rtxn)?;
         let iter: RoIter<'static, Bytes, Bytes> = unsafe { std::mem::transmute(iter) };
-        let mut scan: Scan = Scan::Fwd(iter);
-        // Position on the next available item
-        self.curr = scan.next()?.map(|(k, v)| (k.to_vec(), v.to_vec()));
+        let mut scan = TableScan::new(TableIter::Fwd(iter));
+        let available = scan.next()?;
         self.scan = Some(scan);
         // Return true if there's an available row
-        Ok(self.curr.is_some())
+        Ok(available)
     }
 
     /// Advances the scan; returns true if there's an available row
     pub fn next(&mut self) -> Result<bool> {
-        let scan = self.scan.as_mut().ok_or_else(|| {
-            // Unreachable unless there's a compiler bug.
-            Error::InternalError("next called on a cursor with no scan state".to_string())
-        })?;
-        self.curr = scan.next()?.map(|(k, v)| (k.to_vec(), v.to_vec()));
-        Ok(self.curr.is_some())
+        self.scan
+            .as_mut()
+            .ok_or_else(|| {
+                // Unreachable unless there's a compiler bug.
+                Error::InternalError("next called on a cursor with no scan state".to_string())
+            })?
+            .next()
     }
 
     /// Returns the current (key,val) bytes, consider an expect inside here so no Option
+    #[allow(dead_code)]
     pub fn current(&self) -> Option<(&[u8], &[u8])> {
-        self.curr.as_ref().map(|(k,v)| (k.as_slice(), v.as_slice()))
+        self.scan.as_ref().and_then(TableScan::current)
+    }
+
+    /// Returns the current row as a decoded btree row Value.
+    pub fn load(&self) -> Result<Value> {
+        self.scan
+            .as_ref()
+            .ok_or_else(|| Error::InternalError("load on unpositioned cursor".to_string()))?
+            .load()
     }
 
     /// Inserts the value at the given key
@@ -74,9 +84,41 @@ impl Cursor {
     }
 }
 
-/// The inner scan state; dispatches on type.
+/// Table-backed scan state.
+struct TableScan {
+    /// Underlying table iterator.
+    iter: TableIter,
+    /// Current (key,val) owned bytes.
+    curr: Option<(Vec<u8>, Vec<u8>)>,
+}
+
+impl TableScan {
+    fn new(iter: TableIter) -> Self {
+        Self { iter, curr: None }
+    }
+
+    fn next(&mut self) -> Result<bool> {
+        self.curr = self.iter.next()?.map(|(k, v)| (k.to_vec(), v.to_vec()));
+        Ok(self.curr.is_some())
+    }
+
+    fn load(&self) -> Result<Value> {
+        let (_, val) = self
+            .current()
+            .ok_or_else(|| Error::InternalError("load on unpositioned cursor".to_string()))?;
+        Value::decode(val)
+    }
+
+    fn current(&self) -> Option<(&[u8], &[u8])> {
+        self.curr
+            .as_ref()
+            .map(|(k, v)| (k.as_slice(), v.as_slice()))
+    }
+}
+
+/// The inner table iterator; dispatches on type.
 #[allow(unused)]
-enum Scan {
+enum TableIter {
     /// Forward iteration.
     Fwd(RoIter<'static, Bytes, Bytes>),
     /// Forward iteration with prefix.
@@ -87,14 +129,14 @@ enum Scan {
     RevPre(RoRevPrefix<'static, Bytes, Bytes>),
 }
 
-impl Scan {
+impl TableIter {
     /// Returns the next (key,val) reference or none.
     fn next(&mut self) -> Result<Option<(&[u8], &[u8])>> {
         let res = match self {
-            Scan::Fwd(it) => it.next(),
-            Scan::FwdPre(it) => it.next(),
-            Scan::Rev(it) => it.next(),
-            Scan::RevPre(it) => it.next(),
+            TableIter::Fwd(it) => it.next(),
+            TableIter::FwdPre(it) => it.next(),
+            TableIter::Rev(it) => it.next(),
+            TableIter::RevPre(it) => it.next(),
         };
         Ok(res.transpose()?)
     }
@@ -393,7 +435,7 @@ mod tests {
         let btree = storage.open_btree(&txn, 1).unwrap();
         {
             let mut cursor = Cursor::new();
-        cursor.open(btree);
+            cursor.open(btree);
             assert!(cursor.scan(&txn, None).unwrap());
         }
         txn.commit().unwrap();
@@ -406,7 +448,7 @@ mod tests {
         let btree = storage.open_btree(&txn, 1).unwrap();
         {
             let mut cursor = Cursor::new();
-        cursor.open(btree);
+            cursor.open(btree);
             cursor.insert(&mut txn, b"k", b"v").unwrap();
         }
         txn.commit().unwrap();

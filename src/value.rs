@@ -79,6 +79,11 @@ impl Value {
     }
 
     #[inline]
+    pub fn array() -> Value {
+        Self::Json(JsonValue::Array(Vec::new()))
+    }
+
+    #[inline]
     pub fn is_truthy(&self) -> bool {
         if self.is_null() {
             return false;
@@ -217,6 +222,12 @@ impl Value {
     pub fn set(&mut self, key: String, value: Value) {
         if let Value::Json(JsonValue::Object(members)) = self {
             members.insert(key, value.into_json());
+        }
+    }
+
+    pub fn push(&mut self, value: Value) {
+        if let Value::Json(JsonValue::Array(items)) = self {
+            items.push(value.into_json());
         }
     }
 

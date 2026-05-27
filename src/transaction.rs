@@ -1,6 +1,9 @@
 use heed::{RoTxn, RwTxn, WithoutTls};
 
-use crate::{error::{Error, Result}, storage::Storage};
+use crate::{
+    error::{Error, Result},
+    storage::Storage,
+};
 
 /// Transaction mode used as a flag during compilation.
 #[derive(Debug, Clone, Copy)]
@@ -14,7 +17,9 @@ impl TransactionMode {
     pub fn coalesce(self, other: Option<TransactionMode>) -> TransactionMode {
         match (self, other) {
             // If either is read-write, return read-write
-            (_, Some(TransactionMode::Write)) | (TransactionMode::Write, _) => TransactionMode::Write,
+            (_, Some(TransactionMode::Write)) | (TransactionMode::Write, _) => {
+                TransactionMode::Write
+            }
             // Fallback to read-only
             _ => TransactionMode::Read,
         }
@@ -54,7 +59,10 @@ impl Transaction {
         let txn = storage.env.read_txn()?;
         let txn: RoTxn<'static, WithoutTls> = unsafe { std::mem::transmute(txn) };
         let txn = TransactionInner::Read(txn);
-        Ok(Self { inner: txn, _storage: storage.clone() })
+        Ok(Self {
+            inner: txn,
+            _storage: storage.clone(),
+        })
     }
 
     /// Creates a new write transaction.
@@ -66,7 +74,10 @@ impl Transaction {
         let txn = storage.env.write_txn()?;
         let txn: RwTxn<'static> = unsafe { std::mem::transmute(txn) };
         let txn = TransactionInner::Write(txn);
-        Ok(Self { inner: txn, _storage: storage.clone() })
+        Ok(Self {
+            inner: txn,
+            _storage: storage.clone(),
+        })
     }
 
     /// Borrow as a read txn; write transactions can deref as read-only.
@@ -81,7 +92,9 @@ impl Transaction {
     #[allow(clippy::unnecessary_wraps)]
     pub fn as_rw(&mut self) -> Result<&mut RwTxn<'static>> {
         match &mut self.inner {
-            TransactionInner::Read(_) => Err(Error::InternalError("transaction is read-only".into())),
+            TransactionInner::Read(_) => {
+                Err(Error::InternalError("transaction is read-only".into()))
+            }
             TransactionInner::Write(t) => Ok(t),
         }
     }
