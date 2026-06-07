@@ -154,8 +154,12 @@ impl Compiler {
         }
 
         let Select { from, where_, select: constructor, .. } = select;
+
+        // Compile the select <value>; form.
         if from.is_empty() {
-            unsupported!("select requires a from clause");
+            self.cc_select_constructor(constructor, &[])?;
+            self.emit_yield();
+            return Ok(());
         }
 
         // The (alias, cursor) bindings in item order; drive `*` and `.` forms.

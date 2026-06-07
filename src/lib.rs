@@ -97,6 +97,7 @@ impl MonaDB {
     }
 
     /// Phase 3: Compilation is pure bytecode generation.
+    #[allow(clippy::unused_self)]
     fn compile(&self, statement: Statement) -> Result<Program> {
         let cc = Compiler::new();
         cc.compile(statement)

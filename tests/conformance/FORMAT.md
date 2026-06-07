@@ -18,8 +18,6 @@ manifest.yaml
     └── ...
 ```
 
----
-
 ## Execution model
 
 1. Fresh in-memory DB per test case (no state leaks between tests).
@@ -30,8 +28,6 @@ manifest.yaml
 6. Suite-level `teardown` runs last.
 7. DB is discarded. Because the DB is fresh per test, teardown is rarely needed.
 
----
-
 ## `manifest.yaml` schema
 
 ```yaml
@@ -41,8 +37,6 @@ suites:
     title: Literals
     spec_ref: "§3.1"                 # optional, references language.md section
 ```
-
----
 
 ## Suite file schema
 
@@ -85,8 +79,6 @@ tests:
 **Result ordering.** `result` is an ordered sequence. For queries without `order`, use `order` in the SQL to pin the output order.
 
 **Numeric comparison.** MonaDB has one numeric type (IEEE-754 double). The harness compares numbers as `f64`, so `1` and `1.0` in expected values are treated identically.
-
----
 
 ## Error taxonomy
 

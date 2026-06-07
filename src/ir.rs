@@ -242,6 +242,11 @@ pub fn insert(target: String, source: Vec<Expr>) -> Insert {
 }
 
 #[inline]
+pub fn select_value(select: Constructor) -> Select {
+    Select { from: vec![], where_: None, limit: None, select }
+}
+
+#[inline]
 pub fn select(select: Constructor, block: Select) -> Select {
     Select {
         from: block.from,

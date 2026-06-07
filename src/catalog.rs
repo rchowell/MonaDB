@@ -21,7 +21,7 @@ impl Catalog {
     /// Loads the catalog from the storage environment.
     pub fn load(storage: &Storage) -> Result<Self> {
         // Bootstrap the catalog table if it doesn't exist
-        let mut txn = Transaction::write(&storage)?;
+        let mut txn = storage.write_txn()?;
         let key = CATALOG_OID.to_be_bytes();
         let btree: BTree = storage.create_btree(&mut txn, CATALOG_OID)?;
         if btree.get(txn.as_ro(), &key)?.is_none() {

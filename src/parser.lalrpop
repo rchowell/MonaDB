@@ -112,7 +112,7 @@ TableMember: ir::TableMember = <name:"ident"> <ty:Type> => ir::table_member(name
 //------------------------------
 
 Select: ir::Select = {
-    "select" <SelectConstructor>                => todo!("select without block"),
+    "select" <SelectConstructor>                => ir::select_value(<>),
     "select" <SelectConstructor> <SelectBlock>  => ir::select(<>),
 };
 
