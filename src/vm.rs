@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::mem::take;
 use std::vec;
 
@@ -38,6 +39,8 @@ pub enum Vop {
     Init { jmp: usize },
     /// Insert a value into the given cursor (csr) where key=stack[0] value=stack[1].
     Insert { csr: usize },
+    /// Mark the cursor's (csr) current row for deletion; applied at Halt.
+    Delete { csr: usize },
     /// Jump to the instruction at jmp.
     Jump { jmp: usize },
     /// JSON Path Index
@@ -153,6 +156,11 @@ pub struct VM {
     cursors: Vec<Cursor>,
     /// The limit counters, addressed by index.
     counters: Vec<u64>,
+    /// Keys marked for deletion, grouped by cursor slot. Applied at Halt
+    /// through the owning cursor. Each cursor's keys stay in scan order so
+    /// deletes hit the btree with ascending-key locality. Empty (no
+    /// allocation) until a `Delete` runs, so read-only statements pay nothing.
+    deletes: HashMap<usize, Vec<Vec<u8>>>,
     /// The open transaction handle; dropped last.
     txn: Option<Transaction>,
 }
@@ -170,6 +178,7 @@ impl VM {
             txn: None,
             cursors,
             counters: vec![0; program.counters],
+            deletes: HashMap::new(),
         }
     }
 
@@ -211,6 +220,11 @@ impl VM {
                     let csr = &self.cursors[*csr];
                     let txn = self.txn.as_mut().expect("Insert before Transaction");
                     csr.insert(txn, &key, &val)?;
+                }
+                Vop::Delete { csr } => {
+                    if let Some((key, _)) = self.cursors[*csr].current() {
+                        self.deletes.entry(*csr).or_default().push(key.to_vec());
+                    }
                 }
                 Vop::Jpe => {
                     let e = self.pop();
@@ -291,6 +305,16 @@ impl VM {
                     self.txn = Some(txn);
                 }
                 Vop::Halt => {
+                    // Apply buffered deletes through their owning cursor (each
+                    // tears down its own read iterator first), then drop cursors
+                    // and commit. An empty buffer (e.g. a read-only select)
+                    // never touches the write path.
+                    let deletes = take(&mut self.deletes);
+                    if let Some(txn) = self.txn.as_mut() {
+                        for (csr, keys) in deletes {
+                            self.cursors[csr].delete(txn, &keys)?;
+                        }
+                    }
                     self.cursors.clear();
                     if let Some(txn) = take(&mut self.txn) {
                         txn.commit()?;

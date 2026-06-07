@@ -155,7 +155,8 @@ InsertSource: Vec<ir::Expr> = List<Expr>;
 // DELETE STATEMENT
 //------------------------------
 
-Delete: String = "delete" "from" <"ident">;
+Delete: ir::Delete =
+    "delete" "from" <"ident"> <("as"? <"ident">)?> <Where?> => ir::delete(<>);
 
 // DROP STATEMENT
 //------------------------------

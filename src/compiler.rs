@@ -3,7 +3,7 @@ use serde_json::json;
 use crate::catalog::CATALOG_OID;
 use crate::error::Error;
 use crate::ir::{
-    Call, Constructor, Create, Expr, Insert, Jpe, Jpi, Jpk, Limit, Member, Obj, Var, Select, Source, Statement, ToSql
+    Call, Constructor, Create, Delete, Expr, Insert, Jpe, Jpi, Jpk, Limit, Member, Obj, Var, Select, Source, Statement, ToSql
 };
 use crate::transaction::TransactionMode;
 use crate::value::Value;
@@ -55,6 +55,7 @@ impl Compiler {
         #[allow(clippy::single_match_else)]
         match statement {
             Statement::Create(create) => self.cc_create(&create),
+            Statement::Delete(delete) => self.cc_delete(delete)?,
             Statement::Insert(insert) => self.cc_insert(insert)?,
             Statement::Select(select) => self.cc_select(select)?,
             _ => unsupported!("statement not supported: {:?}", statement),
@@ -121,6 +122,43 @@ impl Compiler {
             self.cc_expr(val)?;
             self.emit_new_oid(csr);
             self.emit_insert(csr);
+        }
+        Ok(())
+    }
+
+    fn cc_delete(&mut self, delete: Delete) -> Result<()> {
+        self.ensure_txn(TransactionMode::Write);
+
+        let Delete { from, where_ } = delete;
+        let csr = from.csr.expect("delete target should be bound") as usize;
+        let oid = from.oid.expect("bind pass must set oid for Table");
+
+        // Open the target table and begin a forward scan. The scan's jmp exits
+        // the loop when the table is empty or exhausted; patched once `exit` is
+        // known.
+        self.emit_open(csr, oid);
+        self.emit_scan(csr, 0);
+        let begin = self.pc();
+
+        // Loop body: evaluate the predicate (if any) and skip the delete when
+        // it is false, otherwise mark the current row for deletion.
+        let body = self.code.len();
+        let mut where_fail = None;
+        if let Some(where_) = where_ {
+            self.cc_expr(where_)?;
+            self.emit_if_not(0);
+            where_fail = Some(self.pc());
+        }
+        self.emit_delete(csr);
+
+        // Advance; when more rows remain, jump back to the body.
+        self.emit_next(csr, body);
+        let next_pc = self.pc();
+
+        let exit = self.pc() + 1;
+        self.patch(begin, exit)?;
+        if let Some(pc) = where_fail {
+            self.patch(pc, next_pc)?;
         }
         Ok(())
     }
@@ -501,6 +539,11 @@ impl Compiler {
         self.code.push(Vop::Insert { csr });
     }
 
+    fn emit_delete(&mut self, csr: usize) {
+        self.use_cursor(csr);
+        self.code.push(Vop::Delete { csr });
+    }
+
     fn emit_jpe(&mut self) {
         self.code.push(Vop::Jpe);
     }
@@ -643,6 +686,37 @@ mod tests {
         assert!(matches!(code[5], Vop::Load { csr: 0 }));
         assert!(matches!(code[6], Vop::Yield));
         assert!(matches!(code[7], Vop::Next { csr: 0, jmp: 3 }));
+    }
+
+    #[test]
+    fn delete_all_bytecode_shape() {
+        let (_dir, storage, catalog) = fixture();
+        let program = compile_sql(&storage, &catalog, "delete from catalog;");
+        assert_eq!(program.cursors, 1);
+        let code = program.instructions;
+        assert_eq!(code.len(), 8);
+        assert!(matches!(code[0], Vop::Init { jmp: 6 }));
+        assert!(matches!(code[1], Vop::Open { csr: 0, tbl: 0 }));
+        assert!(matches!(code[2], Vop::Scan { csr: 0, jmp: 5 }));
+        assert!(matches!(code[3], Vop::Delete { csr: 0 }));
+        assert!(matches!(code[4], Vop::Next { csr: 0, jmp: 3 }));
+        assert!(matches!(code[5], Vop::Halt));
+        assert!(matches!(code[6], Vop::Transaction { txm: TransactionMode::Write }));
+        assert!(matches!(code[7], Vop::Jump { jmp: 1 }));
+    }
+
+    #[test]
+    fn delete_where_bytecode_shape() {
+        let (_dir, storage, catalog) = fixture();
+        let program =
+            compile_sql(&storage, &catalog, "delete from catalog where catalog.name = 'x';");
+        let code = program.instructions;
+        // Scan exits past the loop; a false predicate skips Delete and advances.
+        assert!(matches!(code[2], Vop::Scan { csr: 0, jmp: 10 }));
+        assert!(matches!(code[3], Vop::Load { csr: 0 }));
+        assert!(matches!(code[7], Vop::IfNot(9)));
+        assert!(matches!(code[8], Vop::Delete { csr: 0 }));
+        assert!(matches!(code[9], Vop::Next { csr: 0, jmp: 3 }));
     }
 
     #[test]

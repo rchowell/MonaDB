@@ -29,6 +29,10 @@ pub mod visit {
             visit_insert(self, i);
         }
 
+        fn visit_delete(&mut self, i: &'ast Delete) {
+            visit_delete(self, i);
+        }
+
         fn visit_select(&mut self, i: &'ast Select) {
             visit_select(self, i);
         }
@@ -104,7 +108,8 @@ pub mod visit {
     {
         match i {
             Statement::Create(c) => v.visit_create(c),
-            Statement::Delete(_) | Statement::Drop(_) => {}
+            Statement::Delete(d) => v.visit_delete(d),
+            Statement::Drop(_) => {}
             Statement::Insert(ins) => v.visit_insert(ins),
             Statement::Select(s) => v.visit_select(s),
         }
@@ -141,6 +146,16 @@ pub mod visit {
     {
         for e in &i.source {
             v.visit_expr(e);
+        }
+    }
+
+    pub fn visit_delete<'ast, V>(v: &mut V, i: &'ast Delete)
+    where
+        V: Visit<'ast> + ?Sized,
+    {
+        v.visit_from(&i.from);
+        if let Some(w) = &i.where_ {
+            v.visit_expr(w);
         }
     }
 
@@ -354,6 +369,10 @@ pub mod visit_mut {
             visit_insert_mut(self, i);
         }
 
+        fn visit_delete_mut(&mut self, i: &mut Delete) {
+            visit_delete_mut(self, i);
+        }
+
         fn visit_select_mut(&mut self, i: &mut Select) {
             visit_select_mut(self, i);
         }
@@ -426,7 +445,8 @@ pub mod visit_mut {
     pub fn visit_statement_mut<V: VisitMut + ?Sized>(v: &mut V, i: &mut Statement) {
         match i {
             Statement::Create(c) => v.visit_create_mut(c),
-            Statement::Delete(_) | Statement::Drop(_) => {}
+            Statement::Delete(d) => v.visit_delete_mut(d),
+            Statement::Drop(_) => {}
             Statement::Insert(ins) => v.visit_insert_mut(ins),
             Statement::Select(s) => v.visit_select_mut(s),
         }
@@ -451,6 +471,13 @@ pub mod visit_mut {
     pub fn visit_insert_mut<V: VisitMut + ?Sized>(v: &mut V, i: &mut Insert) {
         for e in &mut i.source {
             v.visit_expr_mut(e);
+        }
+    }
+
+    pub fn visit_delete_mut<V: VisitMut + ?Sized>(v: &mut V, i: &mut Delete) {
+        v.visit_from_mut(&mut i.from);
+        if let Some(w) = &mut i.where_ {
+            v.visit_expr_mut(w);
         }
     }
 

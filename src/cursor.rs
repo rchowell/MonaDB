@@ -69,7 +69,6 @@ impl Cursor {
     }
 
     /// Returns the current (key,val) bytes; table-backed scans only.
-    #[allow(dead_code)]
     pub fn current(&self) -> Option<(&[u8], &[u8])> {
         match &self.source {
             Some(Source::Btree { scan: Some(scan), .. }) => scan.current(),
@@ -87,22 +86,39 @@ impl Cursor {
         }
     }
 
+    /// The open btree handle; panics if the cursor is unopened or value-backed.
+    /// Private — the handle never leaves the cursor.
+    fn btree(&self) -> BTree {
+        let Some(Source::Btree { btree, .. }) = &self.source else {
+            panic!("cursor must be open on a btree");
+        };
+        *btree
+    }
+
+    /// Deletes the rows at the given keys. We first drop any live scan iterator
+    /// so we never mutate the btree under a live read cursor. LMDB leaves a
+    /// read cursor's position undefined across a delete on the same table.
+    pub fn delete(&mut self, txn: &mut Transaction, keys: &[Vec<u8>]) -> Result<()> {
+        // Drops any live scan iterator, leaving the cursor open but unpositioned.
+        if let Some(Source::Btree { scan, .. }) = &mut self.source {
+            *scan = None;
+        }
+        let btree = self.btree();
+        let txn = txn.as_rw()?;
+        for key in keys {
+            btree.delete(txn, key)?;
+        }
+        Ok(())
+    }
+
     /// Inserts the value at the given key
     pub fn insert(&self, txn: &mut Transaction, key: &[u8], val: &[u8]) -> Result<()> {
-        let Some(Source::Btree { btree, .. }) = &self.source else {
-            panic!("cursor must be open");
-        };
-        let txn = txn.as_rw()?;
-        btree.put(txn, key, val)?;
+        self.btree().put(txn.as_rw()?, key, val)?;
         Ok(())
     }
 
     pub fn last(&self, txn: &Transaction) -> Result<Option<(Vec<u8>, Vec<u8>)>> {
-        let Some(Source::Btree { btree, .. }) = &self.source else {
-            panic!("cursor must be open");
-        };
-        let txn = txn.as_ro();
-        let res = btree.last(txn)?;
+        let res = self.btree().last(txn.as_ro())?;
         let res = res.map(|(k, v)| (k.to_vec(), v.to_vec()));
         Ok(res)
     }

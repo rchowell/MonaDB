@@ -133,6 +133,46 @@ lifetimes in the code. This is for self-reference and the lifetime invariants ar
 upheld where storage lives longer than a transaction, which lives longer than all
 cursors. This keep-alive pattern is yolk-inspired.
 
+## Deletes
+
+The `DELETE FROM` clause is a table scan whose loop body removes rows instead
+of projecting them. The target is modeled internally as a `from` source, which
+means we leverage the existing binder logic, loop logic, and predicate logic.
+Like select, there's no bare column resolution.
+
+The interesting decision is *when* the row is actually removed. The cursor
+invariant from above says loop-body instructions may read the current row but
+must not modify the cursor's position, and our scan iterator is a read-only LMDB
+iterator. Mutating a btree while a read cursor over it is still live within the
+same transaction is unsafe in LMDB the cursor's position is left undefined. So
+`Delete { csr }` does **not** delete in place. It records the current row's key
+against its cursor slot — a `(csr, key)` pair — into a buffer held as VM state,
+much like a deferred write list. The buffer is keyed by cursor, not by storage
+handle, so the btree never leaks out of the cursor.
+
+The buffered keys are applied at `Halt`, each through its owning cursor's
+`delete` method. The cursor drops its own read iterator before mutating the
+btree, so no read cursor is ever live across a delete on the same table; then it
+deletes the key and the VM commits. Because the keys are buffered in scan order,
+the deletes also hit the btree with ascending-key locality. The read scan loop is
+reused verbatim, and the only new opcode is `Delete`.
+
+```
+addr	instruction	      comment
+----	-----------	      -------
+...	Scan	            position on first row, exhausted -> Halt
+      [where]	      residual filter, IfNot       -> Next
+      Delete	      buffer current row's key for deletion
+      Next	            jmp -> top of loop body
+      Halt	            apply buffered deletes via cursors, drop cursors, commit
+```
+
+The buffer trades a little memory (the keys of matched rows) for correctness and
+for reusing the existing read path with no changes. The alternative is a writable
+scan using a cursor-positioned delete (LMDB's `mdb_cursor_del`), which streams
+deletes with no buffer but needs a parallel writable-iterator path through the
+cursor layer. I deferred that until delete volume makes buffering keys a concern.
+
 ## Limit
 
 The `limit` clause slices the row stream by position using python-style

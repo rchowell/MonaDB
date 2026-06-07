@@ -7,7 +7,7 @@ pub use crate::display::ToSql;
 #[derive(Debug)]
 pub enum Statement {
     Create(Create),
-    Delete(String),
+    Delete(Delete),
     Drop(String),
     Insert(Insert),
     Select(Select),
@@ -22,6 +22,12 @@ pub enum Create {
 pub struct Insert {
     pub target: Var,
     pub source: Vec<Expr>,
+}
+
+#[derive(Debug)]
+pub struct Delete {
+    pub from: From,
+    pub where_: Option<Where>,
 }
 
 //------------------------------
@@ -239,6 +245,17 @@ pub fn insert(target: String, source: Vec<Expr>) -> Insert {
         target: Var::unbound(&target),
         source,
     }
+}
+
+#[inline]
+pub fn delete(table: String, alias: Option<String>, where_: Option<Where>) -> Delete {
+    let from = From {
+        var: alias.unwrap_or_else(|| table.clone()),
+        src: Source::Table(table),
+        csr: None,
+        oid: None,
+    };
+    Delete { from, where_ }
 }
 
 #[inline]

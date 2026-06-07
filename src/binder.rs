@@ -282,6 +282,36 @@ mod test {
     }
 
     #[test]
+    fn test_bind_delete_target_and_predicate() {
+        let db = db_fixture();
+        // Binding succeeds only if `users.id` in the predicate resolves against
+        // the target cursor's scope (an unresolved var is a BindError).
+        let mut stmt = MonaDB::parse("delete from users where users.id = 1;").unwrap();
+        db.bind(&mut stmt).unwrap();
+        let Statement::Delete(del) = stmt else {
+            panic!("expected Delete")
+        };
+        assert_eq!(del.from.csr, Some(0));
+        assert!(del.from.oid.is_some());
+        assert!(del.where_.is_some());
+    }
+
+    #[test]
+    fn test_bind_delete_unresolved_predicate_errors() {
+        let db = db_fixture();
+        // `ghost` is not a binding in scope, so the predicate fails to resolve.
+        let mut stmt = MonaDB::parse("delete from users where ghost.id = 1;").unwrap();
+        assert!(matches!(db.bind(&mut stmt), Err(Error::BindError(_))));
+    }
+
+    #[test]
+    fn test_bind_delete_unknown_table_errors() {
+        let db = db_fixture();
+        let mut stmt = MonaDB::parse("delete from nonexistent;").unwrap();
+        assert!(matches!(db.bind(&mut stmt), Err(Error::UnboundTable(_))));
+    }
+
+    #[test]
     fn test_exec_select_with_explicit_alias() {
         let mut db = MonaDB::memory().unwrap();
         db.execute("create table items (id int);").unwrap();
