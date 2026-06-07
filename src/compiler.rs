@@ -155,8 +155,12 @@ impl Compiler {
 
         let Select { from, where_, select: constructor, .. } = select;
 
-        // Compile the select <value>; form.
+        // Compile the select <value>; form. `*` and `.` project a binding
+        // tuple, so they are meaningless without a from clause.
         if from.is_empty() {
+            if let Constructor::Star | Constructor::None = constructor {
+                unsupported!("select * / select . requires a from clause");
+            }
             self.cc_select_constructor(constructor, &[])?;
             self.emit_yield();
             return Ok(());
@@ -168,28 +172,50 @@ impl Compiler {
             .map(|f| (f.var.clone(), f.csr.expect("from item should be bound") as usize))
             .collect();
 
-        // Open all sources first
+        let n = bindings.len();
+
+        // Open table sources once before the loop; value sources need no open.
         for f in &from {
-            match &f.src {
-                Source::Table(_) => {
-                    let csr = f.csr.expect("from item should be bound") as usize;
-                    let oid = f.oid.expect("bind pass must set oid for Table");
-                    self.emit_open(csr, oid);
-                }
-                Source::Value(_) => unsupported!("value/lateral sources are not yet supported"),
+            if let Source::Table(_) = &f.src {
+                let csr = f.csr.expect("from item should be bound") as usize;
+                let oid = f.oid.expect("bind pass must set oid for Table");
+                self.emit_open(csr, oid);
             }
         }
 
-        // Nest one scan loop per source, outer (from[0]) to inner. scan_pc[i] is
-        // source i's Scan op; its exhaust edge is patched once `exit` is known.
-        // 
-        let mut scan_pc = Vec::with_capacity(bindings.len());
-        for (_, csr) in &bindings {
-            self.emit_scan(*csr, 0);
-            scan_pc.push(self.pc());
+        // Begin one iteration per source, outer to inner. The sources are:
+        //
+        //  1. A table source begin is a Scan.
+        //  2. A value source begin is an expression + Iter.
+        //
+        // We enter a value source on the expression so that we evaluate
+        // it again. This is critical for correlated value sources.
+        //
+        //  - entry[i] is the entry target for the enclosing Next instruction.
+        //  - begin[i] is the exhaust instruction to patch once `exit` is known.
+        //
+        let mut entry = vec![0usize; n];
+        let mut begin = vec![0usize; n];
+        for (i, f) in from.into_iter().enumerate() {
+            let csr = f.csr.expect("from item should be bound") as usize;
+            match f.src {
+                Source::Table(_) => {
+                    // FROM <table>
+                    self.emit_scan(csr, 0);
+                    entry[i] = self.pc();
+                }
+                Source::Value(expr) => {
+                    // FROM <expression>
+                    entry[i] = self.pc() + 1;
+                    self.cc_expr(*expr)?;
+                    self.emit_iter(csr, 0);
+                }
+            }
+            begin[i] = self.pc();
         }
 
         // Innermost body: predicate filter, then offset/limit, then projection.
+        let body = self.code.len();
         let mut where_fail = None;
         if let Some(where_) = where_ {
             self.cc_expr(where_)?;
@@ -198,45 +224,48 @@ impl Compiler {
         }
 
         // Compile the offset (skip)
-        let mut skip_pc = None;
+        let mut offset = None;
         if let Some(c) = cnt_skip {
             self.emit_cnt_if_pos(c, 0);
-            skip_pc = Some(self.pc());
+            offset = Some(self.pc());
         }
 
         // Compile the limit (take)
-        let mut take_pc = None;
+        let mut limit_pc = None;
         if let Some(c) = cnt_take {
             self.emit_cnt_if_zero(c, 0);
-            take_pc = Some(self.pc());
+            limit_pc = Some(self.pc());
         }
 
         // Compile the 'select' projection (constructor).
         self.cc_select_constructor(constructor, &bindings)?;
         self.emit_yield();
 
-        // Close all the loops (Next) and record where to patch the scan ops.
-        let n = scan_pc.len();
+        // Close the loops inner to outer. When source i advances, resume the
+        // next inner source's begin block (re-evaluating a value expr), or the
+        // body if i is innermost.
         let mut next_pc = vec![0usize; n];
         for i in (0..n).rev() {
-            self.emit_next(bindings[i].1, scan_pc[i] + 1);
+            let resume = if i + 1 < n { entry[i + 1] } else { body };
+            self.emit_next(bindings[i].1, resume);
             next_pc[i] = self.pc();
         }
 
-        // Patch all the scan ops
+        // Patch exhaust edges: the outermost source exits the query; an inner
+        // source that exhausts (or yields nothing) advances its enclosing one.
         let exit = self.pc() + 1;
-        self.patch(scan_pc[0], exit)?;
+        self.patch(begin[0], exit)?;
         for i in 1..n {
-            self.patch(scan_pc[i], next_pc[i - 1])?;
+            self.patch(begin[i], next_pc[i - 1])?;
         }
         let inner = next_pc[n - 1];
         if let Some(pc) = where_fail {
             self.patch(pc, inner)?;
         }
-        if let Some(pc) = skip_pc {
+        if let Some(pc) = offset {
             self.patch(pc, inner)?;
         }
-        if let Some(pc) = take_pc {
+        if let Some(pc) = limit_pc {
             self.patch(pc, exit)?;
         }
         Ok(())
@@ -256,15 +285,17 @@ impl Compiler {
                     self.emit_obj_assign(var.clone());
                 }
             }
-            // Spread `*` means merge all binding values into an object
+            // Spread `*` means merge all binding values into an object: an
+            // object binding spreads its fields, a non-object binding (e.g. an
+            // unnested scalar) is kept under its alias.
             Constructor::Star => {
                 if let [(_, csr)] = bindings {
                     self.emit_load(*csr);
                 } else {
                     self.emit_obj();
-                    for (_, csr) in bindings {
+                    for (var, csr) in bindings {
                         self.emit_load(*csr);
-                        self.emit_obj_spread();
+                        self.emit_obj_merge(var.clone());
                     }
                 }
             }
@@ -281,6 +312,7 @@ impl Compiler {
             Vop::Init { jmp }
             | Vop::Next { csr: _, jmp }
             | Vop::Scan { csr: _, jmp }
+            | Vop::Iter { csr: _, jmp }
             | Vop::If(jmp)
             | Vop::IfNot(jmp)
             | Vop::CntIfPos(_, jmp)
@@ -516,6 +548,10 @@ impl Compiler {
         self.code.push(Vop::ObjSpread);
     }
 
+    fn emit_obj_merge(&mut self, name: String) {
+        self.code.push(Vop::ObjMerge(name));
+    }
+
     fn emit_arr(&mut self) {
         self.code.push(Vop::Arr);
     }
@@ -532,6 +568,11 @@ impl Compiler {
     fn emit_scan(&mut self, csr: usize, jmp: usize) {
         self.use_cursor(csr);
         self.code.push(Vop::Scan { csr, jmp });
+    }
+
+    fn emit_iter(&mut self, csr: usize, jmp: usize) {
+        self.use_cursor(csr);
+        self.code.push(Vop::Iter { csr, jmp });
     }
 
     fn emit_push<V: Into<Value>>(&mut self, val: V) {

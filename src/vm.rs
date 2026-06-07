@@ -62,6 +62,9 @@ pub enum Vop {
     ObjAssign(String),
     /// Spread a value into an object.
     ObjSpread,
+    /// Merge a value into an object: spread its fields if it is an object,
+    /// else set it under the given name.
+    ObjMerge(String),
     /// Create a new array on the stack.
     Arr,
     /// Append the top value to the array beneath it.
@@ -124,6 +127,8 @@ pub enum Vop {
     Yield,
     /// Initializes a cursor's scan state
     Scan { csr: usize, jmp: usize },
+    /// Pops a value off the stack and iterates its array elements on cursors[csr], jumping to jmp if empty.
+    Iter { csr: usize, jmp: usize },
     /// Open a transaction with the given mode
     Transaction { txm: TransactionMode },
     /// Halt the virtual machine.
@@ -249,6 +254,15 @@ impl VM {
                     let val = self.pop();
                     let obj = self.peek();
                     obj.spread(val);
+                }
+                Vop::ObjMerge(name) => {
+                    let val = self.pop();
+                    let obj = self.peek();
+                    if val.is_object() {
+                        obj.spread(val);
+                    } else {
+                        obj.set(name.clone(), val);
+                    }
                 }
                 Vop::Arr => {
                     self.stack.push(Value::array());
@@ -427,6 +441,12 @@ impl VM {
                 Vop::Scan { csr, jmp } => {
                     let txn = self.txn.as_ref().expect("Scan before Transaction");
                     if !self.cursors[*csr].scan(txn, None)? {
+                        self.pc = *jmp;
+                    }
+                }
+                Vop::Iter { csr, jmp } => {
+                    let val = self.pop();
+                    if !self.cursors[*csr].iter(val)? {
                         self.pc = *jmp;
                     }
                 }

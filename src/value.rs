@@ -201,6 +201,15 @@ impl Value {
         None
     }
 
+    /// Number of elements, or `None` if this is not an array.
+    pub fn len(&self) -> Option<usize> {
+        if let JsonValue::Array(values) = self.json() {
+            Some(values.len())
+        } else {
+            None
+        }
+    }
+
     /// JSON Path Index
     pub fn jpi(&self, idx: usize) -> Option<Value> {
         if let JsonValue::Array(values) = &self.json() {

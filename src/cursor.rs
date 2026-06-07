@@ -5,15 +5,17 @@ use crate::error::{Error, Result};
 use crate::value::Value;
 use crate::{storage::BTree, transaction::Transaction};
 
-/// Cursor controls traversal of a persistent btree row source.
-/// I think we can collapse this further to only two types with
-/// the outer cursor then inner scan with table and value variants.
+/// The error returned when a row is requested from a cursor that is not
+/// positioned on one (no scan begun, or iteration exhausted).
+fn unpositioned_cursor() -> Error {
+    Error::InternalError("load on unpositioned cursor".to_string())
+}
+
+/// Cursor controls traversal of a source e.g. btree or value.
 #[derive(Default)]
 pub struct Cursor {
-    /// Inner btree handle for creating scan states.
-    btree: Option<BTree>,
-    /// Inner scan state upon which we call next/load/current.
-    scan: Option<TableScan>,
+    /// The bound source, if any.
+    source: Option<Source>,
 }
 
 impl Cursor {
@@ -22,65 +24,131 @@ impl Cursor {
         Self::default()
     }
 
-    /// Opens this cursor on the given btree.
+    /// Opens this cursor on the given btree (a table source, not yet scanned).
     pub fn open(&mut self, btree: BTree) {
-        self.btree = Some(btree);
+        self.source = Some(Source::Btree { btree, scan: None });
     }
 
     /// Begins a forward scan; returns true if there's an available row.
     #[allow(unused)]
     pub fn scan(&mut self, txn: &Transaction, prefix: Option<&[u8]>) -> Result<bool> {
-        let btree = self.btree.expect("cursor must be open");
+        let Some(Source::Btree { btree, scan }) = &mut self.source else {
+            panic!("cursor must be open");
+        };
+        let btree = *btree;
         // SAFETY: ...
         let rtxn = txn.as_ro();
         let iter = btree.iter(rtxn)?;
         let iter: RoIter<'static, Bytes, Bytes> = unsafe { std::mem::transmute(iter) };
-        let mut scan = TableScan::new(TableIter::Fwd(iter));
-        let available = scan.next()?;
-        self.scan = Some(scan);
+        let mut table = TableScan::new(TableIter::Fwd(iter));
+        let available = table.next()?;
+        *scan = Some(table);
         // Return true if there's an available row
+        Ok(available)
+    }
+
+    /// Begins iterating an array value; returns true if there's an available row.
+    #[allow(clippy::unnecessary_wraps, clippy::iter_not_returning_iterator)]
+    pub fn iter(&mut self, source: Value) -> Result<bool> {
+        let mut value = ValueIter::new(source);
+        let available = value.next();
+        self.source = Some(Source::Value(value));
         Ok(available)
     }
 
     /// Advances the scan; returns true if there's an available row
     pub fn next(&mut self) -> Result<bool> {
-        self.scan
-            .as_mut()
-            .ok_or_else(|| {
-                // Unreachable unless there's a compiler bug.
-                Error::InternalError("next called on a cursor with no scan state".to_string())
-            })?
-            .next()
+        match &mut self.source {
+            Some(Source::Btree { scan: Some(scan), .. }) => scan.next(),
+            Some(Source::Value(value)) => Ok(value.next()),
+            // Unreachable unless there's a compiler bug.
+            _ => Err(Error::InternalError(
+                "next called on a cursor with no scan state".to_string(),
+            )),
+        }
     }
 
-    /// Returns the current (key,val) bytes, consider an expect inside here so no Option
+    /// Returns the current (key,val) bytes; table-backed scans only.
     #[allow(dead_code)]
     pub fn current(&self) -> Option<(&[u8], &[u8])> {
-        self.scan.as_ref().and_then(TableScan::current)
+        match &self.source {
+            Some(Source::Btree { scan: Some(scan), .. }) => scan.current(),
+            // Value-backed (or unpositioned) cursors have no raw key/val bytes.
+            _ => None,
+        }
     }
 
-    /// Returns the current row as a decoded btree row Value.
+    /// Returns the current row as a decoded Value.
     pub fn load(&self) -> Result<Value> {
-        self.scan
-            .as_ref()
-            .ok_or_else(|| Error::InternalError("load on unpositioned cursor".to_string()))?
-            .load()
+        match &self.source {
+            Some(Source::Btree { scan: Some(scan), .. }) => scan.load(),
+            Some(Source::Value(value)) => value.load(),
+            _ => Err(unpositioned_cursor()),
+        }
     }
 
     /// Inserts the value at the given key
     pub fn insert(&self, txn: &mut Transaction, key: &[u8], val: &[u8]) -> Result<()> {
-        let btree = self.btree.expect("cursor must be open");
+        let Some(Source::Btree { btree, .. }) = &self.source else {
+            panic!("cursor must be open");
+        };
         let txn = txn.as_rw()?;
         btree.put(txn, key, val)?;
         Ok(())
     }
 
     pub fn last(&self, txn: &Transaction) -> Result<Option<(Vec<u8>, Vec<u8>)>> {
-        let btree = self.btree.expect("cursor must be open");
+        let Some(Source::Btree { btree, .. }) = &self.source else {
+            panic!("cursor must be open");
+        };
         let txn = txn.as_ro();
         let res = btree.last(txn)?;
         let res = res.map(|(k, v)| (k.to_vec(), v.to_vec()));
         Ok(res)
+    }
+}
+
+/// A cursor's bound source: a persistent btree table or an in-memory value.
+enum Source {
+    /// The btree handle persists across the open → (scan | insert/last)
+    /// lifecycle; `scan` becomes `Some` only once a forward scan has begun.
+    Btree { 
+        btree: BTree,
+        scan: Option<TableScan>,
+    },
+    /// Element-wise iteration over an in-memory array value.
+    Value(ValueIter),
+}
+
+/// Value-backed iteration over a collection's elements.
+///
+/// Holds the source value and a position, indexing lazily via `Value::jpi`.
+/// The source is copied in today; this shape also fits a future shared
+/// reference (`Rc<Value>` / borrow) with no change to `next`/`load`.
+struct ValueIter {
+    source: Value,
+    pos: Option<usize>,
+}
+
+impl ValueIter {
+    fn new(source: Value) -> Self {
+        Self { source, pos: None }
+    }
+
+    /// Advance to the next element; true if one is available. A non-array
+    /// source (or an out-of-range index) yields nothing. This only inspects
+    /// the array length, so it never clones an element — `load` does that.
+    fn next(&mut self) -> bool {
+        let i = self.pos.map_or(0, |p| p + 1);
+        self.pos = Some(i);
+        self.source.len().is_some_and(|len| i < len)
+    }
+
+    /// Return the current element.
+    fn load(&self) -> Result<Value> {
+        self.pos
+            .and_then(|i| self.source.jpi(i))
+            .ok_or_else(unpositioned_cursor)
     }
 }
 
@@ -103,9 +171,7 @@ impl TableScan {
     }
 
     fn load(&self) -> Result<Value> {
-        let (_, val) = self
-            .current()
-            .ok_or_else(|| Error::InternalError("load on unpositioned cursor".to_string()))?;
+        let (_, val) = self.current().ok_or_else(unpositioned_cursor)?;
         Value::decode(val)
     }
 

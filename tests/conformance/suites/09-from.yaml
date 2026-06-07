@@ -138,13 +138,6 @@ tests:
           select * from T as t, S as s;
         result: []
 
-  - id: from-value-source-deferred
-    description: value/lateral from-sources are not yet supported (deferred to Deliverable 2)
-    steps:
-      - sql: |
-          select x from [1, 2, 3] as x;
-        error: static
-
   - id: from-unbound-table
     description: referencing an undeclared table is a static error
     steps:
@@ -253,3 +246,61 @@ tests:
       - sql: |
           select * from T as t, t.items;
         error: static
+
+  - id: from-value-empty-array
+    description: an empty array literal source yields no rows
+    steps:
+      - sql: |
+          select x from [] as x;
+        result: []
+
+  - id: from-value-dot-envelope
+    description: select . wraps each scanned element under its alias
+    steps:
+      - sql: |
+          select . from [1, 2] as x;
+        result:
+          - {x: 1}
+          - {x: 2}
+
+  - id: from-value-object-elements
+    description: a value source iterates object elements and may path into them
+    steps:
+      - sql: |
+          select x.a as a from [{a: 1}, {a: 2}] as x;
+        result:
+          - {a: 1}
+          - {a: 2}
+
+  - id: from-value-non-array
+    description: a non-array value source contributes no rows
+    steps:
+      - sql: |
+          select x from 5 as x;
+        result: []
+
+  - id: from-value-cross-table
+    description: a value source re-iterates for every outer table row
+    setup:
+      - |
+        insert into T ({a: 1}, {a: 2});
+    steps:
+      - sql: |
+          select . from T as t, [10, 20] as n;
+        result:
+          - {t: {a: 1}, n: 10}
+          - {t: {a: 1}, n: 20}
+          - {t: {a: 2}, n: 10}
+          - {t: {a: 2}, n: 20}
+
+  - id: from-lateral-object-elements-path
+    description: unnest an array of objects and path into each element
+    steps:
+      - sql: |
+          insert into T ({s: [{x: 1}, {x: 2}]}, {s: [{x: 3}]});
+      - sql: |
+          select s.x as x from T as t, t.s as s;
+        result:
+          - {x: 1}
+          - {x: 2}
+          - {x: 3}

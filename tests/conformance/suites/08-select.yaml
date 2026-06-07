@@ -131,3 +131,25 @@ tests:
           select [[1, 2], [3]] as a from T as t;
         result:
           - {a: [[1, 2], [3]]}
+
+  - id: select-value-no-from
+    description: "select <expr> with no from clause yields the value as a single row"
+    steps:
+      - sql: |
+          select 1;
+        result:
+          - 1
+
+  - id: select-star-no-from
+    description: "select * requires a from clause (nothing to spread)"
+    steps:
+      - sql: |
+          select *;
+        error: static
+
+  - id: select-dot-no-from
+    description: "select . requires a from clause (no binding tuple to envelope)"
+    steps:
+      - sql: |
+          select .;
+        error: static

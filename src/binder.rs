@@ -50,22 +50,30 @@ impl<'txn> Binder<'txn> {
 impl VisitMut for Binder<'_> {
     /// Allocates a new cursor slot, resolving tables and adding bindings.
     fn visit_from_mut(&mut self, i: &mut From) {
-        let var = i.var.clone();
+        // Assign the next cursor index for this source
         let csr = self.next_cursor();
         i.csr = Some(csr);
-        match &i.src {
+
+        let var = i.var.clone();
+        match &mut i.src {
             Source::Table(name) => {
-                let name = name.clone();
-                match self.catalog.get_table(self.txn, &name) {
+                // Bind the table to its oid via catalog lookup
+                match self.catalog.get_table(self.txn, name) {
                     Ok(oid) => i.oid = Some(oid),
                     Err(err) => self.errors.push(err),
                 }
                 self.scope.push(var, csr);
             }
-            Source::Value(_) => {
-                self.errors.push(Error::BindError(
-                    "value/lateral sources are not yet supported".to_string(),
-                ));
+            Source::Value(expr) => {
+                // TODO derived binding names?
+                if var.is_empty() {
+                    self.errors
+                        .push(Error::BindError("value source requires an alias".to_string()));
+                    return;
+                }
+                // Bind the expression against the current scope (lateral refs).
+                self.visit_expr_mut(expr);
+                self.scope.push(var, csr);
             }
         }
     }
@@ -139,7 +147,7 @@ mod test {
     use crate::{
         MonaDB,
         error::Error,
-        ir::{Constructor, Expr, Statement},
+        ir::{Constructor, Expr, Source, Statement},
     };
 
     fn db_fixture() -> MonaDB {
@@ -178,25 +186,51 @@ mod test {
         assert!(sel.from[0].oid.is_some() && sel.from[1].oid.is_some());
     }
 
-    // Lateral / value sources are deferred (Deliverable 2). For now the binder
-    // rejects them with a static BindError; these tests guard that deferral and
-    // become the starting spec when lateral sources are reintroduced.
+    // A lateral source binds its expression against the prior scope, so a
+    // reference to an earlier binding (`t` in `t.items`) resolves to that
+    // cursor and the source allocates its own cursor (no table oid).
     #[test]
-    fn test_bind_lateral_source_is_deferred() {
+    fn test_bind_lateral_source_resolves_outer_binding() {
         let mut db = MonaDB::memory().unwrap();
         db.execute("create table T;").unwrap();
         let mut stmt = MonaDB::parse("select * from T as t, t.items as item;").unwrap();
-        let result = db.bind(&mut stmt);
-        assert!(matches!(result, Err(Error::BindError(_))));
+        db.bind(&mut stmt).unwrap();
+        let Statement::Select(sel) = stmt else {
+            panic!("expected Select")
+        };
+        assert_eq!(sel.from[1].csr, Some(1));
+        assert!(sel.from[1].oid.is_none());
+        let Source::Value(expr) = &sel.from[1].src else {
+            panic!("expected value source")
+        };
+        let Expr::Jpk(jpk) = expr.as_ref() else {
+            panic!("expected Jpk")
+        };
+        let Expr::Var(var) = jpk.inp.as_ref() else {
+            panic!("expected Var")
+        };
+        assert_eq!(var.bind, Some(0));
     }
 
     #[test]
-    fn test_bind_array_literal_source_is_deferred() {
+    fn test_bind_array_literal_source_binds_cursor() {
         let mut db = MonaDB::memory().unwrap();
         db.execute("create table T;").unwrap();
         let mut stmt = MonaDB::parse("select x from [1, 2, 3] as x;").unwrap();
-        let result = db.bind(&mut stmt);
-        assert!(matches!(result, Err(Error::BindError(_))));
+        db.bind(&mut stmt).unwrap();
+        let Statement::Select(sel) = stmt else {
+            panic!("expected Select")
+        };
+        assert_eq!(sel.from[0].csr, Some(0));
+        assert!(sel.from[0].oid.is_none());
+    }
+
+    #[test]
+    fn test_bind_lateral_self_reference_errors() {
+        let mut db = MonaDB::memory().unwrap();
+        db.execute("create table T;").unwrap();
+        let mut stmt = MonaDB::parse("select * from T as t, item.x as item;").unwrap();
+        assert!(matches!(db.bind(&mut stmt), Err(Error::BindError(_))));
     }
 
     #[test]
