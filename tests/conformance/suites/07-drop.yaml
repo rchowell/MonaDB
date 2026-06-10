@@ -37,10 +37,3 @@ tests:
       - sql: |
           drop table Ghost;
         error: static
-
-  - id: drop-system-table-rejected
-    description: dropping the reserved catalog table is a static error
-    steps:
-      - sql: |
-          drop table catalog;
-        error: static

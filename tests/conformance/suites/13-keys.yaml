@@ -1,0 +1,393 @@
+suite: keys
+spec_ref: "§6.2"
+description: >
+  Keyed storage. Declared columns are the composite key, in order, and may only
+  be int or string. Inserts must supply every declared key field with the
+  declared type; the physical key is an order-preserving encoding of the key
+  columns, so scans return rows in key order. Keyless tables keep surrogate ids.
+
+tests:
+
+  - id: no-key-roundtrip
+    description: a keyless table stores and returns whole objects
+    steps:
+      - sql: |
+          create table t;
+      - sql: |
+          insert into t ({x: 1, y: 2, z: 3});
+      - sql: |
+          select * from t;
+        result:
+          - {x: 1, y: 2, z: 3}
+
+  - id: no-key-no-enforcement
+    description: a keyless table accepts any object, including ones with no x
+    steps:
+      - sql: |
+          create table t;
+      - sql: |
+          insert into t ({y: 2, z: 3});
+      - sql: |
+          select * from t;
+        result:
+          - {y: 2, z: 3}
+
+  - id: no-key-preserves-insertion-order
+    description: surrogate ids increment, so rows come back in insertion order
+    steps:
+      - sql: |
+          create table t;
+      - sql: |
+          insert into t ({x: 3}, {x: 1}, {x: 2});
+      - sql: |
+          select * from t;
+        result:
+          - {x: 3}
+          - {x: 1}
+          - {x: 2}
+
+  # ── single int key ──────────────────────────────────────────────────────────
+
+  - id: int-key-roundtrip
+    description: int key with payload round-trips whole object
+    steps:
+      - sql: |
+          create table t (x int);
+      - sql: |
+          insert into t ({x: 1, z: 9});
+      - sql: |
+          select * from t;
+        result:
+          - {x: 1, z: 9}
+
+  - id: int-key-sorted
+    description: rows inserted out of order come back sorted by the int key
+    steps:
+      - sql: |
+          create table t (x int);
+      - sql: |
+          insert into t ({x: 3}, {x: 1}, {x: 2});
+      - sql: |
+          select * from t;
+        result:
+          - {x: 1}
+          - {x: 2}
+          - {x: 3}
+
+  - id: int-key-negative-order
+    description: negative ints sort before zero and positives (sign-flip encoding)
+    steps:
+      - sql: |
+          create table t (x int);
+      - sql: |
+          insert into t ({x: 1}, {x: -5}, {x: 0}, {x: -1});
+      - sql: |
+          select * from t;
+        result:
+          - {x: -5}
+          - {x: -1}
+          - {x: 0}
+          - {x: 1}
+
+  - id: int-key-duplicate-overwrites
+    description: re-inserting the same key overwrites (last write wins)
+    steps:
+      - sql: |
+          create table t (x int);
+      - sql: |
+          insert into t ({x: 1, v: 100});
+      - sql: |
+          insert into t ({x: 1, v: 200});
+      - sql: |
+          select * from t;
+        result:
+          - {x: 1, v: 200}
+
+  - id: int-key-missing
+    description: inserting without the key field is a schema error
+    steps:
+      - sql: |
+          create table t (x int);
+      - sql: |
+          insert into t ({z: 9});
+        error: schema
+
+  - id: int-key-wrong-type
+    description: a string where an int key is declared is a schema error
+    steps:
+      - sql: |
+          create table t (x int);
+      - sql: |
+          insert into t ({x: "a"});
+        error: schema
+
+  - id: int-key-non-integral
+    description: a non-integral number for an int key is a schema error
+    steps:
+      - sql: |
+          create table t (x int);
+      - sql: |
+          insert into t ({x: 1.5});
+        error: schema
+
+  # ── single string key ───────────────────────────────────────────────────────
+
+  - id: str-key-roundtrip
+    description: string key with payload round-trips whole object
+    steps:
+      - sql: |
+          create table t (x string);
+      - sql: |
+          insert into t ({x: "a", z: 9});
+      - sql: |
+          select * from t;
+        result:
+          - {x: "a", z: 9}
+
+  - id: str-key-sorted
+    description: rows come back in lexicographic key order
+    steps:
+      - sql: |
+          create table t (x string);
+      - sql: |
+          insert into t ({x: "c"}, {x: "a"}, {x: "b"});
+      - sql: |
+          select * from t;
+        result:
+          - {x: "a"}
+          - {x: "b"}
+          - {x: "c"}
+
+  - id: str-key-missing
+    description: inserting without the key field is a schema error
+    steps:
+      - sql: |
+          create table t (x string);
+      - sql: |
+          insert into t ({z: 9});
+        error: schema
+
+  - id: str-key-wrong-type
+    description: a number where a string key is declared is a schema error
+    steps:
+      - sql: |
+          create table t (x string);
+      - sql: |
+          insert into t ({x: 1});
+        error: schema
+
+  # ── composite: int + string ─────────────────────────────────────────────────
+
+  - id: int-str-roundtrip
+    description: composite (int, string) key round-trips whole object
+    steps:
+      - sql: |
+          create table t (a int, b string);
+      - sql: |
+          insert into t ({a: 1, b: "x", z: 9});
+      - sql: |
+          select * from t;
+        result:
+          - {a: 1, b: "x", z: 9}
+
+  - id: int-str-composite-order
+    description: sort by first component, tie-break on the second
+    steps:
+      - sql: |
+          create table t (a int, b string);
+      - sql: |
+          insert into t ({a: 2, b: "a"}, {a: 1, b: "y"}, {a: 1, b: "x"});
+      - sql: |
+          select * from t;
+        result:
+          - {a: 1, b: "x"}
+          - {a: 1, b: "y"}
+          - {a: 2, b: "a"}
+
+  - id: int-str-missing-first
+    description: missing the first key field is a schema error
+    steps:
+      - sql: |
+          create table t (a int, b string);
+      - sql: |
+          insert into t ({b: "x"});
+        error: schema
+
+  - id: int-str-missing-second
+    description: missing the second key field is a schema error
+    steps:
+      - sql: |
+          create table t (a int, b string);
+      - sql: |
+          insert into t ({a: 1});
+        error: schema
+
+  - id: int-str-wrong-type-first
+    description: wrong type for the first key field is a schema error
+    steps:
+      - sql: |
+          create table t (a int, b string);
+      - sql: |
+          insert into t ({a: "q", b: "x"});
+        error: schema
+
+  - id: int-str-wrong-type-second
+    description: wrong type for the second key field is a schema error
+    steps:
+      - sql: |
+          create table t (a int, b string);
+      - sql: |
+          insert into t ({a: 1, b: 2});
+        error: schema
+
+  # ── composite: string + int ─────────────────────────────────────────────────
+
+  - id: str-int-roundtrip
+    description: composite (string, int) key round-trips whole object
+    steps:
+      - sql: |
+          create table t (a string, b int);
+      - sql: |
+          insert into t ({a: "x", b: 1, z: 9});
+      - sql: |
+          select * from t;
+        result:
+          - {a: "x", b: 1, z: 9}
+
+  - id: str-int-composite-order
+    description: sort by string first, tie-break on the int
+    steps:
+      - sql: |
+          create table t (a string, b int);
+      - sql: |
+          insert into t ({a: "b", b: 1}, {a: "a", b: 2}, {a: "a", b: 1});
+      - sql: |
+          select * from t;
+        result:
+          - {a: "a", b: 1}
+          - {a: "a", b: 2}
+          - {a: "b", b: 1}
+
+  - id: str-int-missing-second
+    description: missing the int component is a schema error
+    steps:
+      - sql: |
+          create table t (a string, b int);
+      - sql: |
+          insert into t ({a: "x"});
+        error: schema
+
+  - id: str-int-wrong-type-second
+    description: a string where the int component is declared is a schema error
+    steps:
+      - sql: |
+          create table t (a string, b int);
+      - sql: |
+          insert into t ({a: "x", b: "y"});
+        error: schema
+
+  # ── composite: int + int ─────────────────────────────────────────────────────
+
+  - id: int-int-roundtrip
+    description: composite (int, int) key round-trips whole object
+    steps:
+      - sql: |
+          create table t (a int, b int);
+      - sql: |
+          insert into t ({a: 1, b: 2, z: 9});
+      - sql: |
+          select * from t;
+        result:
+          - {a: 1, b: 2, z: 9}
+
+  - id: int-int-composite-order
+    description: sort by first int, tie-break on the second int
+    steps:
+      - sql: |
+          create table t (a int, b int);
+      - sql: |
+          insert into t ({a: 2, b: 1}, {a: 1, b: 2}, {a: 1, b: 1});
+      - sql: |
+          select * from t;
+        result:
+          - {a: 1, b: 1}
+          - {a: 1, b: 2}
+          - {a: 2, b: 1}
+
+  - id: int-int-missing
+    description: missing a key component is a schema error
+    steps:
+      - sql: |
+          create table t (a int, b int);
+      - sql: |
+          insert into t ({a: 1});
+        error: schema
+
+  # ── composite: string + string ───────────────────────────────────────────────
+
+  - id: str-str-roundtrip
+    description: composite (string, string) key round-trips whole object
+    steps:
+      - sql: |
+          create table t (a string, b string);
+      - sql: |
+          insert into t ({a: "x", b: "y", z: 9});
+      - sql: |
+          select * from t;
+        result:
+          - {a: "x", b: "y", z: 9}
+
+  - id: str-str-composite-order
+    description: sort by first string, tie-break on the second
+    steps:
+      - sql: |
+          create table t (a string, b string);
+      - sql: |
+          insert into t ({a: "b", b: "a"}, {a: "a", b: "b"}, {a: "a", b: "a"});
+      - sql: |
+          select * from t;
+        result:
+          - {a: "a", b: "a"}
+          - {a: "a", b: "b"}
+          - {a: "b", b: "a"}
+
+  - id: str-str-prefix-boundary
+    description: >
+      a shorter first component sorts before a longer one that shares its prefix,
+      regardless of the second component — proves the string terminator.
+      ("a","z") must sort before ("ab","a").
+    steps:
+      - sql: |
+          create table t (a string, b string);
+      - sql: |
+          insert into t ({a: "ab", b: "a"}, {a: "a", b: "z"});
+      - sql: |
+          select * from t;
+        result:
+          - {a: "a", b: "z"}
+          - {a: "ab", b: "a"}
+
+  - id: str-str-missing
+    description: missing a key component is a schema error
+    steps:
+      - sql: |
+          create table t (a string, b string);
+      - sql: |
+          insert into t ({a: "x"});
+        error: schema
+
+  # ── bad DDL: non-int/string key columns ──────────────────────────────────────
+
+  - id: bad-ddl-float-key
+    description: a float key column is rejected at create
+    steps:
+      - sql: |
+          create table t (x float);
+        error: static
+
+  - id: bad-ddl-bool-key
+    description: a bool key column is rejected at create
+    steps:
+      - sql: |
+          create table t (x bool);
+        error: static

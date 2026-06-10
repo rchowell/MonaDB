@@ -4,6 +4,8 @@ use std::vec;
 
 use crate::Result;
 use crate::cursor::Cursor;
+use crate::schema;
+use crate::ir::TableMember;
 use crate::storage::Storage;
 use crate::transaction::{Transaction, TransactionMode};
 use crate::value::Value;
@@ -59,6 +61,8 @@ pub enum Vop {
     Next { csr: usize, jmp: usize },
     /// Pushes a new OID for the given cursor (csr) onto the stack.
     NewOid { csr: usize },
+    /// Pushes a new key onto the stack, built by encoding the row's fields in the given order.
+    NewKey { keys: Vec<TableMember> },
     /// Creates a new btree named by the stack[0] oid.
     NewBtree,
     /// Opens the table at the given table oid and binds to cursors[csr].
@@ -262,6 +266,14 @@ impl VM {
                         None => 0,
                     };
                     self.push(oid);
+                }
+                Vop::NewKey { keys } => {
+                    // Derive the key from the row's fields, leaving the row in
+                    // place beneath the encoded key for Insert to consume.
+                    let row = self.pop();
+                    let key = schema::encode_key(&row, keys)?;
+                    self.stack.push(row);
+                    self.stack.push(Value::Bytes(key));
                 }
                 Vop::NewBtree => {
                     let tbl = self.peek().as_oid();

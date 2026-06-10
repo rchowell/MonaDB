@@ -20,6 +20,7 @@ pub enum Error {
     UnknownFunction(String),
     UnboundTable(String),
     BindError(String),
+    Schema(String),
 }
 
 impl Error {

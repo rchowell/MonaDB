@@ -150,6 +150,10 @@ impl Value {
         self.json().is_f64()
     }
 
+    pub fn as_f64(&self) -> Option<f64> {
+        self.json().as_f64()
+    }
+
     pub fn is_string(&self) -> bool {
         self.json().is_string()
     }

@@ -13,7 +13,7 @@ bytes = "1.9.0"
 heed = "0.22.1"
 lalrpop-util = { version = "0.21.0", features = ["lexer", "unicode"] }
 logos = "0.14.2"
-serde ={ version = "1.0"}
+serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
 tempfile = "3.14.0"
 

@@ -6,6 +6,7 @@ mod catalog;
 mod compiler;
 mod cursor;
 mod display;
+mod schema;
 mod lexer;
 mod storage;
 mod transaction;

@@ -771,6 +771,7 @@ pub mod fold {
         i: TableDefinition,
     ) -> TableDefinition {
         TableDefinition {
+            oid: i.oid,
             name: i.name,
             members: i
                 .members
@@ -789,7 +790,7 @@ pub mod fold {
 
     pub fn fold_insert<F: Fold + ?Sized>(f: &mut F, i: Insert) -> Insert {
         Insert {
-            target: i.target,
+            target: f.fold_table_definition(i.target),
             source: i.source.into_iter().map(|e| f.fold_expr(e)).collect(),
         }
     }

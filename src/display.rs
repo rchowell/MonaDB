@@ -253,6 +253,7 @@ mod tests {
 
     fn td(name: &str, members: Vec<(&str, Type)>) -> TableDefinition {
         TableDefinition {
+            oid: None,
             name: name.into(),
             members: members
                 .into_iter()

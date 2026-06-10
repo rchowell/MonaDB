@@ -3,7 +3,7 @@ use serde_json::json;
 use crate::catalog::CATALOG_OID;
 use crate::error::Error;
 use crate::ir::{
-    Call, Clear, Constructor, Create, Delete, Drop, Expr, Insert, Jpe, Jpi, Jpk, Limit, Member, Obj, Var, Select, Source, Statement, ToSql
+    Call, Clear, Constructor, Create, Delete, Drop, Expr, Insert, Jpe, Jpi, Jpk, Limit, Member, Obj, TableMember, Type, Var, Select, Source, Statement, ToSql
 };
 use crate::transaction::TransactionMode;
 use crate::value::Value;
@@ -54,7 +54,7 @@ impl Compiler {
         // addr M:      Halt            -> end of body
         #[allow(clippy::single_match_else)]
         match statement {
-            Statement::Create(create) => self.cc_create(&create),
+            Statement::Create(create) => self.cc_create(&create)?,
             Statement::Delete(delete) => self.cc_delete(delete)?,
             Statement::Drop(drop) => self.cc_drop(&drop),
             Statement::Clear(clear) => self.cc_clear(&clear),
@@ -81,12 +81,20 @@ impl Compiler {
         })
     }
 
-    fn cc_create(&mut self, create: &Create) {
+    fn cc_create(&mut self, create: &Create) -> Result<()> {
         self.txm = Some(TransactionMode::Write);
 
-        // Create the table definition JSON-value
         let Create::Table(table_definition) = &create;
-        let val = json!({
+
+        // Validate the key columns are int or string.
+        for member in &table_definition.members {
+            if !matches!(member.ty, Type::Int | Type::String) {
+                unsupported!("key column '{}' must be int or string", member.name);
+            }
+        }
+
+        // Create the catalog table object for insertion.
+        let object = json!({
             "name": table_definition.name,
             "type": "table",
             "sql": create.sql(),
@@ -100,29 +108,32 @@ impl Compiler {
         // 3   NewBtree            Create the LMDB btree before insertion (peek NewOid)
         // 4   Insert              Pop the key then the value, then insert into the new btree
         //
-        // No need to do any key encoding work, already on the stack. Just need to push
-        // the value. The insert will encode both the key and value for now. In the near
-        // future (to support multiple keys) we will need the appropriate shred instructions
-        // and likely an EncodeKey(n) and EncodeVal instructions prior to insert. We do
-        // not need this yet since we only have single oid keys and just encode within the
-        // insert operation handler.
         let csr = self.alloc_cursor();
         self.emit_open(csr, CATALOG_OID);
-        self.emit_push(val);
+        self.emit_push(object);
         self.emit_new_oid(csr);
         self.emit_new_btree();
         self.emit_insert(csr);
+        Ok(())
     }
 
     fn cc_insert(&mut self, insert: Insert) -> Result<()> {
         self.ensure_txn(TransactionMode::Write);
-        // Resolve table name to its oid (tbl) to open.
         let csr = self.alloc_cursor();
-        let tbl = insert.target.bind.expect("insert target should be bound to table oid");
+        let tbl = insert.target.oid.expect("insert target should be resolved to an oid");
         self.emit_open(csr, tbl);
+        let members = insert.target.members;
         for val in insert.source {
             self.cc_expr(val)?;
-            self.emit_new_oid(csr);
+            // A keyed table validates each key column is present + typed, then
+            // derives its key from the row's fields; a keyless one gets a
+            // surrogate id. Either way the key lands above the value on the
+            // stack, ready for Insert to consume.
+            if members.is_empty() {
+                self.emit_new_oid(csr);
+            } else {
+                self.emit_new_key(members.clone());
+            }
             self.emit_insert(csr);
         }
         Ok(())
@@ -567,6 +578,10 @@ impl Compiler {
         self.code.push(Vop::Insert { csr });
     }
 
+    fn emit_new_key(&mut self, keys: Vec<TableMember>) {
+        self.code.push(Vop::NewKey { keys });
+    }
+
     fn emit_delete(&mut self, csr: usize) {
         self.use_cursor(csr);
         self.code.push(Vop::Delete { csr });
@@ -793,5 +808,36 @@ mod tests {
                 _ => {}
             }
         }
+    }
+
+    #[test]
+    fn keyed_insert_emits_encode_key() {
+        // A keyed insert derives the composite key with a single EncodeKey, which
+        // gathers, validates, and encodes the declared columns. The binder's
+        // catalog lookup is simulated.
+        let mut stmt = SqlParser::new()
+            .parse(SqlLexer::new("insert into t ({a: 1, b: \"x\"});"))
+            .unwrap();
+        let Statement::Insert(ins) = &mut stmt else {
+            panic!("expected insert");
+        };
+        ins.target.oid = Some(1);
+        ins.target.members = vec![
+            TableMember { name: "a".into(), ty: Type::Int },
+            TableMember { name: "b".into(), ty: Type::String },
+        ];
+        let members = ins.target.members.clone();
+
+        let code = Compiler::new().compile(stmt).unwrap().instructions;
+        // EncodeKey carries the declared key columns in order, and precedes Insert.
+        let encode = code
+            .iter()
+            .position(|op| matches!(op, Vop::NewKey { keys } if *keys == members))
+            .expect("keyed insert must emit EncodeKey for its key columns");
+        let insert = code
+            .iter()
+            .position(|op| matches!(op, Vop::Insert { .. }))
+            .expect("insert must emit Insert");
+        assert!(encode < insert, "EncodeKey must precede Insert");
     }
 }

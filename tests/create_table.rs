@@ -57,13 +57,16 @@ fn create_table_persists_catalog_and_btree() {
         assert_eq!(val["name"], "t");
         assert_eq!(val["type"], "table");
 
+        // The schema lives only in `sql`; it is not persisted as a separate field.
+        assert!(val.get("members").is_none(), "members must not be stored separately");
+
         // Check the SQL is well-formatted and parseable
         let sql = val["sql"].as_str().unwrap();
         let statement = MonaDB::parse(sql).unwrap();
 
         // Assert we have a create table statement with the correct name and member
         match statement {
-            Statement::Create(Create::Table(TableDefinition { name, members })) => {
+            Statement::Create(Create::Table(TableDefinition { name, members, .. })) => {
                 assert_eq!(name, "t");
                 assert_eq!(members.len(), 1);
                 assert_eq!(members[0].name, "id");

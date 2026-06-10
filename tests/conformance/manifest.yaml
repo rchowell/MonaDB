@@ -27,3 +27,6 @@ suites:
   - file: suites/12-limit.yaml
     title: limit clause
     spec_ref: "§4.7"
+  - file: suites/13-keys.yaml
+    title: keys
+    spec_ref: "§6.2"

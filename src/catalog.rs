@@ -1,14 +1,42 @@
 use std::sync::Arc;
 
 use heed::byteorder::{BigEndian, ByteOrder};
-use serde_json::json;
+use serde::{Deserialize, Serialize};
 
+use crate::MonaDB;
 use crate::error::{Error, Result};
+use crate::ir::{Create, Statement, TableDefinition};
 use crate::storage::{BTree, Storage};
 use crate::transaction::Transaction;
 
 /// Reserved oid for the catalog table itself.
 pub const CATALOG_OID: u32 = 0;
+
+/// The single catalog object value, for now only tables.
+#[derive(Serialize, Deserialize)]
+pub struct Object {
+    /// The object name, e.g. "catalog" or "users".
+    pub name: String,
+    /// The object kind, e.g. "table" or "view".
+    #[serde(rename = "type")]
+    pub kind: String,
+    /// The original SQL statement that created the object.
+    pub sql: String,
+}
+
+impl Object {
+    /// Parse the stored `sql` back into its table definition.
+    fn table_definition(&self) -> Result<TableDefinition> {
+        if let Statement::Create(Create::Table(def)) = MonaDB::parse(&self.sql)? {
+            Ok(def)
+        } else {
+            Err(Error::InternalError(format!(
+                "catalog row for table '{}' is not a create table",
+                self.name
+            )))
+        }
+    }
+}
 
 /// Catalog handles all table metadata; cheap to clone.
 #[derive(Clone)]
@@ -25,12 +53,12 @@ impl Catalog {
         let key = CATALOG_OID.to_be_bytes();
         let btree: BTree = storage.create_btree(&mut txn, CATALOG_OID)?;
         if btree.get(txn.as_ro(), &key)?.is_none() {
-            let val = json!({
-                "name": "catalog",
-                "type": "table",
-                "sql": "create table catalog;",
-            });
-            let bytes = serde_json::to_vec(&val)?;
+            let obj = Object {
+                name: "catalog".to_string(),
+                kind: "table".to_string(),
+                sql: "create table catalog;".to_string(),
+            };
+            let bytes = serde_json::to_vec(&obj)?;
             btree.put(txn.as_rw()?, &key, bytes.as_slice())?;
         }
         txn.commit()?;
@@ -39,16 +67,15 @@ impl Catalog {
         })
     }
 
-    /// Look up a table by name and return its stable oid using a provided transaction.
-    pub fn get_table(&self, txn: &Transaction, name: &str) -> Result<u32> {
-        let iter = self.catalog.iter(txn.as_ro())?;
-        for entry in iter {
+    /// Look up a table by name, returning its full definition: oid, name, and members.
+    pub fn get_table(&self, txn: &Transaction, name: &str) -> Result<TableDefinition> {
+        for entry in self.catalog.iter(txn.as_ro())? {
             let (key, val) = entry?;
-            let val: serde_json::Value = serde_json::from_slice(val)?;
-            if val.get("type").and_then(|v| v.as_str()) == Some("table")
-                && val.get("name").and_then(|v| v.as_str()) == Some(name)
-            {
-                return Ok(BigEndian::read_u32(key));
+            let obj: Object = serde_json::from_slice(val)?;
+            if obj.kind == "table" && obj.name == name {
+                let mut def = obj.table_definition()?;
+                def.oid = Some(BigEndian::read_u32(key));
+                return Ok(def);
             }
         }
         Err(Error::UnboundTable(name.to_string()))

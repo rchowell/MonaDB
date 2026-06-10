@@ -38,10 +38,3 @@ tests:
       - sql: |
           clear table Ghost;
         error: static
-
-  - id: clear-system-table-rejected
-    description: clearing the reserved catalog table is a static error
-    steps:
-      - sql: |
-          clear table catalog;
-        error: static

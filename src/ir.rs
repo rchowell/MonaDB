@@ -21,7 +21,7 @@ pub enum Create {
 
 #[derive(Debug)]
 pub struct Insert {
-    pub target: Var,
+    pub target: TableDefinition,
     pub source: Vec<Expr>,
 }
 
@@ -49,6 +49,7 @@ pub struct Clear {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct TableDefinition {
+    pub oid: Option<u32>,
     pub name: String,
     pub members: Vec<TableMember>,
 }
@@ -244,7 +245,7 @@ pub fn create_table(table: TableDefinition) -> Create {
 
 #[inline]
 pub fn table_definition(name: String, members: Vec<TableMember>) -> TableDefinition {
-    TableDefinition { name, members }
+    TableDefinition { oid: None, name, members }
 }
 
 #[inline]
@@ -255,7 +256,11 @@ pub fn table_member(name: String, ty: Type) -> TableMember {
 #[inline]
 pub fn insert(target: String, source: Vec<Expr>) -> Insert {
     Insert {
-        target: Var::unbound(&target),
+        target: TableDefinition {
+            oid: None,
+            name: target,
+            members: vec![],
+        },
         source,
     }
 }
