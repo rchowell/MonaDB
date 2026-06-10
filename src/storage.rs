@@ -6,6 +6,7 @@ use std::sync::Arc;
 use heed::types::Bytes;
 use heed::{Database, Env, EnvFlags, EnvOpenOptions, WithoutTls};
 
+use crate::error::Error;
 use crate::Result;
 
 /// Reserved capacity for future named DBs (branches, commits, etc.).
@@ -62,8 +63,15 @@ impl Storage {
         let btree = self
             .env
             .open_database(rtxn, Some(&hex(oid)))?
-            .expect("btree does not exist");
+            .ok_or_else(|| Error::InternalError(format!("btree does not exist: oid={oid}")))?;
         Ok(btree)
+    }
+
+    /// Empties the b-tree for the given oid, removing all of its rows.
+    pub fn clear_btree(&self, txn: &mut Transaction, oid: u32) -> Result<()> {
+        let btree = self.open_btree(txn, oid)?;
+        btree.clear(txn.as_rw()?)?;
+        Ok(())
     }
 }
 
@@ -93,6 +101,23 @@ mod tests {
         let txn = Transaction::read(&storage).unwrap();
         let btree = storage.open_btree(&txn, 1).unwrap();
         assert_eq!(btree.get(txn.as_ro(), b"k").unwrap(), Some(b"v".as_slice()));
+    }
+
+    #[test]
+    fn clear_btree_empties_all_rows() {
+        let dir = TempDir::new().unwrap();
+        let storage = Storage::open(dir.path().join("t.db")).unwrap();
+        let mut txn = Transaction::write(&storage).unwrap();
+        let btree = storage.create_btree(&mut txn, 5).unwrap();
+        btree.put(txn.as_rw().unwrap(), b"a", b"1").unwrap();
+        btree.put(txn.as_rw().unwrap(), b"b", b"2").unwrap();
+        storage.clear_btree(&mut txn, 5).unwrap();
+        txn.commit().unwrap();
+
+        let txn = Transaction::read(&storage).unwrap();
+        let btree = storage.open_btree(&txn, 5).unwrap();
+        assert_eq!(btree.get(txn.as_ro(), b"a").unwrap(), None);
+        assert_eq!(btree.len(txn.as_ro()).unwrap(), 0);
     }
 
     #[test]

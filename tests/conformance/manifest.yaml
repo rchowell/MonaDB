@@ -6,6 +6,12 @@ suites:
   - file: suites/06-insert.yaml
     title: insert
     spec_ref: "§6.1"
+  - file: suites/07-drop.yaml
+    title: drop
+    spec_ref: "§7.2"
+  - file: suites/07-clear.yaml
+    title: clear
+    spec_ref: "§7.3"
   - file: suites/08-select.yaml
     title: select clause
     spec_ref: "§4.1"

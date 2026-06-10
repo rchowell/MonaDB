@@ -93,6 +93,8 @@ pub enum Token {
     As,
     #[token("between")]
     Between,
+    #[token("clear")]
+    Clear,
     #[token("create")]
     Create,
     #[token("delete")]

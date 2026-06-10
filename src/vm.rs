@@ -39,8 +39,10 @@ pub enum Vop {
     Init { jmp: usize },
     /// Insert a value into the given cursor (csr) where key=stack[0] value=stack[1].
     Insert { csr: usize },
-    /// Mark the cursor's (csr) current row for deletion; applied at Halt.
+    /// Mark the key (top-of-stack) for deletion from cursor (csr).
     Delete { csr: usize },
+    /// Clear all rows from the btree at the given table oid.
+    Clear { tbl: u32 },
     /// Jump to the instruction at jmp.
     Jump { jmp: usize },
     /// JSON Path Index
@@ -49,8 +51,10 @@ pub enum Vop {
     Jpk(String),
     /// JSON Path Expression
     Jpe,
-    /// Load the current value from the cursor onto to the stack.
-    Load { csr: usize },
+    /// Load the cursor's (csr) current key onto the stack.
+    LoadKey { csr: usize },
+    /// Load the cursor's (csr) current val onto the stack.
+    LoadVal { csr: usize },
     /// Next from the cursor, else jump.
     Next { csr: usize, jmp: usize },
     /// Pushes a new OID for the given cursor (csr) onto the stack.
@@ -222,9 +226,17 @@ impl VM {
                     csr.insert(txn, &key, &val)?;
                 }
                 Vop::Delete { csr } => {
-                    if let Some((key, _)) = self.cursors[*csr].current() {
-                        self.deletes.entry(*csr).or_default().push(key.to_vec());
-                    }
+                    // `Key` already pushes encoded key bytes; move them out
+                    // rather than re-cloning them through `encode()`.
+                    let key = match self.pop() {
+                        Value::Bytes(bytes) => bytes,
+                        val => val.encode()?,
+                    };
+                    self.deletes.entry(*csr).or_default().push(key);
+                }
+                Vop::Clear { tbl } => {
+                    let txn = self.txn.as_mut().expect("Clear before Transaction");
+                    self.storage.clear_btree(txn, *tbl)?;
                 }
                 Vop::Jpe => {
                     let e = self.pop();
@@ -479,9 +491,16 @@ impl VM {
                         self.pc = *jmp;
                     }
                 }
-                Vop::Load { csr } => {
+                Vop::LoadVal { csr } => {
                     let val = self.cursors[*csr].load()?;
                     self.push(val);
+                }
+                Vop::LoadKey { csr } => {
+                    let key = self.cursors[*csr]
+                        .current()
+                        .map(|(key, _)| key.to_vec())
+                        .unwrap_or_default();
+                    self.push(Value::Bytes(key));
                 }
                 //
                 // Counter Instructions

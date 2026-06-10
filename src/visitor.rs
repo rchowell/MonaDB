@@ -33,6 +33,14 @@ pub mod visit {
             visit_delete(self, i);
         }
 
+        fn visit_drop(&mut self, i: &'ast Drop) {
+            visit_drop(self, i);
+        }
+
+        fn visit_clear(&mut self, i: &'ast Clear) {
+            visit_clear(self, i);
+        }
+
         fn visit_select(&mut self, i: &'ast Select) {
             visit_select(self, i);
         }
@@ -109,7 +117,8 @@ pub mod visit {
         match i {
             Statement::Create(c) => v.visit_create(c),
             Statement::Delete(d) => v.visit_delete(d),
-            Statement::Drop(_) => {}
+            Statement::Drop(d) => v.visit_drop(d),
+            Statement::Clear(c) => v.visit_clear(c),
             Statement::Insert(ins) => v.visit_insert(ins),
             Statement::Select(s) => v.visit_select(s),
         }
@@ -157,6 +166,20 @@ pub mod visit {
         if let Some(w) = &i.where_ {
             v.visit_expr(w);
         }
+    }
+
+    pub fn visit_drop<'ast, V>(_v: &mut V, _i: &'ast Drop)
+    where
+        V: Visit<'ast> + ?Sized,
+    {
+        // No child IR to walk; the binder overrides `visit_drop` to bind the oid.
+    }
+
+    pub fn visit_clear<'ast, V>(_v: &mut V, _i: &'ast Clear)
+    where
+        V: Visit<'ast> + ?Sized,
+    {
+        // No child IR to walk; the binder overrides `visit_clear` to bind the oid.
     }
 
     pub fn visit_select<'ast, V>(v: &mut V, i: &'ast Select)
@@ -373,6 +396,14 @@ pub mod visit_mut {
             visit_delete_mut(self, i);
         }
 
+        fn visit_drop_mut(&mut self, i: &mut Drop) {
+            visit_drop_mut(self, i);
+        }
+
+        fn visit_clear_mut(&mut self, i: &mut Clear) {
+            visit_clear_mut(self, i);
+        }
+
         fn visit_select_mut(&mut self, i: &mut Select) {
             visit_select_mut(self, i);
         }
@@ -446,7 +477,8 @@ pub mod visit_mut {
         match i {
             Statement::Create(c) => v.visit_create_mut(c),
             Statement::Delete(d) => v.visit_delete_mut(d),
-            Statement::Drop(_) => {}
+            Statement::Drop(d) => v.visit_drop_mut(d),
+            Statement::Clear(c) => v.visit_clear_mut(c),
             Statement::Insert(ins) => v.visit_insert_mut(ins),
             Statement::Select(s) => v.visit_select_mut(s),
         }
@@ -479,6 +511,14 @@ pub mod visit_mut {
         if let Some(w) = &mut i.where_ {
             v.visit_expr_mut(w);
         }
+    }
+
+    pub fn visit_drop_mut<V: VisitMut + ?Sized>(_v: &mut V, _i: &mut Drop) {
+        // No child IR to walk; the binder overrides `visit_drop_mut` to bind the oid.
+    }
+
+    pub fn visit_clear_mut<V: VisitMut + ?Sized>(_v: &mut V, _i: &mut Clear) {
+        // No child IR to walk; the binder overrides `visit_clear_mut` to bind the oid.
     }
 
     pub fn visit_select_mut<V: VisitMut + ?Sized>(v: &mut V, i: &mut Select) {
@@ -714,6 +754,7 @@ pub mod fold {
             Statement::Create(c) => Statement::Create(f.fold_create(c)),
             Statement::Delete(s) => Statement::Delete(s),
             Statement::Drop(s) => Statement::Drop(s),
+            Statement::Clear(s) => Statement::Clear(s),
             Statement::Insert(ins) => Statement::Insert(f.fold_insert(ins)),
             Statement::Select(s) => Statement::Select(f.fold_select(s)),
         }

@@ -3,7 +3,7 @@ use serde_json::json;
 use crate::catalog::CATALOG_OID;
 use crate::error::Error;
 use crate::ir::{
-    Call, Constructor, Create, Delete, Expr, Insert, Jpe, Jpi, Jpk, Limit, Member, Obj, Var, Select, Source, Statement, ToSql
+    Call, Clear, Constructor, Create, Delete, Drop, Expr, Insert, Jpe, Jpi, Jpk, Limit, Member, Obj, Var, Select, Source, Statement, ToSql
 };
 use crate::transaction::TransactionMode;
 use crate::value::Value;
@@ -56,6 +56,8 @@ impl Compiler {
         match statement {
             Statement::Create(create) => self.cc_create(&create),
             Statement::Delete(delete) => self.cc_delete(delete)?,
+            Statement::Drop(drop) => self.cc_drop(&drop),
+            Statement::Clear(clear) => self.cc_clear(&clear),
             Statement::Insert(insert) => self.cc_insert(insert)?,
             Statement::Select(select) => self.cc_select(select)?,
             _ => unsupported!("statement not supported: {:?}", statement),
@@ -141,7 +143,7 @@ impl Compiler {
         let begin = self.pc();
 
         // Loop body: evaluate the predicate (if any) and skip the delete when
-        // it is false, otherwise mark the current row for deletion.
+        // it is false, otherwise buffer the current row's key for deletion.
         let body = self.code.len();
         let mut where_fail = None;
         if let Some(where_) = where_ {
@@ -149,6 +151,7 @@ impl Compiler {
             self.emit_if_not(0);
             where_fail = Some(self.pc());
         }
+        self.emit_load_key(csr);
         self.emit_delete(csr);
 
         // Advance; when more rows remain, jump back to the body.
@@ -161,6 +164,31 @@ impl Compiler {
             self.patch(pc, next_pc)?;
         }
         Ok(())
+    }
+
+    fn cc_drop(&mut self, drop: &Drop) {
+        self.ensure_txn(TransactionMode::Write);
+        let oid = drop.oid.expect("drop target should be bound to table oid");
+
+        // Dropping a table removes its catalog row then clears its data btree.
+        //
+        // 0   Open { tbl=0 }      Open the 'catalog' system table (oid=0)
+        // 1   Push { val=oid }    Push the table oid; the catalog key to delete.
+        // 2   Delete              Buffer catalog[oid] for deletion at Halt.
+        // 3   Clear { oid }       Clear the dropped table's data btree.
+        //
+        let csr = self.alloc_cursor();
+        self.emit_open(csr, CATALOG_OID);
+        self.emit_push(Value::Oid(oid));
+        self.emit_delete(csr);
+        self.emit_clear(oid);
+    }
+
+    fn cc_clear(&mut self, clear: &Clear) {
+        self.ensure_txn(TransactionMode::Write);
+        let oid = clear.oid.expect("clear target should be bound to table oid");
+        // Clearing a table empties its data btree but leaves the catalog row.
+        self.emit_clear(oid);
     }
 
     fn cc_select(&mut self, select: Select) -> Result<()> {
@@ -544,6 +572,15 @@ impl Compiler {
         self.code.push(Vop::Delete { csr });
     }
 
+    fn emit_load_key(&mut self, csr: usize) {
+        self.use_cursor(csr);
+        self.code.push(Vop::LoadKey { csr });
+    }
+
+    fn emit_clear(&mut self, tbl: u32) {
+        self.code.push(Vop::Clear { tbl });
+    }
+
     fn emit_jpe(&mut self) {
         self.code.push(Vop::Jpe);
     }
@@ -558,7 +595,7 @@ impl Compiler {
 
     fn emit_load(&mut self, csr: usize) {
         self.use_cursor(csr);
-        self.code.push(Vop::Load { csr });
+        self.code.push(Vop::LoadVal { csr });
     }
 
     fn emit_jump(&mut self, jmp: usize) {
@@ -667,7 +704,7 @@ mod tests {
         assert!(matches!(code[0], Vop::Init { jmp: 7 }));
         assert!(matches!(code[1], Vop::Open { csr: 0, tbl: 0 }));
         assert!(matches!(code[2], Vop::Scan { csr: 0, jmp: 6 }));
-        assert!(matches!(code[3], Vop::Load { csr: 0 }));
+        assert!(matches!(code[3], Vop::LoadVal { csr: 0 }));
         assert!(matches!(code[4], Vop::Yield));
         assert!(matches!(code[5], Vop::Next { csr: 0, jmp: 3 }));
         assert!(matches!(code[6], Vop::Halt));
@@ -683,7 +720,7 @@ mod tests {
         assert!(matches!(code[2], Vop::Scan { csr: 0, jmp: 8 }));
         assert!(matches!(code[3], Vop::Push { .. }));
         assert!(matches!(code[4], Vop::IfNot(7)));
-        assert!(matches!(code[5], Vop::Load { csr: 0 }));
+        assert!(matches!(code[5], Vop::LoadVal { csr: 0 }));
         assert!(matches!(code[6], Vop::Yield));
         assert!(matches!(code[7], Vop::Next { csr: 0, jmp: 3 }));
     }
@@ -694,15 +731,16 @@ mod tests {
         let program = compile_sql(&storage, &catalog, "delete from catalog;");
         assert_eq!(program.cursors, 1);
         let code = program.instructions;
-        assert_eq!(code.len(), 8);
-        assert!(matches!(code[0], Vop::Init { jmp: 6 }));
+        assert_eq!(code.len(), 9);
+        assert!(matches!(code[0], Vop::Init { jmp: 7 }));
         assert!(matches!(code[1], Vop::Open { csr: 0, tbl: 0 }));
-        assert!(matches!(code[2], Vop::Scan { csr: 0, jmp: 5 }));
-        assert!(matches!(code[3], Vop::Delete { csr: 0 }));
-        assert!(matches!(code[4], Vop::Next { csr: 0, jmp: 3 }));
-        assert!(matches!(code[5], Vop::Halt));
-        assert!(matches!(code[6], Vop::Transaction { txm: TransactionMode::Write }));
-        assert!(matches!(code[7], Vop::Jump { jmp: 1 }));
+        assert!(matches!(code[2], Vop::Scan { csr: 0, jmp: 6 }));
+        assert!(matches!(code[3], Vop::LoadKey { csr: 0 }));
+        assert!(matches!(code[4], Vop::Delete { csr: 0 }));
+        assert!(matches!(code[5], Vop::Next { csr: 0, jmp: 3 }));
+        assert!(matches!(code[6], Vop::Halt));
+        assert!(matches!(code[7], Vop::Transaction { txm: TransactionMode::Write }));
+        assert!(matches!(code[8], Vop::Jump { jmp: 1 }));
     }
 
     #[test]
@@ -711,12 +749,13 @@ mod tests {
         let program =
             compile_sql(&storage, &catalog, "delete from catalog where catalog.name = 'x';");
         let code = program.instructions;
-        // Scan exits past the loop; a false predicate skips Delete and advances.
-        assert!(matches!(code[2], Vop::Scan { csr: 0, jmp: 10 }));
-        assert!(matches!(code[3], Vop::Load { csr: 0 }));
-        assert!(matches!(code[7], Vop::IfNot(9)));
-        assert!(matches!(code[8], Vop::Delete { csr: 0 }));
-        assert!(matches!(code[9], Vop::Next { csr: 0, jmp: 3 }));
+        // Scan exits past the loop; a false predicate skips the delete and advances.
+        assert!(matches!(code[2], Vop::Scan { csr: 0, jmp: 11 }));
+        assert!(matches!(code[3], Vop::LoadVal { csr: 0 }));
+        assert!(matches!(code[7], Vop::IfNot(10)));
+        assert!(matches!(code[8], Vop::LoadKey { csr: 0 }));
+        assert!(matches!(code[9], Vop::Delete { csr: 0 }));
+        assert!(matches!(code[10], Vop::Next { csr: 0, jmp: 3 }));
     }
 
     #[test]
@@ -749,7 +788,7 @@ mod tests {
             match op {
                 Vop::Open { csr, .. }
                 | Vop::Scan { csr, .. }
-                | Vop::Load { csr }
+                | Vop::LoadVal { csr }
                 | Vop::Next { csr, .. } => assert_eq!(*csr, 0),
                 _ => {}
             }

@@ -1,6 +1,6 @@
 use crate::catalog::Catalog;
 use crate::error::{Error, Result};
-use crate::ir::{Expr, From, Insert, Source, Statement};
+use crate::ir::{Clear, Drop, Expr, From, Insert, Source, Statement};
 use crate::transaction::Transaction;
 use crate::visitor::visit_mut::{VisitMut, visit_expr_mut, visit_insert_mut};
 
@@ -45,6 +45,17 @@ impl<'txn> Binder<'txn> {
         self.next_cursor += 1;
         id
     }
+
+    /// Resolve a table name to its oid, recording a bind error on failure.
+    fn get_table(&mut self, name: &str) -> Option<u32> {
+        match self.catalog.get_table(self.txn, name) {
+            Ok(oid) => Some(oid),
+            Err(err) => {
+                self.errors.push(err);
+                None
+            }
+        }
+    }
 }
 
 impl VisitMut for Binder<'_> {
@@ -58,10 +69,7 @@ impl VisitMut for Binder<'_> {
         match &mut i.src {
             Source::Table(name) => {
                 // Bind the table to its oid via catalog lookup
-                match self.catalog.get_table(self.txn, name) {
-                    Ok(oid) => i.oid = Some(oid),
-                    Err(err) => self.errors.push(err),
-                }
+                i.oid = self.get_table(name);
                 self.scope.push(var, csr);
             }
             Source::Value(expr) => {
@@ -80,12 +88,17 @@ impl VisitMut for Binder<'_> {
 
     fn visit_insert_mut(&mut self, i: &mut Insert) {
         if i.target.bind.is_none() {
-            match self.catalog.get_table(self.txn, &i.target.name) {
-                Ok(oid) => i.target.bind = Some(oid),
-                Err(err) => self.errors.push(err),
-            }
+            i.target.bind = self.get_table(&i.target.name);
         }
         visit_insert_mut(self, i);
+    }
+
+    fn visit_drop_mut(&mut self, i: &mut Drop) {
+        i.oid = self.get_table(&i.name);
+    }
+
+    fn visit_clear_mut(&mut self, i: &mut Clear) {
+        i.oid = self.get_table(&i.name);
     }
 
     fn visit_expr_mut(&mut self, i: &mut Expr) {
@@ -294,6 +307,56 @@ mod test {
         assert_eq!(del.from.csr, Some(0));
         assert!(del.from.oid.is_some());
         assert!(del.where_.is_some());
+    }
+
+    #[test]
+    fn test_bind_drop_resolves_oid() {
+        let db = db_fixture();
+        let mut stmt = MonaDB::parse("drop table users;").unwrap();
+        db.bind(&mut stmt).unwrap();
+        let Statement::Drop(drop) = stmt else {
+            panic!("expected Drop")
+        };
+        assert!(drop.oid.is_some());
+    }
+
+    #[test]
+    fn test_bind_drop_unknown_table_errors() {
+        let db = db_fixture();
+        let mut stmt = MonaDB::parse("drop table ghost;").unwrap();
+        assert!(matches!(db.bind(&mut stmt), Err(Error::UnboundTable(_))));
+    }
+
+    #[test]
+    fn test_bind_drop_system_table_rejected() {
+        let db = db_fixture();
+        let mut stmt = MonaDB::parse("drop table catalog;").unwrap();
+        assert!(matches!(db.bind(&mut stmt), Err(Error::BindError(_))));
+    }
+
+    #[test]
+    fn test_bind_clear_resolves_oid() {
+        let db = db_fixture();
+        let mut stmt = MonaDB::parse("clear table users;").unwrap();
+        db.bind(&mut stmt).unwrap();
+        let Statement::Clear(clear) = stmt else {
+            panic!("expected Clear")
+        };
+        assert!(clear.oid.is_some());
+    }
+
+    #[test]
+    fn test_bind_clear_unknown_table_errors() {
+        let db = db_fixture();
+        let mut stmt = MonaDB::parse("clear table ghost;").unwrap();
+        assert!(matches!(db.bind(&mut stmt), Err(Error::UnboundTable(_))));
+    }
+
+    #[test]
+    fn test_bind_clear_system_table_rejected() {
+        let db = db_fixture();
+        let mut stmt = MonaDB::parse("clear table catalog;").unwrap();
+        assert!(matches!(db.bind(&mut stmt), Err(Error::BindError(_))));
     }
 
     #[test]

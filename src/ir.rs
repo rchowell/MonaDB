@@ -6,9 +6,10 @@ pub use crate::display::ToSql;
 
 #[derive(Debug)]
 pub enum Statement {
+    Clear(Clear),
     Create(Create),
     Delete(Delete),
-    Drop(String),
+    Drop(Drop),
     Insert(Insert),
     Select(Select),
 }
@@ -28,6 +29,18 @@ pub struct Insert {
 pub struct Delete {
     pub from: From,
     pub where_: Option<Where>,
+}
+
+#[derive(Debug)]
+pub struct Drop {
+    pub name: String,
+    pub oid: Option<u32>,
+}
+
+#[derive(Debug)]
+pub struct Clear {
+    pub name: String,
+    pub oid: Option<u32>,
 }
 
 //------------------------------
@@ -256,6 +269,16 @@ pub fn delete(table: String, alias: Option<String>, where_: Option<Where>) -> De
         oid: None,
     };
     Delete { from, where_ }
+}
+
+#[inline]
+pub fn drop_table(name: String) -> Drop {
+    Drop { name, oid: None }
+}
+
+#[inline]
+pub fn clear_table(name: String) -> Clear {
+    Clear { name, oid: None }
 }
 
 #[inline]

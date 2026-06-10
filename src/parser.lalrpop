@@ -41,6 +41,7 @@ extern {
         "and"       => Token::And,
         "as"        => Token::As,
         "between"   => Token::Between,
+        "clear"     => Token::Clear,
         "create"    => Token::Create,
         "delete"    => Token::Delete,
         "drop"      => Token::Drop,
@@ -83,6 +84,7 @@ pub Sql = <Statement> ";";
 //------------------------------
 
 Statement: ir::Statement = {
+    Clear   => ir::Statement::Clear(<>),
     Create  => ir::Statement::Create(<>),
     Delete  => ir::Statement::Delete(<>),
     Drop    => ir::Statement::Drop(<>),
@@ -161,7 +163,12 @@ Delete: ir::Delete =
 // DROP STATEMENT
 //------------------------------
 
-Drop: String = "drop" "table" <"ident">;
+Drop: ir::Drop = "drop" "table" <"ident"> => ir::drop_table(<>);
+
+// CLEAR STATEMENT
+//------------------------------
+
+Clear: ir::Clear = "clear" "table" <"ident"> => ir::clear_table(<>);
 
 //------------------------------
 // TYPES
