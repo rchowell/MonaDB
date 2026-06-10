@@ -3,6 +3,16 @@ name = "monadb"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+# rlib keeps `cargo build`/`cargo test` working as a normal Rust library;
+# cdylib is what maturin/pyo3 compiles into the Python extension module.
+crate-type = ["rlib", "cdylib"]
+
+[features]
+# All pyo3 code is gated behind this feature so the default build never pulls
+# in Python linkage. Maturin enables it via `[tool.maturin] features`.
+python = ["dep:pyo3"]
+
 [build-dependencies]
 lalrpop = "0.21.0"
 serde = { version = "1", features = ["derive"] }
@@ -16,6 +26,9 @@ logos = "0.14.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
 tempfile = "3.14.0"
+
+# Optional: only compiled when the `python` feature is enabled (maturin builds).
+pyo3 = { version = "0.23", optional = true, features = ["extension-module", "abi3-py39"] }
 
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }

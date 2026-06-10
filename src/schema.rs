@@ -1,5 +1,5 @@
 use crate::error::{Error, Result};
-use crate::ir::{TableMember, Type};
+use crate::ir::{Key, Type};
 use crate::value::Value;
 
 //------------------------------
@@ -38,11 +38,11 @@ pub fn encode_str(s: &str) -> Vec<u8> {
 /// Returns an [`Error::Schema`] if a key field is missing or has the wrong type.
 /// Key columns are always int or string (validated at create); the catch-all is
 /// defensive.
-pub fn encode_key(row: &Value, keys: &[TableMember]) -> Result<Vec<u8>> {
+pub fn encode_key(val: &Value, keys: &[Key]) -> Result<Vec<u8>> {
     // Each component contributes ≥8 bytes (int) or ≥2 (string terminator).
     let mut out = Vec::with_capacity(keys.len() * 8);
     for col in keys {
-        let field = row
+        let field = val
             .jpk(&col.name)
             .ok_or_else(|| Error::Schema(format!("missing key '{}'", col.name)))?;
         match col.ty {
@@ -75,8 +75,8 @@ mod test {
     use super::*;
     use serde_json::json;
 
-    fn col(name: &str, ty: Type) -> TableMember {
-        TableMember {
+    fn col(name: &str, ty: Type) -> Key {
+        Key {
             name: name.to_string(),
             ty,
         }

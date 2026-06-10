@@ -28,13 +28,17 @@ pub struct Storage {
 impl Storage {
     /// Open or create a database at the given path.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
+        // LMDB (NO_SUB_DIR) derives the lock file from the path's parent, so a
+        // bare filename like "todos.db" — whose parent is empty — fails to open.
+        // Absolutize first so any relative form (including a bare name) works.
+        let path = std::path::absolute(path.as_ref())?;
         let env = unsafe {
             EnvOpenOptions::new()
                 .read_txn_without_tls()
                 .map_size(LMDB_MMAP_SIZE)
                 .max_dbs(LMDB_MAX_DBS)
                 .flags(EnvFlags::NO_SUB_DIR)
-                .open(path.as_ref())?
+                .open(&path)?
         };
         let env = Arc::new(env);
         Ok(Self { env })

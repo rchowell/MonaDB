@@ -1,0 +1,24 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "monadb"
+version = "0.1.0"
+description = "Python bindings for MonaDB — a DuckDB-style cursor interface."
+requires-python = ">=3.9"
+readme = "README.md"
+
+[tool.maturin]
+# Build the monadb crate with its `python` feature so the pyo3 module is compiled in.
+features = ["python"]
+# The compiled extension is installed at python/monadb/_monadb.*.so
+module-name = "monadb._monadb"
+# Pure-Python package lives under python/ (mixed Rust/Python layout).
+python-source = "python"
+
+[tool.pytest.ini_options]
+testpaths = ["python/tests"]
+
+[dependency-groups]
+dev = ["pytest>=8", "maturin>=1.7,<2"]

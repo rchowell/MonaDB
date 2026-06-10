@@ -15,3 +15,17 @@ docs/build/
 
 # claude
 .claude/worktrees
+
+# python
+.venv/
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+dist/
+wheels/
+
+# example data (the todo example writes a database file)
+examples/todo/*.db
+todos.db
+*.monadb

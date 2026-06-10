@@ -92,7 +92,7 @@ impl VisitMut for Binder<'_> {
             && let Some(def) = self.get_table(&i.target.name)
         {
             i.target.oid = def.oid;
-            i.target.members = def.members;
+            i.target.keys = def.keys;
         }
         visit_insert_mut(self, i);
     }

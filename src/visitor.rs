@@ -21,7 +21,7 @@ pub mod visit {
             visit_table_definition(self, i);
         }
 
-        fn visit_table_member(&mut self, i: &'ast TableMember) {
+        fn visit_table_member(&mut self, i: &'ast Key) {
             visit_table_member(self, i);
         }
 
@@ -137,12 +137,12 @@ pub mod visit {
     where
         V: Visit<'ast> + ?Sized,
     {
-        for m in &i.members {
+        for m in &i.keys {
             v.visit_table_member(m);
         }
     }
 
-    pub fn visit_table_member<'ast, V>(v: &mut V, i: &'ast TableMember)
+    pub fn visit_table_member<'ast, V>(v: &mut V, i: &'ast Key)
     where
         V: Visit<'ast> + ?Sized,
     {
@@ -384,7 +384,7 @@ pub mod visit_mut {
             visit_table_definition_mut(self, i);
         }
 
-        fn visit_table_member_mut(&mut self, i: &mut TableMember) {
+        fn visit_table_member_mut(&mut self, i: &mut Key) {
             visit_table_member_mut(self, i);
         }
 
@@ -491,12 +491,12 @@ pub mod visit_mut {
     }
 
     pub fn visit_table_definition_mut<V: VisitMut + ?Sized>(v: &mut V, i: &mut TableDefinition) {
-        for m in &mut i.members {
+        for m in &mut i.keys {
             v.visit_table_member_mut(m);
         }
     }
 
-    pub fn visit_table_member_mut<V: VisitMut + ?Sized>(v: &mut V, i: &mut TableMember) {
+    pub fn visit_table_member_mut<V: VisitMut + ?Sized>(v: &mut V, i: &mut Key) {
         v.visit_type_mut(&mut i.ty);
     }
 
@@ -672,7 +672,7 @@ pub mod fold {
             fold_table_definition(self, i)
         }
 
-        fn fold_table_member(&mut self, i: TableMember) -> TableMember {
+        fn fold_table_member(&mut self, i: Key) -> Key {
             fold_table_member(self, i)
         }
 
@@ -773,16 +773,16 @@ pub mod fold {
         TableDefinition {
             oid: i.oid,
             name: i.name,
-            members: i
-                .members
+            keys: i
+                .keys
                 .into_iter()
                 .map(|m| f.fold_table_member(m))
                 .collect(),
         }
     }
 
-    pub fn fold_table_member<F: Fold + ?Sized>(f: &mut F, i: TableMember) -> TableMember {
-        TableMember {
+    pub fn fold_table_member<F: Fold + ?Sized>(f: &mut F, i: Key) -> Key {
+        Key {
             name: i.name,
             ty: f.fold_type(i.ty),
         }

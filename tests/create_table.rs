@@ -66,7 +66,7 @@ fn create_table_persists_catalog_and_btree() {
 
         // Assert we have a create table statement with the correct name and member
         match statement {
-            Statement::Create(Create::Table(TableDefinition { name, members, .. })) => {
+            Statement::Create(Create::Table(TableDefinition { name, keys: members, .. })) => {
                 assert_eq!(name, "t");
                 assert_eq!(members.len(), 1);
                 assert_eq!(members[0].name, "id");

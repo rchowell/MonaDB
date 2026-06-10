@@ -3,7 +3,7 @@ use serde_json::json;
 use crate::catalog::CATALOG_OID;
 use crate::error::Error;
 use crate::ir::{
-    Call, Clear, Constructor, Create, Delete, Drop, Expr, Insert, Jpe, Jpi, Jpk, Limit, Member, Obj, TableMember, Type, Var, Select, Source, Statement, ToSql
+    Call, Clear, Constructor, Create, Delete, Drop, Expr, Insert, Jpe, Jpi, Jpk, Limit, Member, Obj, Key, Type, Var, Select, Source, Statement, ToSql
 };
 use crate::transaction::TransactionMode;
 use crate::value::Value;
@@ -87,7 +87,7 @@ impl Compiler {
         let Create::Table(table_definition) = &create;
 
         // Validate the key columns are int or string.
-        for member in &table_definition.members {
+        for member in &table_definition.keys {
             if !matches!(member.ty, Type::Int | Type::String) {
                 unsupported!("key column '{}' must be int or string", member.name);
             }
@@ -122,7 +122,7 @@ impl Compiler {
         let csr = self.alloc_cursor();
         let tbl = insert.target.oid.expect("insert target should be resolved to an oid");
         self.emit_open(csr, tbl);
-        let members = insert.target.members;
+        let members = insert.target.keys;
         for val in insert.source {
             self.cc_expr(val)?;
             // A keyed table validates each key column is present + typed, then
@@ -578,7 +578,7 @@ impl Compiler {
         self.code.push(Vop::Insert { csr });
     }
 
-    fn emit_new_key(&mut self, keys: Vec<TableMember>) {
+    fn emit_new_key(&mut self, keys: Vec<Key>) {
         self.code.push(Vop::NewKey { keys });
     }
 
@@ -822,11 +822,11 @@ mod tests {
             panic!("expected insert");
         };
         ins.target.oid = Some(1);
-        ins.target.members = vec![
-            TableMember { name: "a".into(), ty: Type::Int },
-            TableMember { name: "b".into(), ty: Type::String },
+        ins.target.keys = vec![
+            Key { name: "a".into(), ty: Type::Int },
+            Key { name: "b".into(), ty: Type::String },
         ];
-        let members = ins.target.members.clone();
+        let members = ins.target.keys.clone();
 
         let code = Compiler::new().compile(stmt).unwrap().instructions;
         // EncodeKey carries the declared key columns in order, and precedes Insert.

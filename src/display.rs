@@ -1,6 +1,6 @@
 use std::ops::Add;
 
-use crate::ir::{Create, Statement, TMember, TObject, TableDefinition, TableMember, Type};
+use crate::ir::{Create, Statement, TMember, TObject, TableDefinition, Key, Type};
 
 /// Trait for
 pub trait ToSql {
@@ -188,12 +188,12 @@ impl ToSql for TableDefinition {
     fn block(&self) -> Block {
         let mut t = text("create table ");
         t = t + text(&self.name);
-        if self.members.is_empty() {
+        if self.keys.is_empty() {
             return t;
         }
         let body = join(
             text(",") + linebreak(),
-            self.members.iter().map(ToSql::block),
+            self.keys.iter().map(ToSql::block),
         );
         t = t + " ";
         t = t + body.nest("(", ")");
@@ -201,7 +201,7 @@ impl ToSql for TableDefinition {
     }
 }
 
-impl ToSql for TableMember {
+impl ToSql for Key {
     fn block(&self) -> Block {
         let mut t = text(&self.name);
         t = t + " ";
@@ -255,9 +255,9 @@ mod tests {
         TableDefinition {
             oid: None,
             name: name.into(),
-            members: members
+            keys: members
                 .into_iter()
-                .map(|(n, ty)| TableMember { name: n.into(), ty })
+                .map(|(n, ty)| Key { name: n.into(), ty })
                 .collect(),
         }
     }

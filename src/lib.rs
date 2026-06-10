@@ -14,6 +14,11 @@ mod value;
 mod visitor;
 mod vm;
 
+/// Python bindings (pyo3). Compiled only with `--features python`; all pyo3
+/// code is isolated here so the default build stays Python-free.
+#[cfg(feature = "python")]
+mod python;
+
 // lalrpop module
 lalrpop_mod!(
     #[allow(clippy::all)]

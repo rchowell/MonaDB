@@ -13,9 +13,8 @@ use monadb::error::Error;
 use serde::Deserialize;
 use serde_json::Value as Json;
 
-// ── Schema ───────────────────────────────────────────────────────────────────
-
 #[derive(Deserialize)]
+#[allow(clippy::struct_field_names)]
 struct Suite {
     suite: String,
     #[serde(default)]
@@ -41,8 +40,6 @@ struct Step {
     result: Option<Vec<serde_yaml::Value>>,
     error: Option<String>,
 }
-
-// ── Harness ───────────────────────────────────────────────────────────────────
 
 fn load_suite(path: &str) -> Suite {
     let yaml = std::fs::read_to_string(path).unwrap_or_else(|_| panic!("cannot read {path}"));
@@ -128,8 +125,6 @@ fn run_step(db: &mut MonaDB, step: &Step, idx: usize) -> Result<(), String> {
     Ok(())
 }
 
-// ── Error taxonomy ────────────────────────────────────────────────────────────
-
 fn error_category(err: &Error) -> &'static str {
     match err {
         Error::SyntaxError(_) => "syntax",
@@ -143,11 +138,6 @@ fn error_category(err: &Error) -> &'static str {
         Error::Schema(_) => "schema",
         }
 }
-
-// ── JSON comparison ───────────────────────────────────────────────────────────
-//
-// Numbers are compared as f64 so that `1` (YAML integer) and `1.0` (SQL float)
-// are treated as equal — MonaDB has a single numeric type (IEEE-754 double).
 
 fn json_vecs_eq(a: &[Json], b: &[Json]) -> bool {
     a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| json_eq(x, y))
@@ -166,8 +156,6 @@ fn json_eq(a: &Json, b: &Json) -> bool {
         _ => a == b,
     }
 }
-
-// ── Per-case entry point (called from generated #[test] functions) ────────────
 
 fn run_case(rel_path: &str, id: &str) {
     let full = format!("tests/{rel_path}");

@@ -100,15 +100,15 @@ Create: ir::Create = CreateTable;
 CreateTable: ir::Create = "create" "table" <TableDefinition> => ir::create_table(<>);
 
 TableDefinition: ir::TableDefinition = {
-    <name:TableName>                                => ir::table_definition(name, vec![]),
-    <name:TableName> "(" <members:TableMembers> ")" => ir::table_definition(name, members),
+    <name:TableName>                        => ir::table_definition(name, vec![]),
+    <name:TableName> "(" <keys:Keys> ")"    => ir::table_definition(name, keys),
 };
 
 TableName: String = "ident";
 
-TableMembers: Vec<ir::TableMember> = List<TableMember>;
+Keys: Vec<ir::Key> = List<Key>;
 
-TableMember: ir::TableMember = <name:"ident"> <ty:Type> => ir::table_member(name, ty);
+Key: ir::Key = <name:"ident"> <ty:Type> => ir::table_key(name, ty);
 
 // SELECT STATEMENT
 //------------------------------

@@ -46,8 +46,6 @@ tests:
           - {x: 1}
           - {x: 2}
 
-  # ── single int key ──────────────────────────────────────────────────────────
-
   - id: int-key-roundtrip
     description: int key with payload round-trips whole object
     steps:
@@ -130,8 +128,6 @@ tests:
           insert into t ({x: 1.5});
         error: schema
 
-  # ── single string key ───────────────────────────────────────────────────────
-
   - id: str-key-roundtrip
     description: string key with payload round-trips whole object
     steps:
@@ -175,8 +171,6 @@ tests:
       - sql: |
           insert into t ({x: 1});
         error: schema
-
-  # ── composite: int + string ─────────────────────────────────────────────────
 
   - id: int-str-roundtrip
     description: composite (int, string) key round-trips whole object
@@ -240,8 +234,6 @@ tests:
           insert into t ({a: 1, b: 2});
         error: schema
 
-  # ── composite: string + int ─────────────────────────────────────────────────
-
   - id: str-int-roundtrip
     description: composite (string, int) key round-trips whole object
     steps:
@@ -286,8 +278,6 @@ tests:
           insert into t ({a: "x", b: "y"});
         error: schema
 
-  # ── composite: int + int ─────────────────────────────────────────────────────
-
   - id: int-int-roundtrip
     description: composite (int, int) key round-trips whole object
     steps:
@@ -322,8 +312,6 @@ tests:
       - sql: |
           insert into t ({a: 1});
         error: schema
-
-  # ── composite: string + string ───────────────────────────────────────────────
 
   - id: str-str-roundtrip
     description: composite (string, string) key round-trips whole object
@@ -375,8 +363,6 @@ tests:
       - sql: |
           insert into t ({a: "x"});
         error: schema
-
-  # ── bad DDL: non-int/string key columns ──────────────────────────────────────
 
   - id: bad-ddl-float-key
     description: a float key column is rejected at create

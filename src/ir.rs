@@ -51,11 +51,11 @@ pub struct Clear {
 pub struct TableDefinition {
     pub oid: Option<u32>,
     pub name: String,
-    pub members: Vec<TableMember>,
+    pub keys: Vec<Key>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct TableMember {
+pub struct Key {
     pub name: String,
     pub ty: Type,
 }
@@ -244,13 +244,13 @@ pub fn create_table(table: TableDefinition) -> Create {
 }
 
 #[inline]
-pub fn table_definition(name: String, members: Vec<TableMember>) -> TableDefinition {
-    TableDefinition { oid: None, name, members }
+pub fn table_definition(name: String, members: Vec<Key>) -> TableDefinition {
+    TableDefinition { oid: None, name, keys: members }
 }
 
 #[inline]
-pub fn table_member(name: String, ty: Type) -> TableMember {
-    TableMember { name, ty }
+pub fn table_key(name: String, ty: Type) -> Key {
+    Key { name, ty }
 }
 
 #[inline]
@@ -259,7 +259,7 @@ pub fn insert(target: String, source: Vec<Expr>) -> Insert {
         target: TableDefinition {
             oid: None,
             name: target,
-            members: vec![],
+            keys: vec![],
         },
         source,
     }
@@ -703,8 +703,8 @@ mod test {
             let Statement::Create(Create::Table(table)) = stmt else {
                 panic!("expected create table for {input:?}");
             };
-            assert_eq!(table.members.len(), expected_cols.len(), "input: {input:?}");
-            for (actual, (name, ty)) in table.members.iter().zip(expected_cols.iter()) {
+            assert_eq!(table.keys.len(), expected_cols.len(), "input: {input:?}");
+            for (actual, (name, ty)) in table.keys.iter().zip(expected_cols.iter()) {
                 assert_eq!(actual.name, *name, "input: {input:?}");
                 assert_eq!(actual.ty, *ty, "input: {input:?}");
             }
