@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Design — MonaDB</title>
+  <meta name="description" content="How MonaDB turns query text into bytecode and runs it against LMDB.">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <header class="site">
+    <div class="wrap">
+      <a class="brand" href="./index.html">mona<span class="dot">·</span>db</a>
+      <nav>
+        <a href="./index.html">Home</a>
+        <a href="./docs.html">Docs</a>
+        <a href="./design.html" class="active">Design</a>
+        <a href="https://github.com/rchowell/MonaDB">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div class="wrap">
+      <section class="hero" style="padding:48px 0 24px">
+        <h1 style="font-size:2.1rem">Design</h1>
+        <p class="lead" style="font-size:1.05rem">
+          MonaDB is a compiler and a virtual machine in a trench coat. Query text is
+          lexed, parsed, lowered to an IR, compiled to bytecode, and executed against
+          an embedded key-value store.
+        </p>
+      </section>
+
+      <section>
+        <h2>Stages</h2>
+        <div class="pipeline">
+          <span>SQL text</span><span class="arrow">→</span>
+          <span>Lexer</span><span class="arrow">→</span>
+          <span>Parser</span><span class="arrow">→</span>
+          <span>IR</span><span class="arrow">→</span>
+          <span>Compiler</span><span class="arrow">→</span>
+          <span>Vop bytecode</span><span class="arrow">→</span>
+          <span>VM</span><span class="arrow">→</span>
+          <span>LMDB</span>
+        </div>
+
+        <h3>Lexer</h3>
+        <p class="muted">A <a href="https://github.com/maciejhirsz/logos">logos</a> DFA turns raw
+          text into a spanned token stream. Tokens carry source ranges so errors can point
+          back at the offending characters.</p>
+
+        <h3>Parser</h3>
+        <p class="muted">A <a href="https://github.com/lalrpop/lalrpop">LALRPOP</a> LR(1) grammar
+          consumes those tokens. Grammar rules stay thin — each action just constructs an IR
+          value via a function in the IR module. Operator precedence and associativity are
+          declared inline on the expression rules.</p>
+
+        <h3>IR</h3>
+        <p class="muted">The AST/IR distinguishes sum types from product types: <em>enums</em> for
+          alternatives (<code>Statement</code>, <code>Expr</code>, <code>Type</code>) and
+          <em>structs</em> for grouped fields (<code>Select</code>, <code>Insert</code>,
+          <code>Create</code>). Recursive nodes are always boxed through aliases like
+          <code>ExprRef</code> and <code>TypeRef</code>.</p>
+
+        <h3>Compiler</h3>
+        <p class="muted">A tree-walking compiler lowers the IR to a flat
+          <code>Vop</code> program. Dispatch methods are prefixed <code>cc_</code>; small
+          append helpers are prefixed <code>emit_</code>. Control-flow instructions are emitted
+          with placeholder jump targets and <strong>back-patched</strong> once the body's size
+          is known.</p>
+
+        <h3>VM</h3>
+        <p class="muted">A stack-based interpreter loops over the <code>Vop</code> program.
+          Variables live on the stack — <code>define(name)</code> records a slot, and its index
+          is how later <code>Load</code> instructions address it. Counters drive loop bounds for
+          clauses like <code>fetch</code>.</p>
+
+        <h3>Storage</h3>
+        <p class="muted">Execution reads and writes <a href="http://www.lmdb.tech/doc/">LMDB</a>,
+          a memory-mapped B+tree store. There is no server process: the engine runs inside the
+          host program.</p>
+      </section>
+
+      <section>
+        <h2>Design principles</h2>
+        <div class="grid">
+          <div class="card">
+            <h3>Thin grammar</h3>
+            <p>Grammar actions only build IR. All meaning lives in later passes, not the parser.</p>
+          </div>
+          <div class="card">
+            <h3>Document-first</h3>
+            <p>Objects, arrays, and JSONPath traversal are core to the model, not extensions.</p>
+          </div>
+          <div class="card">
+            <h3>Compile, don't tree-walk</h3>
+            <p>Queries become bytecode so execution is a tight loop over compact instructions.</p>
+          </div>
+          <div class="card">
+            <h3>Familiar, simplified</h3>
+            <p>Mostly the SQL you expect — fewer corners, document-friendly defaults.</p>
+          </div>
+        </div>
+      </section>
+
+      <p class="muted" style="margin-top:40px">
+        Placeholder design overview. Source of truth lives in the
+        <a href="https://github.com/rchowell/MonaDB">repository</a> and its
+        <code>CLAUDE.md</code>.
+      </p>
+    </div>
+  </main>
+
+  <footer class="site">
+    <div class="wrap">
+      <span>MonaDB — placeholder site</span>
+      <span><a href="https://github.com/rchowell/MonaDB">rchowell/MonaDB</a></span>
+    </div>
+  </footer>
+</body>
+</html>
