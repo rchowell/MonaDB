@@ -2,6 +2,7 @@
 title = "Statements"
 description = "SELECT, INSERT, UPDATE, CREATE TABLE, DROP TABLE, and COPY."
 weight = 2
+template = "language/page.html"
 +++
 
 # Statements
