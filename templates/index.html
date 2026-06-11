@@ -1,2 +1,97 @@
 {% extends "base.html" %}
-{% block content %}landing{% endblock content %}
+
+{% block title %}MonaDB — A query language for embedded documents{% endblock title %}
+{% block description %}MonaDB pairs a small document-friendly SQL dialect with a stack-based bytecode engine — text in, results out, no server.{% endblock description %}
+
+{% block content %}
+
+<section class="hero">
+  <canvas class="hero-canvas" data-grain="hero" data-height="400"></canvas>
+  <div class="hero-inner">
+    <p class="hero-eyebrow">Embedded database</p>
+    <h1 class="hero-title">A query language for embedded documents.</h1>
+    <p class="hero-lead">
+      RQL compiles to stack-based bytecode and runs inside your process.
+      Objects, arrays, and path traversal are first-class constructs, not extensions.
+      No server. No daemon. The database lives where your code does.
+    </p>
+    <div class="hero-cta">
+      <a class="gn-btn gn-btn-pri" href="{{ get_url(path='@/language/introduction.md') }}">Read the language</a>
+      <a class="gn-btn gn-btn-sec" href="{{ get_url(path='@/design.md') }}">How it works</a>
+    </div>
+  </div>
+</section>
+
+<section class="landing-sect">
+  <div class="landing-inner">
+    <p class="sect-eyebrow">Query pipeline</p>
+    <h2 class="sect-title">One path from text to storage.</h2>
+    <div class="pipeline">
+      <span class="pipeline-step">SQL text</span>
+      <span class="pipeline-step">Lexer</span>
+      <span class="pipeline-step">Parser</span>
+      <span class="pipeline-step">IR</span>
+      <span class="pipeline-step">Compiler</span>
+      <span class="pipeline-step">Vop bytecode</span>
+      <span class="pipeline-step">VM</span>
+      <span class="pipeline-step">LMDB</span>
+    </div>
+  </div>
+</section>
+
+<section class="landing-sect">
+  <div class="landing-inner">
+    <p class="sect-eyebrow">A taste of RQL</p>
+    <h2 class="sect-title">Familiar, simplified.</h2>
+    <pre class="landing-pre"><code>create table points;
+
+insert into points (
+    { x: 1, y: 2 },
+    { x: 3, y: 4 },
+);
+
+select { x: p.x, y: p.y }
+  from points as p
+ where p.x > 1
+ fetch 10;</code></pre>
+  </div>
+</section>
+
+<section class="landing-sect">
+  <div class="landing-inner">
+    <p class="sect-eyebrow">Design principles</p>
+    <h2 class="sect-title">What makes RQL different.</h2>
+    <div class="principles-grid">
+      <div class="gn-card">
+        <canvas class="gn-card-img" data-grain="dot25" data-height="90"></canvas>
+        <div class="gn-card-body">
+          <h3 class="gn-card-title">Documents</h3>
+          <p>Objects, arrays, and JSONPath-style traversal are part of the language model. The schema is optional — or absent entirely.</p>
+        </div>
+      </div>
+      <div class="gn-card">
+        <canvas class="gn-card-img" data-grain="dot50" data-height="90"></canvas>
+        <div class="gn-card-body">
+          <h3 class="gn-card-title">Bytecode</h3>
+          <p>Queries compile to compact Vop instructions. The VM executes a tight loop over them rather than interpreting the tree directly.</p>
+        </div>
+      </div>
+      <div class="gn-card">
+        <canvas class="gn-card-img" data-grain="dot25" data-height="90"></canvas>
+        <div class="gn-card-body">
+          <h3 class="gn-card-title">Embedded</h3>
+          <p>Backed by LMDB. The database runs inside your process — no server, no configuration files, no background daemon.</p>
+        </div>
+      </div>
+      <div class="gn-card">
+        <canvas class="gn-card-img" data-grain="dot50" data-height="90"></canvas>
+        <div class="gn-card-body">
+          <h3 class="gn-card-title">Familiar</h3>
+          <p>Most of the SQL you already know: select, from, where, group, order. Fewer corners, document-friendly defaults.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+{% endblock content %}
