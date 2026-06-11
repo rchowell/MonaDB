@@ -1,95 +1,195 @@
 {% extends "base.html" %}
 
 {% block title %}MonaDB — A query language for embedded documents{% endblock title %}
-{% block description %}MonaDB pairs a small document-friendly SQL dialect with a stack-based bytecode engine — text in, results out, no server.{% endblock description %}
+{% block description %}MonaDB pairs a small document-friendly query language with a stack-based bytecode engine on LMDB — text in, results out, no server.{% endblock description %}
 
 {% block content %}
 
+<!-- ── Hero ──────────────────────────────────────────── -->
 <section class="hero">
-  <canvas class="hero-canvas" data-grain="hero" data-height="400"></canvas>
-  <div class="hero-inner">
-    <p class="hero-eyebrow">Embedded database</p>
-    <h1 class="hero-title">A query language for embedded documents.</h1>
-    <p class="hero-lead">
-      RQL compiles to stack-based bytecode and runs inside your process.
-      Objects, arrays, and path traversal are first-class constructs, not extensions.
-      No server. No daemon. The database lives where your code does.
-    </p>
-    <div class="hero-cta">
-      <a class="gn-btn gn-btn-pri" href="{{ get_url(path='@/language/introduction.md') }}">Read the language</a>
-      <a class="gn-btn gn-btn-sec" href="{{ get_url(path='@/design.md') }}">How it works</a>
+  <div class="wrap">
+    <div class="hero-grid">
+
+      <div class="hero-copy">
+        <p class="eyebrow">Embedded query engine</p>
+        <h1 class="hero-title">A query language for<br>embedded documents.</h1>
+        <p class="hero-lead">
+          RQL compiles to stack-based bytecode and runs inside your process.
+          Objects, arrays, and path traversal are first-class — not bolted on.
+          No server, no daemon, no config file. The database is a library,
+          backed by a memory-mapped LMDB store.
+        </p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="{{ get_url(path='@/language/introduction.md') }}">Read the language</a>
+          <a class="btn btn-secondary" href="https://github.com/rchowell/MonaDB">View on GitHub →</a>
+        </div>
+        <div class="install" data-copy="cargo run">
+          <div class="install-box">
+            <span class="install-cmd"><span class="sig">$&nbsp;</span>cargo run</span>
+            <span class="install-copy" data-copy-label>copy</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="console" data-console>
+        <div class="console-frame">
+          <div class="console-head">
+            <span class="console-title">monadb&nbsp;❯&nbsp;console<span class="console-cursor"></span></span>
+            <span class="console-ver">v0.1</span>
+          </div>
+          <div class="console-tabs">
+            <button class="console-tab is-active" data-tab>Select</button>
+            <button class="console-tab" data-tab>Insert</button>
+            <button class="console-tab" data-tab>Create</button>
+            <button class="console-tab" data-tab>Path</button>
+          </div>
+          <div class="console-body"><pre data-code><span class="tok-com">-- select: map + filter a document stream</span>
+<span class="tok-kw">select</span><span class="tok-txt"> { x: p.x, y: p.y }</span>
+<span class="tok-kw">  from</span><span class="tok-txt"> points </span><span class="tok-kw">as</span><span class="tok-txt"> p</span>
+<span class="tok-kw"> where</span><span class="tok-txt"> p.x &gt; </span><span class="tok-lit">1</span>
+<span class="tok-kw"> fetch</span><span class="tok-txt"> </span><span class="tok-lit">10</span><span class="tok-txt">;</span></pre></div>
+          <canvas class="console-viz" data-grain="viz"></canvas>
+          <div class="console-status">
+            <span class="ok"><span class="tick">✓</span>&nbsp; compiled to bytecode</span>
+            <span class="meta">stack VM · LMDB</span>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 </section>
 
-<section class="landing-sect">
-  <div class="landing-inner">
-    <p class="sect-eyebrow">Query pipeline</p>
-    <h2 class="sect-title">One path from text to storage.</h2>
-    <div class="pipeline">
-      <span class="pipeline-step">SQL text</span>
-      <span class="pipeline-step">Lexer</span>
-      <span class="pipeline-step">Parser</span>
-      <span class="pipeline-step">IR</span>
-      <span class="pipeline-step">Compiler</span>
-      <span class="pipeline-step">Vop bytecode</span>
-      <span class="pipeline-step">VM</span>
-      <span class="pipeline-step">LMDB</span>
+<!-- ── Stat band ─────────────────────────────────────── -->
+<section class="stats">
+  <div class="wrap">
+    <div class="stats-grid">
+      <div class="stat">
+        <div class="stat-num">6</div>
+        <div class="stat-label">Stages, text to storage</div>
+      </div>
+      <div class="stat">
+        <div class="stat-num">0</div>
+        <div class="stat-label">Servers, daemons, configs</div>
+      </div>
+      <div class="stat">
+        <div class="stat-num">LMDB</div>
+        <div class="stat-label">Memory-mapped B+tree</div>
+      </div>
     </div>
   </div>
 </section>
 
-<section class="landing-sect">
-  <div class="landing-inner">
-    <p class="sect-eyebrow">A taste of RQL</p>
-    <h2 class="sect-title">Familiar, simplified.</h2>
-    <pre class="landing-pre"><code>create table points;
-
-insert into points (
-    { x: 1, y: 2 },
-    { x: 3, y: 4 },
-);
-
-select { x: p.x, y: p.y }
-  from points as p
- where p.x > 1
- fetch 10;</code></pre>
+<!-- ── Wordmark band ─────────────────────────────────── -->
+<section class="wordmark">
+  <canvas class="wordmark-canvas" data-grain="wordmark" data-text="MONADB"></canvas>
+  <div class="wordmark-cap">
+    <span>Fig. 01 — wordmark · halftone @ 5px grid</span>
+    <span>Ink on Bone</span>
   </div>
 </section>
 
-<section class="landing-sect">
-  <div class="landing-inner">
-    <p class="sect-eyebrow">Design principles</p>
-    <h2 class="sect-title">What makes RQL different.</h2>
-    <div class="principles-grid">
-      <div class="gn-card">
-        <canvas class="gn-card-img" data-grain="dot25" data-height="90"></canvas>
-        <div class="gn-card-body">
-          <h3 class="gn-card-title">Documents</h3>
-          <p>Objects, arrays, and JSONPath-style traversal are part of the language model. The schema is optional — or absent entirely.</p>
+<!-- ── What makes RQL different ──────────────────────── -->
+<section class="section" id="features">
+  <div class="section-inner">
+    <div class="section-head">
+      <span class="section-idx">01</span>
+      <h2 class="section-title">What Makes RQL Different</h2>
+      <span class="section-note">One language, four ideas</span>
+    </div>
+
+    <div class="features-grid">
+      <div class="feature">
+        <div class="feature-card">
+          <div class="feature-cap feature-cap--dots"></div>
+          <div class="feature-body">
+            <div class="feature-kicker">01 · Model</div>
+            <h3 class="feature-name">Documents</h3>
+            <p class="feature-desc">Objects, arrays, and path traversal are core constructs, not extensions. Schemas are optional — or absent entirely.</p>
+          </div>
         </div>
       </div>
-      <div class="gn-card">
-        <canvas class="gn-card-img" data-grain="dot50" data-height="90"></canvas>
-        <div class="gn-card-body">
-          <h3 class="gn-card-title">Bytecode</h3>
-          <p>Queries compile to compact Vop instructions. The VM executes a tight loop over them rather than interpreting the tree directly.</p>
+
+      <div class="feature">
+        <div class="feature-card">
+          <div class="feature-cap feature-cap--lines"></div>
+          <div class="feature-body">
+            <div class="feature-kicker">02 · Execution</div>
+            <h3 class="feature-name">Bytecode</h3>
+            <p class="feature-desc">Every query compiles to compact Vop instructions. The VM runs a tight loop over them instead of walking the tree.</p>
+          </div>
         </div>
       </div>
-      <div class="gn-card">
-        <canvas class="gn-card-img" data-grain="dot25" data-height="90"></canvas>
-        <div class="gn-card-body">
-          <h3 class="gn-card-title">Embedded</h3>
-          <p>Backed by LMDB. The database runs inside your process — no server, no configuration files, no background daemon.</p>
+
+      <div class="feature">
+        <div class="feature-card">
+          <div class="feature-cap feature-cap--cross"></div>
+          <div class="feature-body">
+            <div class="feature-kicker">03 · Runtime</div>
+            <h3 class="feature-name">Embedded</h3>
+            <p class="feature-desc">Backed by LMDB and run in-process. No server, no daemon, no configuration file to babysit.</p>
+          </div>
         </div>
       </div>
-      <div class="gn-card">
-        <canvas class="gn-card-img" data-grain="dot50" data-height="90"></canvas>
-        <div class="gn-card-body">
-          <h3 class="gn-card-title">Familiar</h3>
-          <p>Most of the SQL you already know: select, from, where, group, order. Fewer corners, document-friendly defaults.</p>
+
+      <div class="feature is-accent">
+        <div class="feature-card">
+          <div class="feature-cap feature-cap--accent"></div>
+          <div class="feature-body">
+            <div class="feature-kicker">04 · Surface</div>
+            <h3 class="feature-name">Familiar</h3>
+            <p class="feature-desc">The SQL clause vocabulary you already know — select, from, where, group, order — with document-friendly defaults.</p>
+          </div>
         </div>
       </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── How it holds (principles) ─────────────────────── -->
+<section class="section" id="principles">
+  <div class="section-inner">
+    <div class="section-head">
+      <span class="section-idx">02</span>
+      <h2 class="section-title">How It Holds</h2>
+    </div>
+
+    <div class="tenets-grid">
+      <div class="tenet">
+        <div class="tenet-title">Documents are first-class.</div>
+        <p>Objects, arrays, and path-style traversal live in the language model. A table can carry a full schema, a partial one, or none at all.</p>
+      </div>
+      <div class="tenet">
+        <div class="tenet-title">Compiled, not interpreted.</div>
+        <p>RQL lowers to a flat sequence of Vop bytecode. The VM dispatches one arm per opcode over a value stack — no tree-walking at query time.</p>
+      </div>
+      <div class="tenet">
+        <div class="tenet-title">The database is a library.</div>
+        <p>MonaDB links into your process and reads a memory-mapped LMDB store. There is no network hop between your code and your data.</p>
+      </div>
+      <div class="tenet">
+        <div class="tenet-title">Familiar, with fewer corners.</div>
+        <p>Most of the SQL you know carries over. What's left is smaller, more regular, and friendlier to nested data.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Closing CTA ───────────────────────────────────── -->
+<section class="cta" id="start">
+  <div class="cta-inner">
+    <p class="eyebrow">Get Started</p>
+    <h2 class="cta-title">Start with one line.</h2>
+    <p class="cta-lead">Clone the repo, run the REPL, and you have an embedded document database in your terminal. No server, no sign-up, no config.</p>
+    <div class="install is-center" data-copy="cargo run">
+      <div class="install-box">
+        <span class="install-cmd"><span class="sig">$&nbsp;</span>cargo run</span>
+        <span class="install-copy" data-copy-label>copy</span>
+      </div>
+    </div>
+    <div class="cta-actions">
+      <a class="btn btn-primary" href="{{ get_url(path='@/language/introduction.md') }}">Read the language</a>
+      <a class="btn btn-secondary" href="https://github.com/rchowell/MonaDB">Star on GitHub</a>
     </div>
   </div>
 </section>
