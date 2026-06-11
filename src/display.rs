@@ -168,6 +168,7 @@ impl ToSql for Statement {
             Statement::Drop(_) => unimplemented!("DROP formatting"),
             Statement::Insert(_) => unimplemented!("INSERT formatting"),
             Statement::Select(_) => unimplemented!("SELECT formatting"),
+            Statement::Update(_) => unimplemented!("UPDATE formatting"),
         }
     }
 }

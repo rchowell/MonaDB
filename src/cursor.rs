@@ -95,26 +95,49 @@ impl Cursor {
         *btree
     }
 
-    /// Deletes the rows at the given keys. We first drop any live scan iterator
-    /// so we never mutate the btree under a live read cursor. LMDB leaves a
-    /// read cursor's position undefined across a delete on the same table.
-    pub fn delete(&mut self, txn: &mut Transaction, keys: &[Vec<u8>]) -> Result<()> {
+    /// Inserts the value at the given key
+    pub fn insert(&self, txn: &mut Transaction, key: &[u8], val: &[u8]) -> Result<()> {
+        self.btree().put(txn.as_rw()?, key, val)?;
+        Ok(())
+    }
+
+    /// Applies a staged mutation log in two passes — every delete, then every
+    /// put — and returns the number of rows affected (puts for an update,
+    /// deletes for a delete). We first drop any live scan iterator so we never
+    /// mutate the btree under a live read cursor (LMDB leaves a read cursor's
+    /// position undefined across a mutation on the same table).
+    ///
+    /// Deletes precede puts so a key-swap among updated rows does not
+    /// self-destruct (deleting a row's new key right after writing it). Once the
+    /// deletes have landed, a put whose key still exists is landing on a row this
+    /// statement never removed — a key collision — and is rejected rather than
+    /// silently overwriting it.
+    pub fn apply(&mut self, txn: &mut Transaction, log: &[Mutation]) -> Result<u64> {
         // Drops any live scan iterator, leaving the cursor open but unpositioned.
         if let Some(Source::Btree { scan, .. }) = &mut self.source {
             *scan = None;
         }
         let btree = self.btree();
-        let txn = txn.as_rw()?;
-        for key in keys {
-            btree.delete(txn, key)?;
+        let mut dels = 0u64;
+        let mut puts = 0u64;
+        for m in log {
+            if let Mutation::Del(key) = m {
+                btree.delete(txn.as_rw()?, key)?;
+                dels += 1;
+            }
         }
-        Ok(())
-    }
-
-    /// Inserts the value at the given key
-    pub fn insert(&self, txn: &mut Transaction, key: &[u8], val: &[u8]) -> Result<()> {
-        self.btree().put(txn.as_rw()?, key, val)?;
-        Ok(())
+        for m in log {
+            if let Mutation::Put(key, val) = m {
+                if btree.get(txn.as_ro(), key)?.is_some() {
+                    return Err(Error::Schema(
+                        "update collides with an existing row at the same key".to_string(),
+                    ));
+                }
+                btree.put(txn.as_rw()?, key, val)?;
+                puts += 1;
+            }
+        }
+        Ok(puts.max(dels))
     }
 
     pub fn last(&self, txn: &Transaction) -> Result<Option<(Vec<u8>, Vec<u8>)>> {
@@ -122,6 +145,15 @@ impl Cursor {
         let res = res.map(|(k, v)| (k.to_vec(), v.to_vec()));
         Ok(res)
     }
+}
+
+/// A staged mutation against a cursor's table, drained by [`Cursor::apply`].
+/// Keys and values are already encoded bytes.
+pub enum Mutation {
+    /// Remove the row at this key.
+    Del(Vec<u8>),
+    /// Write this value at this key.
+    Put(Vec<u8>, Vec<u8>),
 }
 
 /// A cursor's bound source: a persistent btree table or an in-memory value.

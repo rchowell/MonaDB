@@ -12,6 +12,7 @@ pub enum Statement {
     Drop(Drop),
     Insert(Insert),
     Select(Select),
+    Update(Update),
 }
 
 #[derive(Debug)]
@@ -29,6 +30,22 @@ pub struct Insert {
 pub struct Delete {
     pub from: From,
     pub where_: Option<Where>,
+}
+
+#[derive(Debug)]
+pub struct Update {
+    pub from: From,
+    pub set: Vec<Assignment>,
+    pub where_: Option<Where>,
+    /// Resolved key columns (binder fills); drives the keyed write path.
+    pub keys: Vec<Key>,
+}
+
+#[derive(Debug)]
+pub struct Assignment {
+    /// Bare field name — the `ObjAssign` target.
+    pub col: String,
+    pub val: Expr,
 }
 
 #[derive(Debug)]
@@ -274,6 +291,27 @@ pub fn delete(table: String, alias: Option<String>, where_: Option<Where>) -> De
         oid: None,
     };
     Delete { from, where_ }
+}
+
+#[inline]
+pub fn update(
+    table: String,
+    alias: Option<String>,
+    set: Vec<Assignment>,
+    where_: Option<Where>,
+) -> Update {
+    let from = From {
+        var: alias.unwrap_or_else(|| table.clone()),
+        src: Source::Table(table),
+        csr: None,
+        oid: None,
+    };
+    Update { from, set, where_, keys: vec![] }
+}
+
+#[inline]
+pub fn assignment(col: String, val: Expr) -> Assignment {
+    Assignment { col, val }
 }
 
 #[inline]

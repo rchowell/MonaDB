@@ -33,6 +33,10 @@ pub mod visit {
             visit_delete(self, i);
         }
 
+        fn visit_update(&mut self, i: &'ast Update) {
+            visit_update(self, i);
+        }
+
         fn visit_drop(&mut self, i: &'ast Drop) {
             visit_drop(self, i);
         }
@@ -121,6 +125,7 @@ pub mod visit {
             Statement::Clear(c) => v.visit_clear(c),
             Statement::Insert(ins) => v.visit_insert(ins),
             Statement::Select(s) => v.visit_select(s),
+            Statement::Update(u) => v.visit_update(u),
         }
     }
 
@@ -163,6 +168,19 @@ pub mod visit {
         V: Visit<'ast> + ?Sized,
     {
         v.visit_from(&i.from);
+        if let Some(w) = &i.where_ {
+            v.visit_expr(w);
+        }
+    }
+
+    pub fn visit_update<'ast, V>(v: &mut V, i: &'ast Update)
+    where
+        V: Visit<'ast> + ?Sized,
+    {
+        v.visit_from(&i.from);
+        for a in &i.set {
+            v.visit_expr(&a.val);
+        }
         if let Some(w) = &i.where_ {
             v.visit_expr(w);
         }
@@ -396,6 +414,10 @@ pub mod visit_mut {
             visit_delete_mut(self, i);
         }
 
+        fn visit_update_mut(&mut self, i: &mut Update) {
+            visit_update_mut(self, i);
+        }
+
         fn visit_drop_mut(&mut self, i: &mut Drop) {
             visit_drop_mut(self, i);
         }
@@ -481,6 +503,7 @@ pub mod visit_mut {
             Statement::Clear(c) => v.visit_clear_mut(c),
             Statement::Insert(ins) => v.visit_insert_mut(ins),
             Statement::Select(s) => v.visit_select_mut(s),
+            Statement::Update(u) => v.visit_update_mut(u),
         }
     }
 
@@ -508,6 +531,16 @@ pub mod visit_mut {
 
     pub fn visit_delete_mut<V: VisitMut + ?Sized>(v: &mut V, i: &mut Delete) {
         v.visit_from_mut(&mut i.from);
+        if let Some(w) = &mut i.where_ {
+            v.visit_expr_mut(w);
+        }
+    }
+
+    pub fn visit_update_mut<V: VisitMut + ?Sized>(v: &mut V, i: &mut Update) {
+        v.visit_from_mut(&mut i.from);
+        for a in &mut i.set {
+            v.visit_expr_mut(&mut a.val);
+        }
         if let Some(w) = &mut i.where_ {
             v.visit_expr_mut(w);
         }
@@ -757,6 +790,7 @@ pub mod fold {
             Statement::Clear(s) => Statement::Clear(s),
             Statement::Insert(ins) => Statement::Insert(f.fold_insert(ins)),
             Statement::Select(s) => Statement::Select(f.fold_select(s)),
+            Statement::Update(s) => Statement::Update(s),
         }
     }
 

@@ -1,6 +1,6 @@
 use crate::catalog::Catalog;
 use crate::error::{Error, Result};
-use crate::ir::{Clear, Drop, Expr, From, Insert, Source, Statement, TableDefinition};
+use crate::ir::{Clear, Drop, Expr, From, Insert, Source, Statement, TableDefinition, Update};
 use crate::transaction::Transaction;
 use crate::visitor::visit_mut::{VisitMut, visit_expr_mut, visit_insert_mut};
 
@@ -95,6 +95,29 @@ impl VisitMut for Binder<'_> {
             i.target.keys = def.keys;
         }
         visit_insert_mut(self, i);
+    }
+
+    /// Binds the update target. Its source is always a table (per the grammar),
+    /// so one catalog read resolves the scan cursor, oid, and key columns
+    /// together; the set and predicate expressions then bind against its scope.
+    fn visit_update_mut(&mut self, i: &mut Update) {
+        let Source::Table(name) = &i.from.src else {
+            unreachable!("update target is always a table source");
+        };
+        let name = name.clone();
+        let csr = self.next_cursor();
+        i.from.csr = Some(csr);
+        if let Some(def) = self.get_table(&name) {
+            i.from.oid = def.oid;
+            i.keys = def.keys;
+        }
+        self.scope.push(i.from.var.clone(), csr);
+        for a in &mut i.set {
+            self.visit_expr_mut(&mut a.val);
+        }
+        if let Some(w) = &mut i.where_ {
+            self.visit_expr_mut(w);
+        }
     }
 
     fn visit_drop_mut(&mut self, i: &mut Drop) {

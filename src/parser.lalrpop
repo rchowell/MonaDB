@@ -54,8 +54,10 @@ extern {
         "not"       => Token::Not,
         "or"        => Token::Or,
         "select"    => Token::Select,
+        "set"       => Token::Set,
         "table"     => Token::Table,
         "unknown"   => Token::Unknown,
+        "update"    => Token::Update,
         "where"     => Token::Where,
         // types
         "t_bool"    => Token::TypeBool,
@@ -90,6 +92,7 @@ Statement: ir::Statement = {
     Drop    => ir::Statement::Drop(<>),
     Insert  => ir::Statement::Insert(<>),
     Select  => ir::Statement::Select(<>),
+    Update  => ir::Statement::Update(<>),
 };
 
 // CREATE STATEMENT
@@ -159,6 +162,15 @@ InsertSource: Vec<ir::Expr> = List<Expr>;
 
 Delete: ir::Delete =
     "delete" "from" <"ident"> <("as"? <"ident">)?> <Where?> => ir::delete(<>);
+
+// UPDATE STATEMENT
+//------------------------------
+
+Update: ir::Update =
+    "update" <"ident"> <("as"? <"ident">)?> "set" <List<Assignment>> <Where?>
+        => ir::update(<>);
+
+Assignment: ir::Assignment = <"ident"> "=" <Expr> => ir::assignment(<>);
 
 // DROP STATEMENT
 //------------------------------

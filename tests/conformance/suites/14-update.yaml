@@ -1,0 +1,220 @@
+suite: update
+spec_ref: "§7.4"
+description: >
+  update table — rewrite matching rows in place. The set list assigns object
+  fields; right-hand expressions follow the qualified-reference convention
+  (e.g. T.x) and read the row as it stood before the statement, so assignments
+  within one update are simultaneous. Keyless tables keep their surrogate id;
+  keyed tables re-derive the key, so assigning a key column re-sorts the row.
+  A re-derived key that lands on a row the statement did not itself remove is a
+  collision and is rejected rather than silently overwriting that row.
+
+setup:
+  - create table T;
+
+tests:
+
+  - id: update-all-sets-field
+    description: update with no where rewrites every row
+    steps:
+      - sql: |
+          insert into T ({x: 1}, {x: 2}, {x: 3});
+      - sql: |
+          update T set x = 9;
+      - sql: |
+          select * from T;
+        result:
+          - {x: 9}
+          - {x: 9}
+          - {x: 9}
+
+  - id: update-where-only-matching
+    description: update with a predicate rewrites only matching rows
+    steps:
+      - sql: |
+          insert into T ({x: 1}, {x: 2}, {x: 3});
+      - sql: |
+          update T set x = 0 where T.x > 1;
+      - sql: |
+          select * from T;
+        result:
+          - {x: 1}
+          - {x: 0}
+          - {x: 0}
+
+  - id: update-where-alias
+    description: an explicit `as` alias binds the set and predicate references
+    steps:
+      - sql: |
+          insert into T ({x: 1}, {x: 2}, {x: 3});
+      - sql: |
+          update T as r set x = r.x + 100 where r.x = 2;
+      - sql: |
+          select * from T;
+        result:
+          - {x: 1}
+          - {x: 102}
+          - {x: 3}
+
+  - id: update-where-bare-alias
+    description: the `as` is optional — a bare alias binds the same references
+    steps:
+      - sql: |
+          insert into T ({x: 1}, {x: 2}, {x: 3});
+      - sql: |
+          update T r set x = r.x + 100 where r.x = 2;
+      - sql: |
+          select * from T;
+        result:
+          - {x: 1}
+          - {x: 102}
+          - {x: 3}
+
+  - id: update-expression-reads-old-row
+    description: a set expression reads the stored row value
+    steps:
+      - sql: |
+          insert into T ({v: 1}, {v: 2}, {v: 3});
+      - sql: |
+          update T set v = T.v + 1;
+      - sql: |
+          select * from T;
+        result:
+          - {v: 2}
+          - {v: 3}
+          - {v: 4}
+
+  - id: update-multiple-assignments
+    description: a set list assigns several fields at once
+    steps:
+      - sql: |
+          insert into T ({x: 1, y: 1});
+      - sql: |
+          update T set x = 10, y = 20;
+      - sql: |
+          select * from T;
+        result:
+          - {x: 10, y: 20}
+
+  - id: update-simultaneous-assignment
+    description: assignments read the old row, so a, b swap rather than coalesce
+    steps:
+      - sql: |
+          insert into T ({a: 1, b: 2});
+      - sql: |
+          update T set a = T.b, b = T.a;
+      - sql: |
+          select * from T;
+        result:
+          - {a: 2, b: 1}
+
+  - id: update-adds-new-field
+    description: assigning an absent field adds it to the row
+    steps:
+      - sql: |
+          insert into T ({x: 1});
+      - sql: |
+          update T set y = 2;
+      - sql: |
+          select * from T;
+        result:
+          - {x: 1, y: 2}
+
+  - id: update-where-none-matched
+    description: a predicate that matches nothing leaves the table unchanged
+    steps:
+      - sql: |
+          insert into T ({x: 1}, {x: 2}, {x: 3});
+      - sql: |
+          update T set x = 0 where T.x > 100;
+      - sql: |
+          select * from T;
+        result:
+          - {x: 1}
+          - {x: 2}
+          - {x: 3}
+
+  - id: update-empty-table-noop
+    description: updating an empty table succeeds and changes nothing
+    steps:
+      - sql: |
+          update T set x = 1;
+      - sql: |
+          select * from T;
+        result: []
+
+  - id: update-unknown-table
+    description: updating an undeclared table is a static error
+    steps:
+      - sql: |
+          update Ghost set x = 1;
+        error: static
+
+  - id: update-keyed-nonkey-field
+    description: updating a non-key field keeps the key and overwrites in place
+    steps:
+      - sql: |
+          create table t (x int);
+      - sql: |
+          insert into t ({x: 1, v: 10});
+      - sql: |
+          update t set v = 20 where t.x = 1;
+      - sql: |
+          select * from t;
+        result:
+          - {x: 1, v: 20}
+
+  - id: update-keyed-key-column-resorts
+    description: assigning the key column re-derives the key, so rows re-sort
+    steps:
+      - sql: |
+          create table t (x int);
+      - sql: |
+          insert into t ({x: 1}, {x: 2}, {x: 3});
+      - sql: |
+          update t set x = t.x + 1;
+      - sql: |
+          select * from t;
+        result:
+          - {x: 2}
+          - {x: 3}
+          - {x: 4}
+
+  - id: update-keyed-single-key-change
+    description: changing one row's key removes the old key and inserts the new
+    steps:
+      - sql: |
+          create table t (x int);
+      - sql: |
+          insert into t ({x: 1}, {x: 2});
+      - sql: |
+          update t set x = 5 where t.x = 1;
+      - sql: |
+          select * from t;
+        result:
+          - {x: 2}
+          - {x: 5}
+
+  - id: update-keyed-collision-untargeted
+    description: >
+      a re-derived key landing on a row the update did not remove is rejected,
+      so the untargeted row is never silently overwritten
+    steps:
+      - sql: |
+          create table t (x int);
+      - sql: |
+          insert into t ({x: 1}, {x: 5});
+      - sql: |
+          update t set x = 5 where t.x = 1;
+        error: schema
+
+  - id: update-keyed-collision-targeted
+    description: two matched rows re-deriving the same key collide and are rejected
+    steps:
+      - sql: |
+          create table t (x int);
+      - sql: |
+          insert into t ({x: 1}, {x: 2});
+      - sql: |
+          update t set x = 9;
+        error: schema

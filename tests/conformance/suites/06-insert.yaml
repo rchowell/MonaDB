@@ -80,14 +80,12 @@ tests:
           - {x: 1, y: 2}
           - {x: 3}
 
-  - id: insert-multi-scalar-literals
-    description: expr_list may contain scalar literals, not only objects
+  - id: insert-non-object-rejected
+    description: a stored row must be an object; a scalar value is rejected
     steps:
       - sql: |
           insert into T (1, 2, 3);
-      - sql: |
-          select * from T;
-        result: [1, 2, 3]
+        error: schema
 
   - id: insert-multi-multiline
     description: values list may span multiple lines
