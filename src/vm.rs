@@ -276,7 +276,7 @@ impl VM {
                     let val = self.pop();
                     let key = schema::encode_key(&val, keys)?;
                     self.stack.push(val);
-                    self.stack.push(Value::Bytes(key));
+                    self.stack.push(Value::Bytes(key.into()));
                 }
                 Vop::NewBtree => {
                     let tbl = self.peek().as_oid();
@@ -341,27 +341,27 @@ impl VM {
                 Vop::Add => {
                     let r = self.pop();
                     let l = self.pop();
-                    self.push(l + r);
+                    self.push(l.add(r)?);
                 }
                 Vop::Sub => {
                     let r = self.pop();
                     let l = self.pop();
-                    self.push(l - r);
+                    self.push(l.sub(r)?);
                 }
                 Vop::Mul => {
                     let r = self.pop();
                     let l = self.pop();
-                    self.push(l * r);
+                    self.push(l.mul(r)?);
                 }
                 Vop::Div => {
                     let r = self.pop();
                     let l = self.pop();
-                    self.push(l / r);
+                    self.push(l.div(r)?);
                 }
                 Vop::Rem => {
                     let r = self.pop();
                     let l = self.pop();
-                    self.push(l % r);
+                    self.push(l.rem(r)?);
                 }
                 Vop::Lt => {
                     let r = self.pop();
@@ -505,7 +505,7 @@ impl VM {
                         .current()
                         .map(|(key, _)| key.to_vec())
                         .unwrap_or_default();
-                    self.push(Value::Bytes(key));
+                    self.push(Value::Bytes(key.into()));
                 }
                 //
                 // Counter Instructions
@@ -535,7 +535,7 @@ impl VM {
 /// key bytes, so move them out rather than re-cloning them through `encode()`.
 fn pop_key(val: Value) -> Result<Vec<u8>> {
     match val {
-        Value::Bytes(bytes) => Ok(bytes),
+        Value::Bytes(bytes) => Ok(bytes.to_vec()),
         val => val.encode(),
     }
 }

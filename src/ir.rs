@@ -337,18 +337,18 @@ pub fn from_item(src: Expr, alias: Option<String>) -> From {
 }
 
 #[inline]
-pub fn limit_skip(offset: f64) -> Limit {
-    Limit::Skip(offset as u64)
+pub fn limit_skip(offset: u64) -> Limit {
+    Limit::Skip(offset)
 }
 
 #[inline]
-pub fn limit_take(limit: f64) -> Limit {
-    Limit::Take(limit as u64)
+pub fn limit_take(limit: u64) -> Limit {
+    Limit::Take(limit)
 }
 
 #[inline]
-pub fn limit_slice(offset: f64, limit: f64) -> Limit {
-    Limit::Slice(offset as u64, limit as u64)
+pub fn limit_slice(offset: u64, limit: u64) -> Limit {
+    Limit::Slice(offset, limit)
 }
 
 // TODO { x, y } => { x: x, y: y } shorthand

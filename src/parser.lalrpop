@@ -70,7 +70,7 @@ extern {
         "null"      => Token::Null,
         "true"      => Token::True,
         "false"     => Token::False,
-        "number"    => Token::Number(<f64>),
+        "number"    => Token::Number(<String>),
         "string"    => Token::String(<String>),
         // names and identifiers
         "ident"     => Token::Identifier(<String>),
@@ -140,9 +140,9 @@ FromItem: ir::From = <Expr> <("as"? <"ident">)?> => ir::from_item(<>);
 Where: ir::Where = "where" <Expr>;
 
 Limit: ir::Limit = {
-    "limit" <"number">                  => ir::limit_take(<>),
-    "limit" <"number"> ".."             => ir::limit_skip(<>),
-    "limit" <"number"> ".." <"number">  => ir::limit_slice(<>),
+    "limit" <n:"number">                       => ir::limit_take(n.parse().unwrap_or(0)),
+    "limit" <n:"number"> ".."                  => ir::limit_skip(n.parse().unwrap_or(0)),
+    "limit" <a:"number"> ".." <b:"number">     => ir::limit_slice(a.parse().unwrap_or(0), b.parse().unwrap_or(0)),
 };
 
 // INSERT STATEMENT
@@ -225,9 +225,9 @@ Segment: ir::Segment = {
 Selectors: Vec<ir::Selector> = List<Selector>;
 
 Selector: ir::Selector = {
-    "string"    => ir::selector_name(<>),
-    "*"         => ir::selector_wildcard(),
-    "number"    => ir::selector_index(<> as usize), // truncate f64 to usize
+    "string"        => ir::selector_name(<>),
+    "*"             => ir::selector_wildcard(),
+    <n:"number">    => ir::selector_index(<>),
 };
 
 //------------------------------
@@ -296,7 +296,7 @@ Value: Value = {
     "null"      => Value::null(),
     "true"      => Value::bool(true),
     "false"     => Value::bool(false),
-    "number"    => Value::number(<>),
+    <n:"number"> => Value::number(&n),
     "string"    => Value::string(<>),
 };
 

@@ -1,0 +1,117 @@
+suite: get
+spec_ref: "§4.8"
+description: >
+  Key-index point lookup. A keyed table behaves like a big dict: `table[key]`
+  resolves the receiver to a table (not a value) and does an order-preserving
+  btree point lookup, returning the stored row — or null when the key is absent
+  (Redis GET → nil). It is an ordinary expression, so it composes and rides the
+  bare `select <expr>` form. v1 is single-column-keyed tables with a literal key.
+
+setup:
+  - create table t (id int);
+
+tests:
+
+  - id: get-int-key
+    description: indexing by an existing int key returns the whole row
+    steps:
+      - sql: |
+          insert into t ({id: 1, v: "a"});
+      - sql: |
+          select t[1];
+        result:
+          - {id: 1, v: "a"}
+
+  - id: get-miss
+    description: a missing key yields null (dict-get → nil), one row
+    steps:
+      - sql: |
+          insert into t ({id: 1, v: "a"});
+      - sql: |
+          select t[99];
+        result:
+          - null
+
+  - id: get-miss-empty-table
+    description: indexing an empty table yields null
+    steps:
+      - sql: |
+          select t[1];
+        result:
+          - null
+
+  - id: get-string-key
+    description: a string-keyed table indexes by a string literal
+    steps:
+      - sql: |
+          create table s (id string);
+      - sql: |
+          insert into s ({id: "x", v: 9});
+      - sql: |
+          select s["x"];
+        result:
+          - {id: "x", v: 9}
+
+  - id: get-after-overwrite
+    description: re-inserting a key overwrites; the lookup sees the latest value
+    steps:
+      - sql: |
+          insert into t ({id: 1, v: 100});
+      - sql: |
+          insert into t ({id: 1, v: 200});
+      - sql: |
+          select t[1];
+        result:
+          - {id: 1, v: 200}
+
+  - id: get-composes
+    description: the looked-up row is a value and can be indexed further
+    steps:
+      - sql: |
+          insert into t ({id: 1, v: "a"});
+      - sql: |
+          select t[1].v;
+        result:
+          - "a"
+
+  - id: get-among-rows
+    description: the lookup picks exactly one row out of many, ignoring the rest
+    steps:
+      - sql: |
+          insert into t ({id: 1, v: "a"}, {id: 2, v: "b"}, {id: 3, v: "c"});
+      - sql: |
+          select t[2];
+        result:
+          - {id: 2, v: "b"}
+
+  - id: get-wrong-type
+    description: a string key against an int-keyed table is a schema error
+    steps:
+      - sql: |
+          select t["a"];
+        error: schema
+
+  - id: get-keyless
+    description: a keyless table cannot be indexed by key
+    steps:
+      - sql: |
+          create table k;
+      - sql: |
+          select k[1];
+        error: static
+
+  - id: get-composite-arity
+    description: a single key against a composite-keyed table is a static error
+    steps:
+      - sql: |
+          create table c (a int, b int);
+      - sql: |
+          select c[1];
+        error: static
+
+  - id: get-unknown-table
+    description: indexing a name that is neither a binding nor a table is unbound
+    steps:
+      - sql: |
+          select ghost[1];
+        error: static

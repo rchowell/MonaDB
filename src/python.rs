@@ -22,10 +22,11 @@ fn to_pyerr(err: &Error, sql: &str) -> PyErr {
 /// Convert a monadb `Value` into a native Python object.
 fn value_to_py(py: Python<'_>, value: &Value) -> PyObject {
     match value {
-        Value::None => py.None(),
-        Value::Json(json) => json_to_py(py, json),
         Value::Oid(oid) => oid.into_py(py),
         Value::Bytes(bytes) => PyBytes::new(py, bytes).into(),
+        // Everything JSON-shaped goes through the serde_json bridge, which
+        // preserves object key order.
+        other => json_to_py(py, &other.clone().into_json()),
     }
 }
 
@@ -178,11 +179,11 @@ impl Connection {
     /// rows are not objects. Names are borrowed from the row — no clone.
     #[getter]
     fn description(&self, py: Python<'_>) -> PyObject {
-        let Some(Value::Json(JsonValue::Object(members))) = self.result.first() else {
+        let Some(Value::Object(obj)) = self.result.first() else {
             return py.None();
         };
         let list = PyList::empty(py);
-        for name in members.keys() {
+        for (name, _) in obj.iter() {
             let tuple = PyTuple::new(
                 py,
                 [

@@ -153,8 +153,8 @@ pub enum Token {
     True,
     #[token("false")]
     False,
-    #[regex(r"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?", |lex| lex.slice().parse::<f64>().unwrap())]
-    Number(f64),
+    #[regex(r"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?", |lex| lex.slice().to_owned())]
+    Number(String),
     #[regex(r#""([^"\\]|\\.)*""#, |lex| lex.slice().to_owned())]
     #[regex(r#"'([^'\\]|\\.)*'"#, |lex| lex.slice().to_owned())]
     String(String),

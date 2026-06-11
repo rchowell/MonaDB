@@ -106,6 +106,15 @@ impl Cursor {
         Ok(())
     }
 
+    /// Returns the value at the given key or null.
+    #[allow(dead_code)]
+    pub fn get(&self, txn: &Transaction, key: &[u8]) -> Result<Value> {
+        match self.btree().get(txn.as_ro(), key)? {
+            Some(bytes) => Value::decode(bytes),
+            None => Ok(Value::Null),
+        }
+    }
+
     /// Ends an active scan and releases the read iterator.
     pub fn close(&mut self) {
         if let Some(Source::Btree { scan, .. }) = &mut self.source {
@@ -328,6 +337,41 @@ mod tests {
         assert!(!cursor.next().unwrap());
         assert!(!cursor.next().unwrap());
         assert_eq!(cursor.current(), None);
+    }
+
+    #[test]
+    fn get_existing_key_returns_row() {
+        let row: &[u8] = br#"{"id":1,"v":"a"}"#;
+        let (_dir, storage) = fixture(&[(b"k1", row)]);
+        let (txn, btree) = open_read(&storage);
+        let mut cursor = Cursor::new();
+        cursor.open(btree);
+        let got = cursor.get(&txn, b"k1").unwrap();
+        assert_eq!(got, Value::decode(row).unwrap());
+    }
+
+    #[test]
+    fn get_missing_key_returns_null() {
+        let (_dir, storage) = fixture(&[(b"k1", br#"{"id":1}"#)]);
+        let (txn, btree) = open_read(&storage);
+        let mut cursor = Cursor::new();
+        cursor.open(btree);
+        assert!(cursor.get(&txn, b"absent").unwrap().is_null());
+    }
+
+    #[test]
+    fn get_among_many_picks_one() {
+        let rows: &[(&[u8], &[u8])] = &[
+            (b"k1", br#"{"id":1}"#),
+            (b"k2", br#"{"id":2}"#),
+            (b"k3", br#"{"id":3}"#),
+        ];
+        let (_dir, storage) = fixture(rows);
+        let (txn, btree) = open_read(&storage);
+        let mut cursor = Cursor::new();
+        cursor.open(btree);
+        let got = cursor.get(&txn, b"k2").unwrap();
+        assert_eq!(got.jpk("id"), Some(Value::Int(2)));
     }
 
     #[test]
