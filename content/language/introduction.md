@@ -40,4 +40,4 @@ Schemas are optional. A table declared without a schema accepts any value.
 
 ## How to read this reference
 
-The remaining sections cover the language in bottom-up order: [Syntax](/language/syntax/) and identifiers first, then [Types](/language/types/), then [Expressions](/language/expressions/), then [Statements](/language/statements/) that compose them. [Functions](/language/functions/) covers built-in functions and `read()`. Start with [Statements](/language/statements/) if you want to write queries immediately.
+The remaining sections cover the language in bottom-up order: [Syntax](@/language/syntax.md) and identifiers first, then [Types](@/language/types.md), then [Expressions](@/language/expressions.md), then [Statements](@/language/statements.md) that compose them. [Functions](@/language/functions.md) covers built-in functions and `read()`. Start with [Statements](@/language/statements.md) if you want to write queries immediately.
