@@ -15,6 +15,7 @@ docs/build/
 
 # claude
 .claude/worktrees
+docs/superpowers/
 
 # python
 .venv/
@@ -31,4 +32,7 @@ todos.db
 *.monadb
 
 # zola
-public/
+site/public/
+
+# node
+site/node_modules/

@@ -1,0 +1,312 @@
+{% extends "base.html" %} {% block title %}MonaDB{% endblock title %} {% block
+description %}MonaDB is an embedded document database for Python. Write SQL-like
+queries against nested documents without schemas.{% endblock description %} {%
+block content %}
+
+<!-- ── Hero ──────────────────────────────────────────── -->
+<section class="border-b-rule">
+  <div class="max-w-wrap mx-auto px-8">
+    <div
+      class="grid grid-cols-[repeat(auto-fit,minmax(330px,1fr))] gap-[52px] items-center py-[66px] max-sm:py-[44px] max-sm:gap-9"
+    >
+      <div>
+        <p
+          class="font-label text-[11px] tracking-[0.16em] uppercase text-mist mb-5"
+        >
+          Preview · Embedded Document Database
+        </p>
+        <h1
+          class="font-display font-black tracking-[-0.01em] text-[clamp(38px,5.4vw,62px)] leading-[1.04] mb-5"
+        >
+          MonaDB
+        </h1>
+        <p class="text-[15px] leading-[1.7] text-shadow max-w-[48ch] mb-7">
+          MonaDB is an embedded document database for Python. Write SQL-like
+          queries against nested documents. No schema, no server, no migration
+          scripts. Backed by a Rust bytecode engine inspired by SQLite.
+        </p>
+        <div class="flex flex-wrap gap-4 mb-7">
+          <a
+            class="btn btn-primary"
+            href="{{ get_url(path='@/language/introduction.md') }}"
+            >Tutorial</a
+          >
+          <a class="btn btn-secondary" href="https://github.com/rchowell/MonaDB"
+            >View on GitHub →</a
+          >
+        </div>
+        <div class="install" data-copy="pip install monadb">
+          <div class="install-box">
+            <span class="install-cmd"
+              ><span class="sig">$&nbsp;</span>pip install monadb</span
+            >
+            <span class="install-copy" data-copy-label>copy</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="console" data-console>
+        <div class="console-frame">
+          <div class="console-head">
+            <span class="console-title"
+              >monadb&nbsp;❯&nbsp;console<span class="console-cursor"></span
+            ></span>
+            <span class="console-ver">v0.1</span>
+          </div>
+          <div class="console-tabs">
+            <button class="console-tab is-active" data-tab>Select</button>
+            <button class="console-tab" data-tab>Insert</button>
+            <button class="console-tab" data-tab>Create</button>
+          </div>
+          <div class="console-body">
+            <pre
+              data-code
+            ><span class="tok-com"># select: filter and project a document stream</span>
+<span class="tok-kw">import</span><span class="tok-txt"> monadb</span>
+<span class="tok-txt">db = monadb.</span><span class="tok-kw">connect</span><span class="tok-txt">(</span><span class="tok-lit">"data.mona"</span><span class="tok-txt">)</span>
+<span class="tok-txt">rows = db.</span><span class="tok-kw">sql</span><span class="tok-txt">(</span>
+<span class="tok-lit">    "select {x, y} from points where x &gt; 1 fetch 10"</span>
+<span class="tok-txt">).</span><span class="tok-kw">fetchall</span><span class="tok-txt">()</span></pre>
+          </div>
+          <div class="console-status">
+            <span class="ok"
+              ><span class="tick">✓</span>&nbsp; compiled to bytecode</span
+            >
+            <span class="meta">stack VM · LMDB</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Stat band ─────────────────────────────────────── -->
+<section class="border-b-rule">
+  <div class="max-w-wrap mx-auto px-8">
+    <div class="grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))]">
+      <div
+        class="px-8 py-[34px] border-r-hair first:pl-0 last:border-r-0 last:pr-0 max-sm:px-5 max-sm:py-6 max-sm:border-r-0 max-sm:border-b-hair max-sm:last:border-b-0"
+      >
+        <div class="font-display font-black text-[46px] leading-none">
+          Embedded
+        </div>
+        <div
+          class="font-label text-[10px] tracking-[0.12em] uppercase text-mist mt-2"
+        >
+          No server, no daemon, no config
+        </div>
+      </div>
+      <div
+        class="px-8 py-[34px] border-r-hair first:pl-0 last:border-r-0 last:pr-0 max-sm:px-5 max-sm:py-6 max-sm:border-r-0 max-sm:border-b-hair max-sm:last:border-b-0"
+      >
+        <div class="font-display font-black text-[46px] leading-none">
+          Schemaless
+        </div>
+        <div
+          class="font-label text-[10px] tracking-[0.12em] uppercase text-mist mt-2"
+        >
+          Nested objects, arrays, no schema
+        </div>
+      </div>
+      <div
+        class="px-8 py-[34px] border-r-hair first:pl-0 last:border-r-0 last:pr-0 max-sm:px-5 max-sm:py-6 max-sm:border-r-0 max-sm:border-b-hair max-sm:last:border-b-0"
+      >
+        <div class="font-display font-black text-[46px] leading-none">SQL</div>
+        <div
+          class="font-label text-[10px] tracking-[0.12em] uppercase text-mist mt-2"
+        >
+          Supports SQL-like syntax
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Features ───────────────────────────────────────── -->
+<section class="border-b-rule" id="features">
+  <div class="max-w-wrap mx-auto px-8 pt-14 pb-[70px]">
+    <div class="flex items-baseline gap-3.5 mb-[38px] pb-3.5 border-b-rule">
+      <span class="font-label text-[11px] tracking-[0.1em] text-mist">01</span>
+      <h2 class="font-display text-[26px] font-bold">Why use MonaDB?</h2>
+      <span
+        class="font-label text-[10px] tracking-[0.1em] uppercase text-mist ml-auto max-sm:hidden"
+        >Use cases</span
+      >
+    </div>
+
+    <div class="grid grid-cols-[repeat(auto-fit,minmax(250px,1fr))] gap-[26px]">
+      <div class="feature">
+        <div class="feature-card">
+          <div class="feature-cap feature-cap--dots"></div>
+          <div class="p-4">
+            <div
+              class="font-label text-[10px] tracking-[0.12em] uppercase text-mist mb-2"
+            >
+              01 · Documents First
+            </div>
+            <h3 class="font-display text-[18px] font-bold mb-2">Documents</h3>
+            <p class="text-[12.5px] leading-[1.6] text-shadow">
+              Objects, arrays, and path traversal are core constructs, not
+              extensions. Schemas are optional.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature">
+        <div class="feature-card">
+          <div class="feature-cap feature-cap--lines"></div>
+          <div class="p-4">
+            <div
+              class="font-label text-[10px] tracking-[0.12em] uppercase text-mist mb-2"
+            >
+              02 · Execution
+            </div>
+            <h3 class="font-display text-[18px] font-bold mb-2">Bytecode</h3>
+            <p class="text-[12.5px] leading-[1.6] text-shadow">
+              Every query compiles to bytecode before it runs. A tight Rust
+              dispatch loop executes the instructions. No tree-walking at query
+              time.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature">
+        <div class="feature-card">
+          <div class="feature-cap feature-cap--cross"></div>
+          <div class="p-4">
+            <div
+              class="font-label text-[10px] tracking-[0.12em] uppercase text-mist mb-2"
+            >
+              03 · Runtime
+            </div>
+            <h3 class="font-display text-[18px] font-bold mb-2">Embedded</h3>
+            <p class="text-[12.5px] leading-[1.6] text-shadow">
+              Backed by LMDB and runs in-process alongside your code. No server,
+              no daemon, no config file to babysit.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature is-accent">
+        <div class="feature-card">
+          <div class="feature-cap feature-cap--accent"></div>
+          <div class="p-4">
+            <div
+              class="font-label text-[10px] tracking-[0.12em] uppercase text-mist mb-2"
+            >
+              04 · Concurrency
+            </div>
+            <h3 class="font-display text-[18px] font-bold mb-2">
+              Transactions
+            </h3>
+            <p class="text-[12.5px] leading-[1.6] text-shadow">
+              Reads and writes are fully transactional. Readers never block
+              writers, and partial writes never surface.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Principles ─────────────────────────────────────── -->
+<section class="border-b-rule" id="principles">
+  <div class="max-w-wrap mx-auto px-8 pt-14 pb-[70px]">
+    <div class="flex items-baseline gap-3.5 mb-[38px] pb-3.5 border-b-rule">
+      <span class="font-label text-[11px] tracking-[0.1em] text-mist">02</span>
+      <h2 class="font-display text-[26px] font-bold">How It Holds</h2>
+    </div>
+
+    <div
+      class="grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))] gap-x-[40px] gap-y-9"
+    >
+      <div class="border-t-heavy pt-4">
+        <div class="font-display text-[18px] font-bold mb-2">
+          Documents are first-class.
+        </div>
+        <p class="text-[13px] leading-[1.65] text-shadow">
+          Objects, arrays, and path-style traversal live in the language model.
+          A table can carry a full schema, a partial one, or none at all.
+        </p>
+      </div>
+      <div class="border-t-heavy pt-4">
+        <div class="font-display text-[18px] font-bold mb-2">
+          Compiled, not interpreted.
+        </div>
+        <p class="text-[13px] leading-[1.65] text-shadow">
+          MonaDB compiles each query before running it. The compiled
+          instructions execute in a Rust interpreter. No query is evaluated line
+          by line in Python.
+        </p>
+      </div>
+      <div class="border-t-heavy pt-4">
+        <div class="font-display text-[18px] font-bold mb-2">
+          The database is a library.
+        </div>
+        <p class="text-[13px] leading-[1.65] text-shadow">
+          MonaDB runs in the same process as your code and reads from a single
+          file on disk. There is no network hop between your application and
+          your data.
+        </p>
+      </div>
+      <div class="border-t-heavy pt-4">
+        <div class="font-display text-[18px] font-bold mb-2">
+          Familiar, with fewer corners.
+        </div>
+        <p class="text-[13px] leading-[1.65] text-shadow">
+          Most of the SQL you know carries over. What's left is smaller, more
+          regular, and friendlier to nested data.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── CTA ────────────────────────────────────────────── -->
+<section class="cta border-b-rule" id="start">
+  <div class="relative z-[1] max-w-[760px] mx-auto px-8 py-[72px] text-center">
+    <p
+      class="font-label text-[11px] tracking-[0.16em] uppercase text-mist mb-5"
+    >
+      Get Started
+    </p>
+    <h2
+      class="font-display font-black text-[clamp(34px,4.6vw,50px)] leading-[1.06] mb-[22px]"
+    >
+      Start with one line.
+    </h2>
+    <p
+      class="text-[14px] leading-[1.7] text-shadow max-w-[44ch] mx-auto mb-[30px]"
+    >
+      Install MonaDB and open a Python shell. No server to start, no config to
+      write.
+    </p>
+    <div
+      class="install is-center mb-6 max-w-[440px]"
+      data-copy="pip install monadb"
+    >
+      <div class="install-box">
+        <span class="install-cmd text-[14.5px]"
+          ><span class="sig">$&nbsp;</span>pip install monadb</span
+        >
+        <span class="install-copy" data-copy-label>copy</span>
+      </div>
+    </div>
+    <div class="flex flex-wrap gap-4 justify-center">
+      <a
+        class="btn btn-primary"
+        href="{{ get_url(path='@/language/introduction.md') }}"
+        >Read the language</a
+      >
+      <a class="btn btn-secondary" href="https://github.com/rchowell/MonaDB"
+        >Star on GitHub</a
+      >
+    </div>
+  </div>
+</section>
+
+{% endblock content %}

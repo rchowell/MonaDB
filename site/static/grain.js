@@ -5,7 +5,7 @@
 
   var PAGE = '#EEEBE0';   // Bone
   var INK = '#1C1A14';    // Ink
-  var ACCENT = '#5C6B77'; // Prussian
+  var ACCENT = '#4A5245'; // Sage
 
   /* ── Canvas helpers ───────────────────────────────────── */
   function ctxFor(canvas, w, h) {
@@ -89,32 +89,36 @@
   var KW = 'tok-kw', COM = 'tok-com', LIT = 'tok-lit', TXT = 'tok-txt';
   var PROGRAMS = [
     [ // Select
-      [['-- select: map + filter a document stream', COM]],
-      [['select', KW], [' { x: p.x, y: p.y }', TXT]],
-      [['  from', KW], [' points ', TXT], ['as', KW], [' p', TXT]],
-      [[' where', KW], [' p.x > ', TXT], ['1', LIT]],
-      [[' fetch', KW], [' ', TXT], ['10', LIT], [';', TXT]]
+      [['# select: filter and project a document stream', COM]],
+      [['import', KW], [' monadb', TXT]],
+      [['db = monadb.', TXT], ['connect', KW], ['(', TXT], ['"data.mona"', LIT], [')', TXT]],
+      [['rows = db.', TXT], ['sql', KW], ['(', TXT]],
+      [['    "select {x, y} from points where x > 1 fetch 10"', LIT]],
+      [[').', TXT], ['fetchall', KW], ['()', TXT]]
     ],
     [ // Insert
-      [['-- insert: object literals, trailing comma ok', COM]],
-      [['insert into', KW], [' points (', TXT]],
-      [['    { x: ', TXT], ['1', LIT], [', y: ', TXT], ['2', LIT], [' },', TXT]],
-      [['    { x: ', TXT], ['3', LIT], [', y: ', TXT], ['4', LIT], [' },', TXT]],
-      [[');', TXT]]
+      [['# insert: add object literals to a collection', COM]],
+      [['import', KW], [' monadb', TXT]],
+      [['db = monadb.', TXT], ['connect', KW], ['(', TXT], ['"data.mona"', LIT], [')', TXT]],
+      [['db.', TXT], ['execute', KW], ['(', TXT]],
+      [['    "insert into points ({x:1, y:2}, {x:3, y:4})"', LIT]],
+      [[')', TXT]]
     ],
     [ // Create
-      [['-- create: optional schema, nullable with |null', COM]],
-      [['create table', KW], [' points ({', TXT]],
-      [['    x: ', TXT], ['number', KW], [',', TXT]],
-      [['    y: ', TXT], ['number', KW], [',', TXT]],
-      [['    z: ', TXT], ['number', KW], ['|null', LIT], [',', TXT]],
-      [['});', TXT]]
+      [['# create: optional schema, nullable with |null', COM]],
+      [['import', KW], [' monadb', TXT]],
+      [['db = monadb.', TXT], ['connect', KW], ['(', TXT], ['"data.mona"', LIT], [')', TXT]],
+      [['db.', TXT], ['execute', KW], ['(', TXT]],
+      [['    "create table points ({x:number, z:number|null})"', LIT]],
+      [[')', TXT]]
     ],
     [ // Path
-      [['-- path: traverse nested documents with $', COM]],
-      [['select', KW], [' T$.address.city', TXT]],
-      [['  from', KW], [' users ', TXT], ['as', KW], [' T', TXT]],
-      [[' where', KW], [' T$.active = ', TXT], ['true', LIT], [';', TXT]]
+      [['# path: traverse nested documents with $ syntax', COM]],
+      [['import', KW], [' monadb', TXT]],
+      [['db = monadb.', TXT], ['connect', KW], ['(', TXT], ['"data.mona"', LIT], [')', TXT]],
+      [['rows = db.', TXT], ['sql', KW], ['(', TXT]],
+      [['    "select T$.address.city from users as T"', LIT]],
+      [[').', TXT], ['fetchall', KW], ['()', TXT]]
     ]
   ];
 

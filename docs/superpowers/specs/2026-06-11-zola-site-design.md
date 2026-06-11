@@ -48,7 +48,7 @@ static/
 --gh: #C8C3B5   Ghost    — dividers, light rules, disabled
 --mi: #8E8979   Mid      — labels, metadata, eyebrows, captions
 --sh: #454039   Shadow   — secondary body text, muted content
---pr: #5C6B77   Prussian — single accent; focus states, accent buttons
+--pr: #4A5245   Sage — single accent; focus states, accent buttons
 ```
 
 ### Border Tokens
@@ -88,7 +88,7 @@ The hero `<canvas>` on the landing page uses `halftoneGradient`. No smooth CSS g
 - No `box-shadow` with blur radius, no `filter: blur()`, no `text-shadow`
 - No smooth CSS gradients in UI elements — patterns or canvas only
 - No Inter, Roboto, SF Pro, or similar grotesques
-- Prussian (`--pr`) used at most once per composition
+- Sage (`--pr`) used at most once per composition
 - All text nodes in elements that explicitly set `font-family`
 
 ---
@@ -117,7 +117,7 @@ No markdown. The template is the page.
 
 **Source:** `content/language/*.md` (one file per section)  
 **Template:** `templates/language/page.html`  
-**Sidebar:** Auto-built from `get_section(path="language/_index.md")` — ordered list of page titles, active item distinguished by Prussian border-left.  
+**Sidebar:** Auto-built from `get_section(path="language/_index.md")` — ordered list of page titles, active item distinguished by Sage border-left.  
 **Copy:** All-new. DuckDB-inspired reference structure:
 
 | Section      | Content                                                         |
@@ -154,7 +154,7 @@ Extends `base.html`. Wraps `{{ page.content | safe }}` in a max-width prose colu
 ### `language/page.html`
 
 Extends `base.html`. Two-column layout:
-- Left: sidebar (fixed-width, Ghost right-border) — section list built from `get_section()`; active page gets Prussian left-border
+- Left: sidebar (fixed-width, Ghost right-border) — section list built from `get_section()`; active page gets Sage left-border
 - Right: `{{ page.content | safe }}` prose column
 
 ---

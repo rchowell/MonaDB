@@ -13,6 +13,7 @@
 ### Task 1: Scaffold Zola project skeleton
 
 **Files:**
+
 - Create: `config.toml`
 - Create: `content/_index.md`
 - Create: `content/design.md` (placeholder)
@@ -54,7 +55,7 @@ highlight_theme = "base16-ocean-dark"
 github = "https://github.com/rchowell/MonaDB"
 ```
 
-- [ ] **Step 3: Create content/_index.md**
+- [ ] **Step 3: Create content/\_index.md**
 
 ```toml
 +++
@@ -74,7 +75,7 @@ description = "How MonaDB compiles query text to bytecode and executes it agains
 placeholder
 ```
 
-- [ ] **Step 5: Create content/language/_index.md**
+- [ ] **Step 5: Create content/language/\_index.md**
 
 ```toml
 +++
@@ -88,6 +89,7 @@ redirect_to = "language/introduction"
 - [ ] **Step 6: Create all six language placeholder pages**
 
 `content/language/introduction.md`:
+
 ```toml
 +++
 title = "Introduction"
@@ -99,6 +101,7 @@ placeholder
 ```
 
 `content/language/statements.md`:
+
 ```toml
 +++
 title = "Statements"
@@ -110,6 +113,7 @@ placeholder
 ```
 
 `content/language/syntax.md`:
+
 ```toml
 +++
 title = "Syntax"
@@ -121,6 +125,7 @@ placeholder
 ```
 
 `content/language/types.md`:
+
 ```toml
 +++
 title = "Types"
@@ -132,6 +137,7 @@ placeholder
 ```
 
 `content/language/expressions.md`:
+
 ```toml
 +++
 title = "Expressions"
@@ -143,6 +149,7 @@ placeholder
 ```
 
 `content/language/functions.md`:
+
 ```toml
 +++
 title = "Functions"
@@ -156,31 +163,40 @@ placeholder
 - [ ] **Step 7: Create stub templates so Zola can build**
 
 `templates/base.html`:
+
 ```html
-<!DOCTYPE html><html><body>{% block content %}{% endblock content %}</body></html>
+<!DOCTYPE html>
+<html>
+  <body>
+    {% block content %}{% endblock content %}
+  </body>
+</html>
 ```
 
 `templates/index.html`:
+
 ```html
-{% extends "base.html" %}
-{% block content %}landing{% endblock content %}
+{% extends "base.html" %} {% block content %}landing{% endblock content %}
 ```
 
 `templates/page.html`:
+
 ```html
-{% extends "base.html" %}
-{% block content %}{{ page.content | safe }}{% endblock content %}
+{% extends "base.html" %} {% block content %}{{ page.content | safe }}{%
+endblock content %}
 ```
 
 `templates/language/page.html`:
+
 ```html
-{% extends "base.html" %}
-{% block content %}{{ page.content | safe }}{% endblock content %}
+{% extends "base.html" %} {% block content %}{{ page.content | safe }}{%
+endblock content %}
 ```
 
 - [ ] **Step 8: Add public/ to .gitignore**
 
 Append to `.gitignore` (create if it doesn't exist):
+
 ```
 public/
 ```
@@ -205,6 +221,7 @@ git commit -m "feat: zola project skeleton"
 ### Task 2: Write grain.js — canvas halftone renderer
 
 **Files:**
+
 - Create: `static/grain.js`
 
 - [ ] **Step 1: Write static/grain.js**
@@ -212,11 +229,12 @@ git commit -m "feat: zola project skeleton"
 ```js
 (function () {
   function halftoneGradient(canvas, invert) {
-    var ctx = canvas.getContext('2d');
-    var W = canvas.width, H = canvas.height;
-    ctx.fillStyle = '#EBE7D8';
+    var ctx = canvas.getContext("2d");
+    var W = canvas.width,
+      H = canvas.height;
+    ctx.fillStyle = "#EBE7D8";
     ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = '#1C1A14';
+    ctx.fillStyle = "#1C1A14";
     var g = 7;
     for (var y = g / 2; y < H; y += g) {
       for (var x = g / 2; x < W; x += g) {
@@ -233,16 +251,19 @@ git commit -m "feat: zola project skeleton"
   }
 
   function halftoneCard(canvas, type) {
-    var ctx = canvas.getContext('2d');
-    var W = canvas.width, H = canvas.height;
-    ctx.fillStyle = '#EBE7D8';
+    var ctx = canvas.getContext("2d");
+    var W = canvas.width,
+      H = canvas.height;
+    ctx.fillStyle = "#EBE7D8";
     ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = '#1C1A14';
-    var g = type === 'dot50' ? 6 : 7;
-    var pct = type === 'dot50' ? 0.45 : 0.27;
+    ctx.fillStyle = "#1C1A14";
+    var g = type === "dot50" ? 6 : 7;
+    var pct = type === "dot50" ? 0.45 : 0.27;
     for (var y = g / 2; y < H; y += g) {
       for (var x = g / 2; x < W; x += g) {
-        var wave = Math.sin((x / W) * Math.PI) * 0.7 + Math.sin((y / H) * Math.PI * 2) * 0.15;
+        var wave =
+          Math.sin((x / W) * Math.PI) * 0.7 +
+          Math.sin((y / H) * Math.PI * 2) * 0.15;
         var d = pct * (0.4 + wave * 0.6);
         var r = (g / 2 - 0.3) * Math.sqrt(Math.max(0, d / pct));
         if (r > 0.3) {
@@ -255,24 +276,24 @@ git commit -m "feat: zola project skeleton"
   }
 
   function init() {
-    document.querySelectorAll('canvas[data-grain]').forEach(function (canvas) {
+    document.querySelectorAll("canvas[data-grain]").forEach(function (canvas) {
       var type = canvas.dataset.grain;
       var parent = canvas.parentElement;
       canvas.width = parent ? parent.offsetWidth : 800;
-      var h = parseInt(canvas.dataset.height || '0', 10);
+      var h = parseInt(canvas.dataset.height || "0", 10);
       canvas.height = h || canvas.offsetHeight || 120;
-      if (type === 'hero') halftoneGradient(canvas, false);
-      else if (type === 'hero-inv') halftoneGradient(canvas, true);
+      if (type === "hero") halftoneGradient(canvas, false);
+      else if (type === "hero-inv") halftoneGradient(canvas, true);
       else halftoneCard(canvas, type);
     });
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
   } else {
     init();
   }
-}());
+})();
 ```
 
 - [ ] **Step 2: Commit**
@@ -287,31 +308,38 @@ git commit -m "feat: grain.js canvas halftone renderer"
 ### Task 3: Write style.css — GRAIN design system
 
 **Files:**
+
 - Replace: `static/style.css`
 
 - [ ] **Step 1: Replace static/style.css with full GRAIN implementation**
 
 ```css
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=Courier+Prime:ital,wght@0,400;0,700;1,400&family=Space+Mono:wght@400&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=Courier+Prime:ital,wght@0,400;0,700;1,400&family=Space+Mono:wght@400&display=swap");
 
 /* ── GRAIN tokens ──────────────────────────────────────── */
 :root {
-  --pa: #EBE7D8;
-  --ik: #1C1A14;
-  --gh: #C8C3B5;
-  --mi: #8E8979;
+  --pa: #ebe7d8;
+  --ik: #1c1a14;
+  --gh: #c8c3b5;
+  --mi: #8e8979;
   --sh: #454039;
-  --pr: #5C6B77;
-  --fd: 'Playfair Display', Georgia, serif;
-  --fb: 'Courier Prime', 'Courier New', monospace;
-  --fl: 'Space Mono', 'Courier New', monospace;
-  --r:  1.5px solid #1C1A14;
-  --rh: 3px   solid #1C1A14;
-  --rl: 1px   solid #C8C3B5;
+  --pr: #4a5245;
+  --fd: "Playfair Display", Georgia, serif;
+  --fb: "Courier Prime", "Courier New", monospace;
+  --fl: "Space Mono", "Courier New", monospace;
+  --r: 1.5px solid #1c1a14;
+  --rh: 3px solid #1c1a14;
+  --rl: 1px solid #c8c3b5;
 }
 
 /* ── Reset ─────────────────────────────────────────────── */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
 body {
   background: var(--pa);
   color: var(--ik);
@@ -319,242 +347,580 @@ body {
   font-size: 14px;
   line-height: 1.65;
 }
-a { color: inherit; text-decoration: none; }
-a:hover { text-decoration: underline; }
-canvas, img { display: block; max-width: 100%; }
+a {
+  color: inherit;
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+canvas,
+img {
+  display: block;
+  max-width: 100%;
+}
 
 /* ── Nav ───────────────────────────────────────────────── */
 .site-nav {
-  position: sticky; top: 0; z-index: 10;
+  position: sticky;
+  top: 0;
+  z-index: 10;
   background: var(--pa);
   border-bottom: var(--r);
 }
 .nav-inner {
-  max-width: 960px; margin: 0 auto; padding: 0 2rem;
-  height: 48px; display: flex; align-items: center; justify-content: space-between;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 2rem;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 .nav-brand {
-  font-family: var(--fd); font-weight: 900; font-size: 1.05rem;
-  letter-spacing: 0.18em; color: var(--ik);
+  font-family: var(--fd);
+  font-weight: 900;
+  font-size: 1.05rem;
+  letter-spacing: 0.18em;
+  color: var(--ik);
 }
-.nav-dot { color: var(--pr); }
-.nav-links { display: flex; align-items: center; gap: 1.8rem; }
+.nav-dot {
+  color: var(--pr);
+}
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 1.8rem;
+}
 .nav-links a {
-  font-family: var(--fl); font-size: 0.6rem;
-  letter-spacing: 0.12em; text-transform: uppercase; color: var(--mi);
+  font-family: var(--fl);
+  font-size: 0.6rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mi);
 }
-.nav-links a:hover, .nav-links a.nav-active { color: var(--ik); text-decoration: none; }
-.nav-links .nav-github { color: var(--ik); }
+.nav-links a:hover,
+.nav-links a.nav-active {
+  color: var(--ik);
+  text-decoration: none;
+}
+.nav-links .nav-github {
+  color: var(--ik);
+}
 
 /* ── Footer ────────────────────────────────────────────── */
-.site-foot { border-top: var(--r); margin-top: 4rem; }
+.site-foot {
+  border-top: var(--r);
+  margin-top: 4rem;
+}
 .foot-inner {
-  max-width: 960px; margin: 0 auto; padding: 1.2rem 2rem;
-  display: flex; justify-content: space-between; align-items: center;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1.2rem 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
-.foot-name, .foot-link {
-  font-family: var(--fl); font-size: 0.58rem;
-  letter-spacing: 0.1em; text-transform: uppercase; color: var(--mi);
+.foot-name,
+.foot-link {
+  font-family: var(--fl);
+  font-size: 0.58rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--mi);
 }
-.foot-link:hover { color: var(--ik); text-decoration: none; }
+.foot-link:hover {
+  color: var(--ik);
+  text-decoration: none;
+}
 
 /* ── GRAIN Patterns ────────────────────────────────────── */
-.ht10 { background: var(--pa); background-image: radial-gradient(circle, var(--ik) 13%, transparent 13%); background-size: 9px 9px; }
-.ht25 { background: var(--pa); background-image: radial-gradient(circle, var(--ik) 27%, transparent 27%); background-size: 7px 7px; }
-.ht50 { background: var(--pa); background-image: radial-gradient(circle, var(--ik) 45%, transparent 45%); background-size: 6px 6px; }
-.ht75 { background: var(--pa); background-image: radial-gradient(circle, var(--ik) 65%, transparent 65%); background-size: 5px 5px; }
-.htdiag  { background: var(--pa); background-image: repeating-linear-gradient(45deg, var(--ik) 0, var(--ik) 1px, transparent 1px, transparent 5px); }
-.hthline { background: var(--pa); background-image: repeating-linear-gradient(0deg,  var(--ik) 0, var(--ik) 1px, transparent 1px, transparent 5px); }
-.htcross { background: var(--pa); background-image: repeating-linear-gradient(0deg, var(--ik) 0, var(--ik) 1px, transparent 0, transparent 5px), repeating-linear-gradient(90deg, var(--ik) 0, var(--ik) 1px, transparent 0, transparent 5px); background-size: 5px 5px; }
+.ht10 {
+  background: var(--pa);
+  background-image: radial-gradient(circle, var(--ik) 13%, transparent 13%);
+  background-size: 9px 9px;
+}
+.ht25 {
+  background: var(--pa);
+  background-image: radial-gradient(circle, var(--ik) 27%, transparent 27%);
+  background-size: 7px 7px;
+}
+.ht50 {
+  background: var(--pa);
+  background-image: radial-gradient(circle, var(--ik) 45%, transparent 45%);
+  background-size: 6px 6px;
+}
+.ht75 {
+  background: var(--pa);
+  background-image: radial-gradient(circle, var(--ik) 65%, transparent 65%);
+  background-size: 5px 5px;
+}
+.htdiag {
+  background: var(--pa);
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--ik) 0,
+    var(--ik) 1px,
+    transparent 1px,
+    transparent 5px
+  );
+}
+.hthline {
+  background: var(--pa);
+  background-image: repeating-linear-gradient(
+    0deg,
+    var(--ik) 0,
+    var(--ik) 1px,
+    transparent 1px,
+    transparent 5px
+  );
+}
+.htcross {
+  background: var(--pa);
+  background-image:
+    repeating-linear-gradient(
+      0deg,
+      var(--ik) 0,
+      var(--ik) 1px,
+      transparent 0,
+      transparent 5px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      var(--ik) 0,
+      var(--ik) 1px,
+      transparent 0,
+      transparent 5px
+    );
+  background-size: 5px 5px;
+}
 
 /* ── Buttons ───────────────────────────────────────────── */
 .gn-btn {
-  font-family: var(--fl); font-size: 0.62rem; letter-spacing: 0.1em;
-  text-transform: uppercase; padding: 0.45rem 1.1rem; border: var(--r);
-  background: none; color: var(--ik); cursor: pointer; display: inline-block;
+  font-family: var(--fl);
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 0.45rem 1.1rem;
+  border: var(--r);
+  background: none;
+  color: var(--ik);
+  cursor: pointer;
+  display: inline-block;
 }
-.gn-btn:hover { text-decoration: none; opacity: 0.75; }
-.gn-btn-pri { background: var(--ik); color: var(--pa); }
-.gn-btn-sec { background: transparent; color: var(--ik); }
+.gn-btn:hover {
+  text-decoration: none;
+  opacity: 0.75;
+}
+.gn-btn-pri {
+  background: var(--ik);
+  color: var(--pa);
+}
+.gn-btn-sec {
+  background: transparent;
+  color: var(--ik);
+}
 
 /* ── Landing: Hero ─────────────────────────────────────── */
-.hero { position: relative; overflow: hidden; border-bottom: var(--r); }
-.hero-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.hero-inner { position: relative; max-width: 960px; margin: 0 auto; padding: 5rem 2rem 4.5rem; }
+.hero {
+  position: relative;
+  overflow: hidden;
+  border-bottom: var(--r);
+}
+.hero-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.hero-inner {
+  position: relative;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 5rem 2rem 4.5rem;
+}
 .hero-eyebrow {
-  font-family: var(--fl); font-size: 0.58rem; letter-spacing: 0.14em;
-  text-transform: uppercase; color: var(--mi); margin-bottom: 1.2rem;
+  font-family: var(--fl);
+  font-size: 0.58rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mi);
+  margin-bottom: 1.2rem;
 }
 .hero-title {
-  font-family: var(--fd); font-size: 2.8rem; font-weight: 900;
-  line-height: 1.0; max-width: 640px; margin-bottom: 1.4rem;
+  font-family: var(--fd);
+  font-size: 2.8rem;
+  font-weight: 900;
+  line-height: 1;
+  max-width: 640px;
+  margin-bottom: 1.4rem;
 }
 .hero-lead {
-  font-family: var(--fb); font-size: 0.95rem; color: var(--sh);
-  max-width: 520px; line-height: 1.65; margin-bottom: 2rem;
+  font-family: var(--fb);
+  font-size: 0.95rem;
+  color: var(--sh);
+  max-width: 520px;
+  line-height: 1.65;
+  margin-bottom: 2rem;
 }
-.hero-cta { display: flex; gap: 0.8rem; flex-wrap: wrap; }
+.hero-cta {
+  display: flex;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
 
 /* ── Landing: Section shell ────────────────────────────── */
-.landing-sect { border-bottom: var(--r); padding: 2.5rem 0; }
-.landing-inner { max-width: 960px; margin: 0 auto; padding: 0 2rem; }
+.landing-sect {
+  border-bottom: var(--r);
+  padding: 2.5rem 0;
+}
+.landing-inner {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 2rem;
+}
 .sect-eyebrow {
-  font-family: var(--fl); font-size: 0.58rem; letter-spacing: 0.14em;
-  text-transform: uppercase; color: var(--mi); margin-bottom: 0.6rem;
+  font-family: var(--fl);
+  font-size: 0.58rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mi);
+  margin-bottom: 0.6rem;
 }
 .sect-title {
-  font-family: var(--fd); font-size: 1.8rem; font-weight: 700;
-  line-height: 1.1; margin-bottom: 1.8rem;
+  font-family: var(--fd);
+  font-size: 1.8rem;
+  font-weight: 700;
+  line-height: 1.1;
+  margin-bottom: 1.8rem;
 }
 
 /* ── Landing: Pipeline ─────────────────────────────────── */
 .pipeline {
-  display: flex; align-items: stretch; flex-wrap: wrap;
-  border: var(--r); overflow: hidden;
+  display: flex;
+  align-items: stretch;
+  flex-wrap: wrap;
+  border: var(--r);
+  overflow: hidden;
 }
 .pipeline-step {
-  font-family: var(--fl); font-size: 0.58rem; letter-spacing: 0.1em;
-  text-transform: uppercase; padding: 0.6rem 0.9rem;
-  border-right: var(--r); white-space: nowrap; color: var(--ik);
+  font-family: var(--fl);
+  font-size: 0.58rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 0.6rem 0.9rem;
+  border-right: var(--r);
+  white-space: nowrap;
+  color: var(--ik);
 }
-.pipeline-step:last-child { border-right: none; }
+.pipeline-step:last-child {
+  border-right: none;
+}
 
 /* ── Landing: Code block ───────────────────────────────── */
 .landing-pre {
-  border: var(--r); background: var(--pa);
-  padding: 1.2rem 1.4rem; overflow-x: auto;
-  font-family: var(--fb); font-size: 0.85rem; line-height: 1.6; color: var(--ik);
+  border: var(--r);
+  background: var(--pa);
+  padding: 1.2rem 1.4rem;
+  overflow-x: auto;
+  font-family: var(--fb);
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--ik);
 }
 
 /* ── Landing: Principle cards ──────────────────────────── */
 .principles-grid {
-  display: grid; grid-template-columns: 1fr 1fr;
-  border: var(--r); overflow: hidden;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border: var(--r);
+  overflow: hidden;
 }
-.gn-card { border-right: var(--r); border-bottom: var(--r); }
-.gn-card:nth-child(2n)       { border-right: none; }
-.gn-card:nth-last-child(-n+2){ border-bottom: none; }
-.gn-card-img { width: 100%; height: 90px; display: block; }
-.gn-card-body { padding: 1rem 1.1rem; }
+.gn-card {
+  border-right: var(--r);
+  border-bottom: var(--r);
+}
+.gn-card:nth-child(2n) {
+  border-right: none;
+}
+.gn-card:nth-last-child(-n + 2) {
+  border-bottom: none;
+}
+.gn-card-img {
+  width: 100%;
+  height: 90px;
+  display: block;
+}
+.gn-card-body {
+  padding: 1rem 1.1rem;
+}
 .gn-card-title {
-  font-family: var(--fd); font-size: 1rem; font-weight: 700;
-  line-height: 1.25; margin-bottom: 0.5rem;
+  font-family: var(--fd);
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.25;
+  margin-bottom: 0.5rem;
 }
 .gn-card-body p {
-  font-family: var(--fb); font-size: 0.82rem; color: var(--sh); line-height: 1.5;
+  font-family: var(--fb);
+  font-size: 0.82rem;
+  color: var(--sh);
+  line-height: 1.5;
 }
 
 /* ── Prose page (design) ───────────────────────────────── */
-.prose-page { max-width: 720px; margin: 0 auto; padding: 3rem 2rem; }
+.prose-page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 3rem 2rem;
+}
 .prose-page h1 {
-  font-family: var(--fd); font-size: 2.8rem; font-weight: 900; line-height: 1.0;
-  margin-bottom: 2rem; padding-bottom: 1rem; border-bottom: var(--rh);
+  font-family: var(--fd);
+  font-size: 2.8rem;
+  font-weight: 900;
+  line-height: 1;
+  margin-bottom: 2rem;
+  padding-bottom: 1rem;
+  border-bottom: var(--rh);
 }
 .prose-page h2 {
-  font-family: var(--fd); font-size: 1.8rem; font-weight: 700; line-height: 1.1;
-  margin-top: 2.5rem; margin-bottom: 0.8rem; padding-bottom: 0.5rem; border-bottom: var(--r);
+  font-family: var(--fd);
+  font-size: 1.8rem;
+  font-weight: 700;
+  line-height: 1.1;
+  margin-top: 2.5rem;
+  margin-bottom: 0.8rem;
+  padding-bottom: 0.5rem;
+  border-bottom: var(--r);
 }
 .prose-page h3 {
-  font-family: var(--fd); font-size: 1.25rem; font-weight: 700;
-  margin-top: 1.8rem; margin-bottom: 0.5rem;
+  font-family: var(--fd);
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-top: 1.8rem;
+  margin-bottom: 0.5rem;
 }
 .prose-page p {
-  font-family: var(--fb); font-size: 0.95rem; color: var(--sh); line-height: 1.65; margin-bottom: 1rem;
+  font-family: var(--fb);
+  font-size: 0.95rem;
+  color: var(--sh);
+  line-height: 1.65;
+  margin-bottom: 1rem;
 }
 .prose-page pre {
-  border: var(--r); background: var(--pa); padding: 1rem 1.2rem;
-  overflow-x: auto; margin-bottom: 1rem;
+  border: var(--r);
+  background: var(--pa);
+  padding: 1rem 1.2rem;
+  overflow-x: auto;
+  margin-bottom: 1rem;
 }
 .prose-page pre code {
-  font-family: var(--fb); font-size: 0.82rem; color: var(--ik); background: none; padding: 0;
+  font-family: var(--fb);
+  font-size: 0.82rem;
+  color: var(--ik);
+  background: none;
+  padding: 0;
 }
 .prose-page code {
-  font-family: var(--fb); font-size: 0.85rem; padding: 0.05em 0.25em; border: var(--rl);
+  font-family: var(--fb);
+  font-size: 0.85rem;
+  padding: 0.05em 0.25em;
+  border: var(--rl);
 }
 .prose-page table {
-  width: 100%; border-collapse: collapse; border: var(--r); margin-bottom: 1rem;
-  font-family: var(--fb); font-size: 0.85rem;
+  width: 100%;
+  border-collapse: collapse;
+  border: var(--r);
+  margin-bottom: 1rem;
+  font-family: var(--fb);
+  font-size: 0.85rem;
 }
 .prose-page th {
-  font-family: var(--fl); font-size: 0.58rem; letter-spacing: 0.1em; text-transform: uppercase;
-  color: var(--mi); padding: 0.5rem 0.8rem; border-bottom: var(--r); text-align: left;
+  font-family: var(--fl);
+  font-size: 0.58rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--mi);
+  padding: 0.5rem 0.8rem;
+  border-bottom: var(--r);
+  text-align: left;
 }
-.prose-page td { padding: 0.45rem 0.8rem; border-bottom: var(--rl); }
-.prose-page tr:last-child td { border-bottom: none; }
-.prose-page a { color: var(--pr); }
-.prose-page a:hover { text-decoration: underline; }
+.prose-page td {
+  padding: 0.45rem 0.8rem;
+  border-bottom: var(--rl);
+}
+.prose-page tr:last-child td {
+  border-bottom: none;
+}
+.prose-page a {
+  color: var(--pr);
+}
+.prose-page a:hover {
+  text-decoration: underline;
+}
 
 /* ── Language page: sidebar + content ─────────────────── */
 .lang-page {
-  max-width: 960px; margin: 0 auto;
-  display: grid; grid-template-columns: 200px 1fr;
+  max-width: 960px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 200px 1fr;
   min-height: calc(100vh - 48px);
 }
-.lang-sidebar { border-right: var(--r); padding: 2rem 0; }
-.sidebar-heading {
-  font-family: var(--fl); font-size: 0.56rem; letter-spacing: 0.14em;
-  text-transform: uppercase; color: var(--mi); padding: 0 1.2rem; margin-bottom: 0.6rem;
+.lang-sidebar {
+  border-right: var(--r);
+  padding: 2rem 0;
 }
-.sidebar-nav { list-style: none; }
+.sidebar-heading {
+  font-family: var(--fl);
+  font-size: 0.56rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mi);
+  padding: 0 1.2rem;
+  margin-bottom: 0.6rem;
+}
+.sidebar-nav {
+  list-style: none;
+}
 .sidebar-nav a {
-  display: block; font-family: var(--fl); font-size: 0.6rem; letter-spacing: 0.08em;
-  text-transform: uppercase; color: var(--mi); padding: 0.45rem 1.2rem;
+  display: block;
+  font-family: var(--fl);
+  font-size: 0.6rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mi);
+  padding: 0.45rem 1.2rem;
   border-left: 3px solid transparent;
 }
-.sidebar-nav a:hover { color: var(--ik); text-decoration: none; }
-.sidebar-nav a.active { color: var(--ik); border-left-color: var(--pr); }
-.lang-content { padding: 3rem 2.5rem; }
+.sidebar-nav a:hover {
+  color: var(--ik);
+  text-decoration: none;
+}
+.sidebar-nav a.active {
+  color: var(--ik);
+  border-left-color: var(--pr);
+}
+.lang-content {
+  padding: 3rem 2.5rem;
+}
 
 /* lang-content prose (mirrors prose-page) */
 .lang-content h1 {
-  font-family: var(--fd); font-size: 2.8rem; font-weight: 900; line-height: 1.0;
-  margin-bottom: 2rem; padding-bottom: 1rem; border-bottom: var(--rh);
+  font-family: var(--fd);
+  font-size: 2.8rem;
+  font-weight: 900;
+  line-height: 1;
+  margin-bottom: 2rem;
+  padding-bottom: 1rem;
+  border-bottom: var(--rh);
 }
 .lang-content h2 {
-  font-family: var(--fd); font-size: 1.8rem; font-weight: 700; line-height: 1.1;
-  margin-top: 2.5rem; margin-bottom: 0.8rem; padding-bottom: 0.5rem; border-bottom: var(--r);
+  font-family: var(--fd);
+  font-size: 1.8rem;
+  font-weight: 700;
+  line-height: 1.1;
+  margin-top: 2.5rem;
+  margin-bottom: 0.8rem;
+  padding-bottom: 0.5rem;
+  border-bottom: var(--r);
 }
 .lang-content h3 {
-  font-family: var(--fd); font-size: 1.25rem; font-weight: 700;
-  margin-top: 1.8rem; margin-bottom: 0.5rem;
+  font-family: var(--fd);
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-top: 1.8rem;
+  margin-bottom: 0.5rem;
 }
 .lang-content p {
-  font-family: var(--fb); font-size: 0.95rem; color: var(--sh); line-height: 1.65; margin-bottom: 1rem;
+  font-family: var(--fb);
+  font-size: 0.95rem;
+  color: var(--sh);
+  line-height: 1.65;
+  margin-bottom: 1rem;
 }
 .lang-content pre {
-  border: var(--r); background: var(--pa); padding: 1rem 1.2rem; overflow-x: auto; margin-bottom: 1rem;
+  border: var(--r);
+  background: var(--pa);
+  padding: 1rem 1.2rem;
+  overflow-x: auto;
+  margin-bottom: 1rem;
 }
 .lang-content pre code {
-  font-family: var(--fb); font-size: 0.82rem; color: var(--ik); background: none; padding: 0;
+  font-family: var(--fb);
+  font-size: 0.82rem;
+  color: var(--ik);
+  background: none;
+  padding: 0;
 }
 .lang-content code {
-  font-family: var(--fb); font-size: 0.85rem; padding: 0.05em 0.25em; border: var(--rl);
+  font-family: var(--fb);
+  font-size: 0.85rem;
+  padding: 0.05em 0.25em;
+  border: var(--rl);
 }
 .lang-content table {
-  width: 100%; border-collapse: collapse; border: var(--r); margin-bottom: 1rem;
-  font-family: var(--fb); font-size: 0.85rem;
+  width: 100%;
+  border-collapse: collapse;
+  border: var(--r);
+  margin-bottom: 1rem;
+  font-family: var(--fb);
+  font-size: 0.85rem;
 }
 .lang-content th {
-  font-family: var(--fl); font-size: 0.58rem; letter-spacing: 0.1em; text-transform: uppercase;
-  color: var(--mi); padding: 0.5rem 0.8rem; border-bottom: var(--r); text-align: left;
+  font-family: var(--fl);
+  font-size: 0.58rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--mi);
+  padding: 0.5rem 0.8rem;
+  border-bottom: var(--r);
+  text-align: left;
 }
-.lang-content td { padding: 0.45rem 0.8rem; border-bottom: var(--rl); }
-.lang-content tr:last-child td { border-bottom: none; }
-.lang-content a { color: var(--pr); }
-.lang-content a:hover { text-decoration: underline; }
-.lang-content ul, .lang-content ol {
-  font-family: var(--fb); font-size: 0.95rem; color: var(--sh);
-  padding-left: 1.5rem; margin-bottom: 1rem;
+.lang-content td {
+  padding: 0.45rem 0.8rem;
+  border-bottom: var(--rl);
 }
-.lang-content li { margin-bottom: 0.3rem; }
+.lang-content tr:last-child td {
+  border-bottom: none;
+}
+.lang-content a {
+  color: var(--pr);
+}
+.lang-content a:hover {
+  text-decoration: underline;
+}
+.lang-content ul,
+.lang-content ol {
+  font-family: var(--fb);
+  font-size: 0.95rem;
+  color: var(--sh);
+  padding-left: 1.5rem;
+  margin-bottom: 1rem;
+}
+.lang-content li {
+  margin-bottom: 0.3rem;
+}
 
 /* ── Responsive ────────────────────────────────────────── */
 @media (max-width: 680px) {
-  .hero-title { font-size: 2rem; }
-  .principles-grid { grid-template-columns: 1fr; }
-  .gn-card { border-right: none !important; }
-  .lang-page { grid-template-columns: 1fr; }
-  .lang-sidebar { border-right: none; border-bottom: var(--r); }
+  .hero-title {
+    font-size: 2rem;
+  }
+  .principles-grid {
+    grid-template-columns: 1fr;
+  }
+  .gn-card {
+    border-right: none !important;
+  }
+  .lang-page {
+    grid-template-columns: 1fr;
+  }
+  .lang-sidebar {
+    border-right: none;
+    border-bottom: var(--r);
+  }
 }
 ```
 
@@ -578,6 +944,7 @@ git commit -m "feat: GRAIN design system CSS — full token set, nav, patterns, 
 ### Task 4: Write base.html
 
 **Files:**
+
 - Replace: `templates/base.html`
 
 - [ ] **Step 1: Write templates/base.html**
@@ -642,32 +1009,37 @@ git commit -m "feat: base.html — GRAIN nav, footer, Google Fonts"
 ### Task 5: Build the landing page
 
 **Files:**
+
 - Replace: `templates/index.html`
 - Already created: `content/_index.md` (no change needed)
 
 - [ ] **Step 1: Write templates/index.html**
 
 ```html
-{% extends "base.html" %}
-
-{% block title %}MonaDB — A query language for embedded documents{% endblock title %}
-{% block description %}MonaDB pairs a small document-friendly SQL dialect with a stack-based bytecode engine — text in, results out, no server.{% endblock description %}
-
-{% block content %}
+{% extends "base.html" %} {% block title %}MonaDB — A query language for
+embedded documents{% endblock title %} {% block description %}MonaDB pairs a
+small document-friendly SQL dialect with a stack-based bytecode engine — text
+in, results out, no server.{% endblock description %} {% block content %}
 
 <section class="hero">
   <canvas class="hero-canvas" data-grain="hero" data-height="400"></canvas>
   <div class="hero-inner">
-    <p class="hero-eyebrow">Embedded database</p>
+    <p class="hero-eyebrow">MonaDB</p>
     <h1 class="hero-title">A query language for embedded documents.</h1>
     <p class="hero-lead">
       RQL compiles to stack-based bytecode and runs inside your process.
-      Objects, arrays, and path traversal are first-class constructs, not extensions.
-      No server. No daemon. The database lives where your code does.
+      Objects, arrays, and path traversal are first-class constructs, not
+      extensions. No server. No daemon. The database lives where your code does.
     </p>
     <div class="hero-cta">
-      <a class="gn-btn gn-btn-pri" href="{{ get_url(path='@/language/introduction.md') }}">Read the language</a>
-      <a class="gn-btn gn-btn-sec" href="{{ get_url(path='@/design.md') }}">How it works</a>
+      <a
+        class="gn-btn gn-btn-pri"
+        href="{{ get_url(path='@/language/introduction.md') }}"
+        >Examples</a
+      >
+      <a class="gn-btn gn-btn-sec" href="{{ get_url(path='@/design.md') }}"
+        >How it works</a
+      >
     </div>
   </div>
 </section>
@@ -713,31 +1085,59 @@ select { x: p.x, y: p.y }
     <h2 class="sect-title">What makes RQL different.</h2>
     <div class="principles-grid">
       <div class="gn-card">
-        <canvas class="gn-card-img" data-grain="dot25" data-height="90"></canvas>
+        <canvas
+          class="gn-card-img"
+          data-grain="dot25"
+          data-height="90"
+        ></canvas>
         <div class="gn-card-body">
           <h3 class="gn-card-title">Documents</h3>
-          <p>Objects, arrays, and JSONPath-style traversal are part of the language model. The schema is optional — or absent entirely.</p>
+          <p>
+            Objects, arrays, and JSONPath-style traversal are part of the
+            language model. The schema is optional — or absent entirely.
+          </p>
         </div>
       </div>
       <div class="gn-card">
-        <canvas class="gn-card-img" data-grain="dot50" data-height="90"></canvas>
+        <canvas
+          class="gn-card-img"
+          data-grain="dot50"
+          data-height="90"
+        ></canvas>
         <div class="gn-card-body">
           <h3 class="gn-card-title">Bytecode</h3>
-          <p>Queries compile to compact Vop instructions. The VM executes a tight loop over them rather than interpreting the tree directly.</p>
+          <p>
+            Queries compile to compact Vop instructions. The VM executes a tight
+            loop over them rather than interpreting the tree directly.
+          </p>
         </div>
       </div>
       <div class="gn-card">
-        <canvas class="gn-card-img" data-grain="dot25" data-height="90"></canvas>
+        <canvas
+          class="gn-card-img"
+          data-grain="dot25"
+          data-height="90"
+        ></canvas>
         <div class="gn-card-body">
           <h3 class="gn-card-title">Embedded</h3>
-          <p>Backed by LMDB. The database runs inside your process — no server, no configuration files, no background daemon.</p>
+          <p>
+            Backed by LMDB. The database runs inside your process — no server,
+            no configuration files, no background daemon.
+          </p>
         </div>
       </div>
       <div class="gn-card">
-        <canvas class="gn-card-img" data-grain="dot50" data-height="90"></canvas>
+        <canvas
+          class="gn-card-img"
+          data-grain="dot50"
+          data-height="90"
+        ></canvas>
         <div class="gn-card-body">
           <h3 class="gn-card-title">Familiar</h3>
-          <p>Most of the SQL you already know: select, from, where, group, order. Fewer corners, document-friendly defaults.</p>
+          <p>
+            Most of the SQL you already know: select, from, where, group, order.
+            Fewer corners, document-friendly defaults.
+          </p>
         </div>
       </div>
     </div>
@@ -754,6 +1154,7 @@ zola serve
 ```
 
 Check:
+
 - Hero canvas renders a halftone gradient (Paper background with Ink dots, light-to-dark left-to-right)
 - Eyebrow "EMBEDDED DATABASE" in Space Mono uppercase
 - Title "A query language for embedded documents." in Playfair Display 900
@@ -774,21 +1175,17 @@ git commit -m "feat: landing page — GRAIN hero, pipeline, code taste, principl
 ### Task 6: Build the design page
 
 **Files:**
+
 - Replace: `templates/page.html`
 - Replace: `content/design.md`
 
 - [ ] **Step 1: Write templates/page.html**
 
 ```html
-{% extends "base.html" %}
-
-{% block title %}{{ page.title }} — MonaDB{% endblock title %}
-{% block description %}{{ page.description }}{% endblock description %}
-
+{% extends "base.html" %} {% block title %}{{ page.title }} — MonaDB{% endblock
+title %} {% block description %}{{ page.description }}{% endblock description %}
 {% block content %}
-<div class="prose-page">
-  {{ page.content | safe }}
-</div>
+<div class="prose-page">{{ page.content | safe }}</div>
 {% endblock content %}
 ```
 
@@ -852,6 +1249,7 @@ Keys are shredded from the record using order-preserving encoding. Values are st
 - [ ] **Step 3: Run zola serve, open http://127.0.0.1:1111/design/**
 
 Check:
+
 - Heading "Design" in Playfair Display 900 with heavy bottom rule
 - Section headings (Lexer, Parser, …) in Playfair Display 700 with regular bottom rule
 - Body prose in Courier Prime, Shadow color
@@ -870,35 +1268,40 @@ git commit -m "feat: design page — prose template + all-new architecture copy"
 ### Task 7: Build the language sidebar template
 
 **Files:**
+
 - Replace: `templates/language/page.html`
 
 - [ ] **Step 1: Write templates/language/page.html**
 
 ```html
-{% extends "base.html" %}
-
-{% block title %}{{ page.title }} — Language — MonaDB{% endblock title %}
-{% block description %}{{ page.description }}{% endblock description %}
-
-{% block content %}
-{% set lang_section = get_section(path="language/_index.md") %}
+{% extends "base.html" %} {% block title %}{{ page.title }} — Language —
+MonaDB{% endblock title %} {% block description %}{{ page.description }}{%
+endblock description %} {% block content %} {% set lang_section =
+get_section(path="language/_index.md") %}
 <div class="lang-page">
   <aside class="lang-sidebar">
     <p class="sidebar-heading">Language</p>
     <ul class="sidebar-nav">
       {% for p in lang_section.pages %}
       <li>
-        <a href="{{ p.permalink }}"
-          {% if p.permalink == current_url %}class="active"{% endif %}>
+        <a
+          href="{{ p.permalink }}"
+          {%
+          if
+          p.permalink=""
+          ="current_url"
+          %}class="active"
+          {%
+          endif
+          %}
+        >
           {{ p.title }}
         </a>
       </li>
       {% endfor %}
     </ul>
   </aside>
-  <main class="lang-content">
-    {{ page.content | safe }}
-  </main>
+  <main class="lang-content">{{ page.content | safe }}</main>
 </div>
 {% endblock content %}
 ```
@@ -906,10 +1309,11 @@ git commit -m "feat: design page — prose template + all-new architecture copy"
 - [ ] **Step 2: Run zola serve, open http://127.0.0.1:1111/language/introduction/**
 
 Check:
+
 - Two-column layout: 200px sidebar left, content right
 - Sidebar heading "LANGUAGE" in Space Mono
 - Six section links in order: Introduction, Statements, Syntax, Types, Expressions, Functions
-- Active page (Introduction) has Prussian left border and Ink color
+- Active page (Introduction) has Sage left border and Ink color
 - Clicking sidebar links navigates correctly, active state updates
 
 - [ ] **Step 3: Commit**
@@ -924,6 +1328,7 @@ git commit -m "feat: language page template — GRAIN sidebar with active state"
 ### Task 8: Write all language reference content
 
 **Files:**
+
 - Replace: `content/language/introduction.md`
 - Replace: `content/language/statements.md`
 - Replace: `content/language/syntax.md`
@@ -950,14 +1355,14 @@ Every query compiles to a sequence of stack-based bytecode instructions and runs
 
 Each clause in a query is a transform over a stream of bindings.
 
-| Clause | Operation |
-|--------|-----------|
-| `from` | Iterate — produce one binding per row |
-| `with` | Map — extend each binding |
-| `select` | Map — construct the output value |
-| `where` | Filter — drop bindings that fail the predicate |
-| `group` | Reduce — collapse bindings by key |
-| `order` | Sort — reorder the binding stream |
+| Clause            | Operation                                             |
+| ----------------- | ----------------------------------------------------- |
+| `from`            | Iterate — produce one binding per row                 |
+| `with`            | Map — extend each binding                             |
+| `select`          | Map — construct the output value                      |
+| `where`           | Filter — drop bindings that fail the predicate        |
+| `group`           | Reduce — collapse bindings by key                     |
+| `order`           | Sort — reorder the binding stream                     |
 | `limit` / `fetch` | Limit — take at most N bindings, with optional offset |
 
 The clauses compose left-to-right. `from` produces bindings; each subsequent clause transforms them; `select` maps them to output values.
@@ -965,11 +1370,12 @@ The clauses compose left-to-right. `from` produces bindings; each subsequent cla
 ## Documents
 
 RQL treats objects and arrays as first-class values. Object literals use `{ key: value }` syntax. Arrays use `[value, value]`. Path traversal uses `$` notation rooted at a table or variable.
-
 ```
-{ x: 1, y: 2 }           -- object literal
-[1, 2, 3]                 -- array literal
-T$.address.city           -- path into T
+
+{ x: 1, y: 2 } -- object literal
+[1, 2, 3] -- array literal
+T$.address.city -- path into T
+
 ```
 
 Schemas are optional. A table declared without a schema accepts any value.
@@ -995,28 +1401,31 @@ A MonaDB program is a sequence of statements separated by semicolons. Each state
 ## select
 
 Maps the current binding stream and applies a constructor — an object literal, a list of named expressions, or `*` to spread all bound variables.
-
 ```
+
 select <constructor>
-  [from <source>]
-  [where <expr>]
-  [group by <expr>]
-  [order by <expr> [asc|desc]]
-  [fetch <range>];
+[from <source>]
+[where <expr>]
+[group by <expr>]
+[order by <expr> [asc|desc]]
+[fetch <range>];
+
 ```
 
 ```
+
 select 1 + 1;
 
 select { x: p.x, y: p.y }
-  from points as p;
+from points as p;
 
 select p.x as x, p.y as y
-  from points as p
- where p.x > 0;
+from points as p
+where p.x > 0;
 
-select * from t;          -- equivalent to { ...t }
-select * from t, s;       -- { ...t, ...s }
+select _ from t; -- equivalent to { ...t }
+select _ from t, s; -- { ...t, ...s }
+
 ```
 
 ## insert
@@ -1024,15 +1433,17 @@ select * from t, s;       -- { ...t, ...s }
 `insert into <table>` followed by a parenthesised, comma-separated values list. A trailing comma is permitted.
 
 ```
+
 insert into points ({ x: 1, y: 2 });
 
 insert into points (
-    { x: 1, y: 2 },
-    { x: 3, y: 4 },
+{ x: 1, y: 2 },
+{ x: 3, y: 4 },
 );
 
 insert into numbers (1, 2, 3);
 insert into tuples ([1, 2], [3, 4]);
+
 ```
 
 ## update
@@ -1040,8 +1451,10 @@ insert into tuples ([1, 2], [3, 4]);
 `update <table> set <col> = <expr>, ...` with an optional `where` clause. Only rows matching the predicate are updated. Column values may be an expression, `DEFAULT`, or `NULL`.
 
 ```
+
 update points set x = 10 where x = 0;
 update points set x = x + 1, y = x + 1 where y = 0;
+
 ```
 
 ## create table
@@ -1049,18 +1462,20 @@ update points set x = x + 1, y = x + 1 where y = 0;
 A table is a collection with an optional type constraint and optional index declarations. Members are `NOT NULL` by default; append `|null` to permit null.
 
 ```
-create table points;          -- no schema
-create table points ();       -- equivalent
+
+create table points; -- no schema
+create table points (); -- equivalent
 
 create table points ({
-    x: number,
-    y: number,
-    z: number|null,           -- nullable
-    ...                       -- open content
+x: number,
+y: number,
+z: number|null, -- nullable
+... -- open content
 }, {
-    hash: x,                  -- partition key
-    sort: y,                  -- range key
+hash: x, -- partition key
+sort: y, -- range key
 });
+
 ```
 
 The second block declares index keys. Both `hash` and `sort` are optional.
@@ -1070,7 +1485,9 @@ The second block declares index keys. Both `hash` and `sort` are optional.
 Removes a table and all its contents.
 
 ```
+
 drop table points;
+
 ```
 
 ## copy
@@ -1078,9 +1495,11 @@ drop table points;
 Moves data between a table or query and a file. Format is inferred from the extension or set via the `format:` option.
 
 ```
+
 copy items to 'items.jsonl';
 copy items to 'items.csv';
 copy items to 'items.tsv' { header: false };
+
 ```
 
 Supported formats: `jsonl`, `csv`, `tsv`.
@@ -1100,11 +1519,12 @@ weight = 3
 ## Identifiers
 
 An identifier is any UTF-8 name that is not a reserved word. Identifiers are case-sensitive. A name that collides with a reserved word may be quoted with backticks.
-
 ```
-points          -- valid
-myTable         -- valid
-`select`        -- quoted reserved word, valid
+
+points -- valid
+myTable -- valid
+`select` -- quoted reserved word, valid
+
 ```
 
 ## Reserved words
@@ -1118,13 +1538,17 @@ The following words are reserved and may not appear as bare identifiers:
 **Numbers** are decimal integers or floating-point values.
 
 ```
-42      3.14      -1
+
+42 3.14 -1
+
 ```
 
 **Strings** are single-quoted. Escape sequences: `\'` `\\` `\n` `\t`.
 
 ```
-'hello'      'it\'s fine'
+
+'hello' 'it\'s fine'
+
 ```
 
 **Booleans**: `true` and `false`.
@@ -1140,7 +1564,9 @@ The following words are reserved and may not appear as bare identifiers:
 Single-line comments begin with `--` and run to end of line. Block comments are not supported.
 
 ```
-select x from t;   -- this is a comment
+
+select x from t; -- this is a comment
+
 ```
 
 ## Semicolons
@@ -1161,24 +1587,25 @@ weight = 4
 
 RQL has five base types. All have a canonical name and a short alias. Types appear in `create table` schema declarations and in cast expressions.
 
-| Type | Alias | Description |
-|------|-------|-------------|
-| `boolean` | `bool` | `true` or `false` |
-| `number` | `num` | 64-bit floating-point |
-| `string` | `str` | UTF-8 text |
-| `array` | `arr` | Ordered sequence of values |
-| `object` | `obj` | Unordered map of named fields |
+| Type      | Alias  | Description                   |
+| --------- | ------ | ----------------------------- |
+| `boolean` | `bool` | `true` or `false`             |
+| `number`  | `num`  | 64-bit floating-point         |
+| `string`  | `str`  | UTF-8 text                    |
+| `array`   | `arr`  | Ordered sequence of values    |
+| `object`  | `obj`  | Unordered map of named fields |
 
 ## Nullability
 
 Schema members are `NOT NULL` by default. Append `|null` to a type to allow null.
-
 ```
+
 create table readings ({
-    sensor: string,
-    value:  number,
-    label:  string|null,   -- nullable
+sensor: string,
+value: number,
+label: string|null, -- nullable
 });
+
 ```
 
 A nullable field accepts either a typed value or `null`. A non-nullable field rejects `null` at insert time.
@@ -1188,11 +1615,13 @@ A nullable field accepts either a typed value or `null`. A non-nullable field re
 Append `...` as the last member of an object schema to allow extra fields. Without `...`, inserting an object with undeclared fields is a type error.
 
 ```
+
 create table events ({
-    id:   number,
-    name: string,
-    ...               -- any extra fields allowed
+id: number,
+name: string,
+... -- any extra fields allowed
 });
+
 ```
 
 ## No schema
@@ -1213,31 +1642,32 @@ weight = 5
 
 ## Operators
 
-| Category | Operators |
-|----------|-----------|
-| Arithmetic | `+`  `-`  `*`  `/`  `%` |
-| Comparison | `=`  `!=`  `<`  `>`  `<=`  `>=` |
-| Logical | `and`  `or`  `not` |
-| String | `\|\|` (concatenation) |
+| Category   | Operators                  |
+| ---------- | -------------------------- |
+| Arithmetic | `+` `-` `*` `/` `%`        |
+| Comparison | `=` `!=` `<` `>` `<=` `>=` |
+| Logical    | `and` `or` `not`           |
+| String     | `\|\|` (concatenation)     |
 
 Operator precedence, highest to lowest:
 
 1. Unary `-`, `not`
-2. `*`  `/`  `%`
-3. `+`  `-`  `||`
-4. `=`  `!=`  `<`  `>`  `<=`  `>=`
+2. `*` `/` `%`
+3. `+` `-` `||`
+4. `=` `!=` `<` `>` `<=` `>=`
 5. `and`
 6. `or`
 
 All binary operators are left-associative at the same level.
 
 ## Object constructors
-
 ```
+
 { a: 1, b: 2 }
-{ ...t, extra: true }    -- spread t, add extra
-{ ...a, ...b }           -- merge (b wins on conflict)
-{ x, y }                 -- shorthand for { x: x, y: y }
+{ ...t, extra: true } -- spread t, add extra
+{ ...a, ...b } -- merge (b wins on conflict)
+{ x, y } -- shorthand for { x: x, y: y }
+
 ```
 
 A trailing comma is permitted.
@@ -1245,8 +1675,10 @@ A trailing comma is permitted.
 ## Array constructors
 
 ```
+
 [1, 2, 3]
 [x, y, x + y]
+
 ```
 
 ## Path traversal
@@ -1254,12 +1686,14 @@ A trailing comma is permitted.
 Path traversal is rooted at a table or variable with `$`. Single field access collapses to the value. Use in `from` to iterate a nested collection.
 
 ```
-T$.address              -- the address field of T
-T$.tags[0]              -- first element of tags
-T$['key']               -- bracket notation, equivalent to T$.key
-T$[x, y]                -- select fields x and y
 
-from T$.items as item   -- iterate the items array of each row
+T$.address              -- the address field of T
+T$.tags[0] -- first element of tags
+T$['key']               -- bracket notation, equivalent to T$.key
+T$[x, y] -- select fields x and y
+
+from T$.items as item -- iterate the items array of each row
+
 ```
 
 ## Cast and coercion
@@ -1267,9 +1701,11 @@ from T$.items as item   -- iterate the items array of each row
 Three interchangeable forms:
 
 ```
+
 cast(v as bool)
 v::bool
 bool(v)
+
 ```
 
 | From | → bool | → number | → string |
@@ -1297,11 +1733,12 @@ weight = 6
 ## Call syntax
 
 Functions are called by name with positional arguments. Named arguments use `name: value` syntax and may follow positional arguments in any order.
-
 ```
+
 upper('hello')
 round(3.14159, 2)
 read('data.jsonl', format: 'jsonl')
+
 ```
 
 ## Aggregate functions
@@ -1318,9 +1755,11 @@ Aggregate functions reduce a group of rows to a single value. They are valid onl
 | `max(expr)` | Maximum value |
 
 ```
-select { tag: tag, n: count(*) }
-  from items
- group by tag;
+
+select { tag: tag, n: count(\*) }
+from items
+group by tag;
+
 ```
 
 ## String functions
@@ -1339,8 +1778,10 @@ select { tag: tag, n: count(*) }
 `read(path)` reads a file and returns its contents as a value or row sequence for use in `from`. Format is inferred from the file extension; override with the `format:` named argument.
 
 ```
-select * from read('data.jsonl') as row;
-select * from read('records.csv', header: true) as row;
+
+select _ from read('data.jsonl') as row;
+select _ from read('records.csv', header: true) as row;
+
 ```
 
 Supported formats: `jsonl`, `csv`, `tsv`.
@@ -1353,6 +1794,7 @@ zola serve
 ```
 
 Open in sequence:
+
 - `http://127.0.0.1:1111/language/introduction/`
 - `http://127.0.0.1:1111/language/statements/`
 - `http://127.0.0.1:1111/language/syntax/`
@@ -1360,7 +1802,7 @@ Open in sequence:
 - `http://127.0.0.1:1111/language/expressions/`
 - `http://127.0.0.1:1111/language/functions/`
 
-Verify for each: sidebar present, active item highlighted with Prussian border, tables render with GRAIN header style, code blocks border correctly.
+Verify for each: sidebar present, active item highlighted with Sage border, tables render with GRAIN header style, code blocks border correctly.
 
 - [ ] **Step 8: Run zola check**
 
@@ -1382,6 +1824,7 @@ git commit -m "feat: language reference — six sections, all-new RQL copy"
 ### Task 9: Update GitHub Actions workflow
 
 **Files:**
+
 - Replace: `.github/workflows/pages.yml`
 
 - [ ] **Step 1: Replace .github/workflows/pages.yml**
@@ -1463,6 +1906,7 @@ git commit -m "feat: GitHub Actions — Zola build + GitHub Pages deploy"
 ### Task 10: Remove legacy site/, final check, deploy
 
 **Files:**
+
 - Delete: `site/` directory
 
 - [ ] **Step 1: Remove the old site directory**
@@ -1487,6 +1931,7 @@ zola build && ls public/
 ```
 
 Expected files present in `public/`:
+
 ```
 index.html
 design/index.html
@@ -1512,7 +1957,7 @@ Open the GitHub Actions tab. Watch the "Deploy Pages" workflow run to completion
 
 - Landing: halftone hero canvas, Space Mono pipeline strip, Courier Prime code block, Playfair card titles, `gn-btn-pri` / `gn-btn-sec` buttons
 - `/design/`: prose in GRAIN type scale, Heavy border under h1, Regular borders under h2
-- `/language/introduction/`: sidebar with Prussian active indicator, full two-column layout
+- `/language/introduction/`: sidebar with Sage active indicator, full two-column layout
 - Nav active states update correctly on each page
 - GitHub link goes to `https://github.com/rchowell/MonaDB`
 
@@ -1520,24 +1965,24 @@ Open the GitHub Actions tab. Watch the "Deploy Pages" workflow run to completion
 
 ## Self-review
 
-| Spec requirement | Task |
-|---|---|
-| Full Zola approach (all pages through templates/content) | Tasks 1, 4–8 |
-| GRAIN color tokens (all 6 values + 3 border weights) | Task 3 |
-| Google Fonts: Playfair Display, Courier Prime, Space Mono | Task 4 |
-| GRAIN pattern classes (ht10–htcross) | Task 3 |
-| grain.js: halftoneGradient + halftoneCard | Task 2 |
-| No smooth CSS gradients in UI, no blur shadows | Task 3 (CSS has none) |
-| Landing hero with canvas halftone | Task 5 |
-| Landing pipeline strip (Space Mono, bordered) | Task 5 |
-| Landing code taste | Task 5 |
-| Landing principle cards with canvas images | Task 5 |
-| Design page: all-new prose copy, 6 sections | Task 6 |
-| Language sidebar built from get_section() | Task 7 |
-| Sidebar active state via Prussian border-left | Task 7 |
-| 6 language sections: all-new copy | Task 8 |
-| Language URL: /language/\<section\>/ | Tasks 1, 7–8 |
-| Design URL: /design/ | Tasks 1, 6 |
-| GitHub Actions: Zola build + Pages deploy | Task 9 |
-| Old site/ removed | Task 10 |
-| public/ in .gitignore | Task 1 |
+| Spec requirement                                          | Task                  |
+| --------------------------------------------------------- | --------------------- |
+| Full Zola approach (all pages through templates/content)  | Tasks 1, 4–8          |
+| GRAIN color tokens (all 6 values + 3 border weights)      | Task 3                |
+| Google Fonts: Playfair Display, Courier Prime, Space Mono | Task 4                |
+| GRAIN pattern classes (ht10–htcross)                      | Task 3                |
+| grain.js: halftoneGradient + halftoneCard                 | Task 2                |
+| No smooth CSS gradients in UI, no blur shadows            | Task 3 (CSS has none) |
+| Landing hero with canvas halftone                         | Task 5                |
+| Landing pipeline strip (Space Mono, bordered)             | Task 5                |
+| Landing code taste                                        | Task 5                |
+| Landing principle cards with canvas images                | Task 5                |
+| Design page: all-new prose copy, 6 sections               | Task 6                |
+| Language sidebar built from get_section()                 | Task 7                |
+| Sidebar active state via Sage border-left                 | Task 7                |
+| 6 language sections: all-new copy                         | Task 8                |
+| Language URL: /language/\<section\>/                      | Tasks 1, 7–8          |
+| Design URL: /design/                                      | Tasks 1, 6            |
+| GitHub Actions: Zola build + Pages deploy                 | Task 9                |
+| Old site/ removed                                         | Task 10               |
+| public/ in .gitignore                                     | Task 1                |
