@@ -1,14 +1,3 @@
-//! Python bindings for MonaDB.
-//!
-//! This module is the *only* place pyo3 appears in the crate; it is compiled
-//! solely under `--features python` (see the gated `mod python;` in `lib.rs`).
-//! It is a thin pass-through over the public [`crate::MonaDB`] API and converts
-//! monadb's JSON-native [`Value`] rows into native Python objects.
-//!
-//! The surface mirrors DuckDB's cursor interface:
-//! `connect()` → `execute()`/`sql()` → `fetchone()`/`fetchmany()`/`fetchall()`,
-//! plus `close()` and context-manager support.
-
 #![allow(deprecated)] // tolerate pyo3's IntoPy deprecations across versions
 
 use pyo3::create_exception;

@@ -69,6 +69,12 @@ tests:
       - sql: "select [];"
         result: [[]]
 
+  - id: lit-array-two-elements
+    description: array literal with two elements yields a single array value
+    steps:
+      - sql: "select [1, 2];"
+        result: [[1, 2]]
+
   - id: lit-array-numbers
     description: array literal of numbers
     steps:

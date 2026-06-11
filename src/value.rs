@@ -20,6 +20,8 @@ pub enum Value {
     Json(JsonValue),
     Oid(u32),
     Bytes(Vec<u8>),
+    /// TODO: This is a bit of a hack and should be removed.
+    Arr(Vec<Value>),
 }
 
 /// Default is null so `.unwrap_or_null()` can be used.
@@ -62,7 +64,7 @@ impl Value {
         if self.is_null() || other.is_null() {
             return self.is_null() && other.is_null();
         }
-        self.json() == other.json()
+        *self.as_json() == *other.as_json()
     }
 
     /// SQL inequality: any comparison involving `null` is false (not true).
@@ -70,7 +72,7 @@ impl Value {
         if self.is_null() || other.is_null() {
             return false;
         }
-        self.json() != other.json()
+        *self.as_json() != *other.as_json()
     }
 
     #[inline]
@@ -80,7 +82,7 @@ impl Value {
 
     #[inline]
     pub fn array() -> Value {
-        Self::Json(JsonValue::Array(Vec::new()))
+        Self::Arr(Vec::new())
     }
 
     #[inline]
@@ -88,10 +90,11 @@ impl Value {
         if self.is_null() {
             return false;
         }
-        if let Some(b) = self.json().as_bool() {
+        let j = self.as_json();
+        if let Some(b) = j.as_bool() {
             return b;
         }
-        if let Some(n) = self.json().as_f64() {
+        if let Some(n) = j.as_f64() {
             return n != 0.0;
         }
         true
@@ -99,14 +102,14 @@ impl Value {
 
     /// Serialize the value as a JSON byte vector.
     pub fn to_vec(&self) -> Vec<u8> {
-        serde_json::to_vec(&self.json()).unwrap()
+        serde_json::to_vec(&*self.as_json()).unwrap()
     }
 
     pub fn into_json(self) -> JsonValue {
-        if let Value::Json(value) = self {
-            value
-        } else {
-            unreachable!()
+        match self {
+            Value::Json(value) => value,
+            Value::Arr(items) => JsonValue::Array(items.into_iter().map(|v| v.into_json()).collect()),
+            _ => unreachable!(),
         }
     }
 
@@ -115,7 +118,8 @@ impl Value {
     /// Consider an `into_members(self)` version of this.
     ///
     pub fn members(&self) -> Option<Vec<(String, Value)>> {
-        if let JsonValue::Object(members) = &self.json() {
+        // `members` only makes sense for objects; `Arr` is never an object.
+        if let Value::Json(JsonValue::Object(members)) = self {
             let members = members
                 .iter()
                 .map(|(k, v)| (k.clone(), Self::Json(v.clone())))
@@ -127,54 +131,63 @@ impl Value {
     }
 
     pub fn is_bool(&self) -> bool {
-        self.json().is_boolean()
+        self.as_json().is_boolean()
     }
 
     pub fn is_null(&self) -> bool {
-        self.json().is_null()
+        matches!(self, Value::Json(JsonValue::Null))
     }
 
     pub fn is_number(&self) -> bool {
-        self.json().is_number()
+        self.as_json().is_number()
     }
 
     pub fn is_u64(&self) -> bool {
-        self.json().is_u64()
+        self.as_json().is_u64()
     }
 
     pub fn as_u64(&self) -> Option<u64> {
-        self.json().as_u64()
+        self.as_json().as_u64()
     }
 
     pub fn is_f64(&self) -> bool {
-        self.json().is_f64()
+        self.as_json().is_f64()
     }
 
     pub fn as_f64(&self) -> Option<f64> {
-        self.json().as_f64()
+        self.as_json().as_f64()
     }
 
     pub fn is_string(&self) -> bool {
-        self.json().is_string()
+        self.as_json().is_string()
     }
 
     pub fn as_str(&self) -> Option<&str> {
-        self.json().as_str()
+        // `as_json()` may return an Owned value; we cannot return a borrow into it.
+        // Only `Value::Json(JsonValue::String(_))` can yield a `&str`.
+        if let Value::Json(JsonValue::String(s)) = self {
+            Some(s.as_str())
+        } else {
+            None
+        }
     }
 
     pub fn is_array(&self) -> bool {
-        self.json().is_array()
+        matches!(self, Value::Arr(_)) || matches!(self, Value::Json(v) if v.is_array())
     }
 
     pub fn is_object(&self) -> bool {
-        self.json().is_object()
+        self.as_json().is_object()
     }
 
-    fn json(&self) -> &JsonValue {
-        if let Value::Json(value) = self {
-            value
-        } else {
-            unreachable!()
+    /// A JSON view of this value. Borrows the inner JSON for `Json`; materializes
+    /// one for `Arr` (a native array) via `into_json`. Other non-JSON variants
+    /// (e.g. raw key `Bytes`) are never valid in a JSON context.
+    fn as_json(&self) -> std::borrow::Cow<'_, JsonValue> {
+        match self {
+            Value::Json(v) => std::borrow::Cow::Borrowed(v),
+            Value::Arr(_) => std::borrow::Cow::Owned(self.clone().into_json()),
+            _ => unreachable!("non-JSON value in a JSON context"),
         }
     }
 
@@ -207,25 +220,25 @@ impl Value {
 
     /// Number of elements, or `None` if this is not an array.
     pub fn len(&self) -> Option<usize> {
-        if let JsonValue::Array(values) = self.json() {
-            Some(values.len())
-        } else {
-            None
+        match self {
+            Value::Arr(items) => Some(items.len()),
+            Value::Json(JsonValue::Array(values)) => Some(values.len()),
+            _ => None,
         }
     }
 
     /// JSON Path Index
     pub fn jpi(&self, idx: usize) -> Option<Value> {
-        if let JsonValue::Array(values) = &self.json() {
-            values.get(idx).map(|v| Value::new(v.clone()))
-        } else {
-            None
+        match self {
+            Value::Arr(items) => items.get(idx).cloned(),
+            Value::Json(JsonValue::Array(values)) => values.get(idx).map(|v| Value::new(v.clone())),
+            _ => None,
         }
     }
 
     /// JSON Path Key
     pub fn jpk(&self, key: &str) -> Option<Value> {
-        if let JsonValue::Object(members) = &self.json() {
+        if let Value::Json(JsonValue::Object(members)) = self {
             members.get(key).map(|v| Value::new(v.clone()))
         } else {
             None
@@ -239,8 +252,10 @@ impl Value {
     }
 
     pub fn push(&mut self, value: Value) {
-        if let Value::Json(JsonValue::Array(items)) = self {
-            items.push(value.into_json());
+        match self {
+            Value::Arr(items) => items.push(value),
+            Value::Json(JsonValue::Array(items)) => items.push(value.into_json()),
+            _ => {}
         }
     }
 
@@ -268,6 +283,7 @@ impl Value {
                 Ok(buf)
             }
             Value::None => Ok(Vec::new()),
+            Value::Arr(_) => unreachable!("native arrays are not row values"),
         }
     }
 
@@ -303,13 +319,13 @@ impl From<u32> for Value {
 
 impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.json().to_string())
+        f.write_str(&self.as_json().to_string())
     }
 }
 
 impl Debug for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.json().to_string())
+        f.write_str(&self.as_json().to_string())
     }
 }
 
@@ -317,7 +333,7 @@ impl Add for Value {
     type Output = Self;
 
     fn add(self, other: Self) -> Self {
-        if let (JsonValue::Number(a), JsonValue::Number(b)) = (self.json(), other.json()) {
+        if let (JsonValue::Number(a), JsonValue::Number(b)) = (&*self.as_json(), &*other.as_json()) {
             Value::number(a.as_f64().unwrap() + b.as_f64().unwrap())
         } else {
             panic!("Addition is only supported for numbers")
@@ -329,7 +345,7 @@ impl Sub for Value {
     type Output = Self;
 
     fn sub(self, other: Self) -> Self {
-        if let (JsonValue::Number(a), JsonValue::Number(b)) = (self.json(), other.json()) {
+        if let (JsonValue::Number(a), JsonValue::Number(b)) = (&*self.as_json(), &*other.as_json()) {
             Value::number(a.as_f64().unwrap() - b.as_f64().unwrap())
         } else {
             panic!("Subtraction is only supported for numbers")
@@ -341,7 +357,7 @@ impl Mul for Value {
     type Output = Self;
 
     fn mul(self, other: Self) -> Self {
-        if let (JsonValue::Number(a), JsonValue::Number(b)) = (self.json(), other.json()) {
+        if let (JsonValue::Number(a), JsonValue::Number(b)) = (&*self.as_json(), &*other.as_json()) {
             Value::number(a.as_f64().unwrap() * b.as_f64().unwrap())
         } else {
             panic!("Multiplication is only supported for numbers")
@@ -353,7 +369,7 @@ impl Div for Value {
     type Output = Self;
 
     fn div(self, other: Self) -> Self {
-        if let (JsonValue::Number(a), JsonValue::Number(b)) = (self.json(), other.json()) {
+        if let (JsonValue::Number(a), JsonValue::Number(b)) = (&*self.as_json(), &*other.as_json()) {
             Value::number(a.as_f64().unwrap() / b.as_f64().unwrap())
         } else {
             panic!("Division is only supported for numbers")
@@ -365,7 +381,7 @@ impl Rem for Value {
     type Output = Self;
 
     fn rem(self, other: Self) -> Self {
-        if let (JsonValue::Number(a), JsonValue::Number(b)) = (self.json(), other.json()) {
+        if let (JsonValue::Number(a), JsonValue::Number(b)) = (&*self.as_json(), &*other.as_json()) {
             Value::number(a.as_f64().unwrap() % b.as_f64().unwrap())
         } else {
             panic!("Remainder is only supported for numbers")
@@ -405,7 +421,7 @@ impl PartialEq for Value {
 
 impl PartialOrd for Value {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        match (self.json(), other.json()) {
+        match (&*self.as_json(), &*other.as_json()) {
             (JsonValue::Number(a), JsonValue::Number(b)) => a.as_f64().partial_cmp(&b.as_f64()),
             (JsonValue::String(a), JsonValue::String(b)) => Some(a.cmp(b)),
             _ => None,

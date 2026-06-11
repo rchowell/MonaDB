@@ -87,7 +87,6 @@ impl Cursor {
     }
 
     /// The open btree handle; panics if the cursor is unopened or value-backed.
-    /// Private — the handle never leaves the cursor.
     fn btree(&self) -> BTree {
         let Some(Source::Btree { btree, .. }) = &self.source else {
             panic!("cursor must be open on a btree");
@@ -95,49 +94,23 @@ impl Cursor {
         *btree
     }
 
-    /// Inserts the value at the given key
+    /// Inserts the value at the given key.
     pub fn insert(&self, txn: &mut Transaction, key: &[u8], val: &[u8]) -> Result<()> {
         self.btree().put(txn.as_rw()?, key, val)?;
         Ok(())
     }
 
-    /// Applies a staged mutation log in two passes — every delete, then every
-    /// put — and returns the number of rows affected (puts for an update,
-    /// deletes for a delete). We first drop any live scan iterator so we never
-    /// mutate the btree under a live read cursor (LMDB leaves a read cursor's
-    /// position undefined across a mutation on the same table).
-    ///
-    /// Deletes precede puts so a key-swap among updated rows does not
-    /// self-destruct (deleting a row's new key right after writing it). Once the
-    /// deletes have landed, a put whose key still exists is landing on a row this
-    /// statement never removed — a key collision — and is rejected rather than
-    /// silently overwriting it.
-    pub fn apply(&mut self, txn: &mut Transaction, log: &[Mutation]) -> Result<u64> {
-        // Drops any live scan iterator, leaving the cursor open but unpositioned.
+    /// Deletes the row at the given key.
+    pub fn delete(&self, txn: &mut Transaction, key: &[u8]) -> Result<()> {
+        self.btree().delete(txn.as_rw()?, key)?;
+        Ok(())
+    }
+
+    /// Ends an active scan and releases the read iterator.
+    pub fn close(&mut self) {
         if let Some(Source::Btree { scan, .. }) = &mut self.source {
             *scan = None;
         }
-        let btree = self.btree();
-        let mut dels = 0u64;
-        let mut puts = 0u64;
-        for m in log {
-            if let Mutation::Del(key) = m {
-                btree.delete(txn.as_rw()?, key)?;
-                dels += 1;
-            }
-        }
-        for m in log {
-            if let Mutation::Put(key, val) = m {
-                if btree.get(txn.as_ro(), key)?.is_some() {
-                    return Err(Error::Schema(
-                        "update collides with an existing row at the same key".to_string(),
-                    ));
-                }
-                btree.put(txn.as_rw()?, key, val)?;
-                puts += 1;
-            }
-        }
-        Ok(puts.max(dels))
     }
 
     pub fn last(&self, txn: &Transaction) -> Result<Option<(Vec<u8>, Vec<u8>)>> {
@@ -145,15 +118,6 @@ impl Cursor {
         let res = res.map(|(k, v)| (k.to_vec(), v.to_vec()));
         Ok(res)
     }
-}
-
-/// A staged mutation against a cursor's table, drained by [`Cursor::apply`].
-/// Keys and values are already encoded bytes.
-pub enum Mutation {
-    /// Remove the row at this key.
-    Del(Vec<u8>),
-    /// Write this value at this key.
-    Put(Vec<u8>, Vec<u8>),
 }
 
 /// A cursor's bound source: a persistent btree table or an in-memory value.
@@ -573,6 +537,59 @@ mod tests {
         let (k, v) = cursor.last(&txn).unwrap().unwrap();
         assert_eq!(k, b"k");
         assert_eq!(v, b"v");
+    }
+
+    #[test]
+    fn delete_removes_row() {
+        let (_dir, storage) = fixture(&[(b"a", b"1"), (b"b", b"2")]);
+        let mut txn = Transaction::write(&storage).unwrap();
+        let btree = storage.open_btree(&txn, 1).unwrap();
+        let mut cursor = Cursor::new();
+        cursor.open(btree);
+        cursor.delete(&mut txn, b"a").unwrap();
+        // 'a' is gone; 'b' remains, visible to a scan in the same txn.
+        assert!(cursor.scan(&txn, None).unwrap());
+        assert_eq!(cursor.current(), Some((b"b".as_slice(), b"2".as_slice())));
+        assert!(!cursor.next().unwrap());
+    }
+
+    #[test]
+    fn close_scan_releases_iterator() {
+        let (_dir, storage) = fixture(&[(b"a", b"1")]);
+        let (txn, btree) = open_read(&storage);
+        let mut cursor = Cursor::new();
+        cursor.open(btree);
+        assert!(cursor.scan(&txn, None).unwrap());
+        assert!(cursor.current().is_some());
+        cursor.close();
+        // After close, the cursor is unpositioned but still open (re-scannable).
+        assert_eq!(cursor.current(), None);
+        assert!(cursor.scan(&txn, None).unwrap());
+    }
+
+    #[test]
+    fn delete_after_close_scan_on_same_cursor() {
+        // Pins the contract cc_delete relies on: scan a table, capture a key,
+        // release the read iterator with close_scan, then delete through the
+        // same cursor — all in one write txn.
+        let (_dir, storage) = fixture(&[(b"a", b"1"), (b"b", b"2")]);
+        let mut txn = Transaction::write(&storage).unwrap();
+        let btree = storage.open_btree(&txn, 1).unwrap();
+        let mut cursor = Cursor::new();
+        cursor.open(btree);
+
+        // Phase 1: scan and capture the first key.
+        assert!(cursor.scan(&txn, None).unwrap());
+        let key = cursor.current().unwrap().0.to_vec();
+
+        // Phase 2: release the read iterator, then delete the captured key.
+        cursor.close();
+        cursor.delete(&mut txn, &key).unwrap();
+
+        // The captured row is gone; the other remains.
+        assert!(cursor.scan(&txn, None).unwrap());
+        assert_eq!(cursor.current(), Some((b"b".as_slice(), b"2".as_slice())));
+        assert!(!cursor.next().unwrap());
     }
 
     // These cannot compile until `Cursor::scan_rev` is supported

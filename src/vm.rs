@@ -1,9 +1,8 @@
-use std::collections::HashMap;
 use std::mem::take;
 use std::vec;
 
 use crate::Result;
-use crate::cursor::{Cursor, Mutation};
+use crate::cursor::Cursor;
 use crate::error::Error;
 use crate::schema;
 use crate::ir::Key;
@@ -42,15 +41,11 @@ pub enum Vop {
     Init { jmp: usize },
     /// Insert a value into the given cursor (csr) where key=stack[0] val=stack[1].
     Insert { csr: usize },
-    /// Stage a delete of the key (top-of-stack) in cursor (csr)'s mutation log.
+    /// Delete the key (top-of-stack) from cursor (csr)'s btree immediately.
     Delete { csr: usize },
-    /// Stage a write (key=stack[0], val=stack[1]) in cursor (csr)'s mutation
-    /// log. Scan-safe, unlike `Insert` which writes immediately.
-    Write { csr: usize },
-    /// Drain cursor (csr)'s staged mutation log: deletes first, then puts
-    /// (rejecting key collisions). Emitted once after a scan-driven mutation
-    /// loop; the read scan is torn down before any write.
-    Apply { csr: usize },
+    /// End cursor (csr)'s active scan, releasing its read iterator. The cursor
+    /// stays open on its btree (unpositioned) so it can be written through.
+    Close { csr: usize },
     /// Clear all rows from the btree at the given table oid.
     Clear { tbl: u32 },
     /// Jump to the instruction at jmp.
@@ -172,12 +167,6 @@ pub struct VM {
     cursors: Vec<Cursor>,
     /// The limit counters, addressed by index.
     counters: Vec<u64>,
-    /// Staged mutations grouped by cursor slot, drained in emit order by an
-    /// `Apply`. One ordered log per cursor (`Del`/`Put`), so the delete-then-put
-    /// ordering and collision handling live in one place rather than across two
-    /// parallel buffers. Empty (no allocation) until a `Delete`/`Write` runs, so
-    /// read-only statements pay nothing.
-    logs: HashMap<usize, Vec<Mutation>>,
     /// Rows changed by mutations (inserts, updates, deletes). Reported by
     /// `Rows::finish`, so `execute` returns a real affected-row count.
     affected: u64,
@@ -198,7 +187,6 @@ impl VM {
             txn: None,
             cursors,
             counters: vec![0; program.counters],
-            logs: HashMap::new(),
             affected: 0,
         }
     }
@@ -247,23 +235,13 @@ impl VM {
                 }
                 Vop::Delete { csr } => {
                     let key = pop_key(self.pop())?;
-                    self.logs.entry(*csr).or_default().push(Mutation::Del(key));
+                    let cursor = &self.cursors[*csr];
+                    let txn = self.txn.as_mut().expect("Delete before Transaction");
+                    cursor.delete(txn, &key)?;
+                    self.affected += 1;
                 }
-                Vop::Write { csr } => {
-                    let key = pop_key(self.pop())?;
-                    let val = self.pop();
-                    ensure_object(&val)?;
-                    let val = val.encode()?;
-                    self.logs
-                        .entry(*csr)
-                        .or_default()
-                        .push(Mutation::Put(key, val));
-                }
-                Vop::Apply { csr } => {
-                    let log = self.logs.remove(csr).unwrap_or_default();
-                    if let Some(txn) = self.txn.as_mut() {
-                        self.affected += self.cursors[*csr].apply(txn, &log)?;
-                    }
+                Vop::Close { csr } => {
+                    self.cursors[*csr].close();
                 }
                 Vop::Clear { tbl } => {
                     let txn = self.txn.as_mut().expect("Clear before Transaction");
@@ -354,9 +332,6 @@ impl VM {
                     self.txn = Some(txn);
                 }
                 Vop::Halt => {
-                    // Staged mutations are drained by `Apply` after each
-                    // scan-driven loop, so by Halt there is nothing left to
-                    // write: just drop cursors and commit.
                     self.cursors.clear();
                     if let Some(txn) = take(&mut self.txn) {
                         txn.commit()?;

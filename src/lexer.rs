@@ -119,14 +119,10 @@ pub enum Token {
     Or,
     #[token("select")]
     Select,
-    #[token("set")]
-    Set,
     #[token("table")]
     Table,
     #[token("unknown")]
     Unknown,
-    #[token("update")]
-    Update,
     #[token("where")]
     Where,
     //-------------------------

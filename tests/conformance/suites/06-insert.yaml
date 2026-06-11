@@ -118,3 +118,10 @@ tests:
       - sql: |
           select * from T;
         result: []
+
+  - id: insert-array-as-row-rejected
+    description: an array value as a row is rejected with a schema error (not a panic)
+    steps:
+      - sql: |
+          insert into T ([1, 2, 3]);
+        error: schema

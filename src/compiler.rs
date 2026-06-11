@@ -3,7 +3,7 @@ use serde_json::json;
 use crate::catalog::CATALOG_OID;
 use crate::error::Error;
 use crate::ir::{
-    Assignment, Call, Clear, Constructor, Create, Delete, Drop, Expr, Insert, Jpe, Jpi, Jpk, Limit, Member, Obj, Key, Type, Var, Select, Source, Statement, ToSql, Update, Where
+    Call, Clear, Constructor, Create, Delete, Drop, Expr, Insert, Jpe, Jpi, Jpk, Limit, Member, Obj, Key, Type, Var, Select, Source, Statement, ToSql
 };
 use crate::transaction::TransactionMode;
 use crate::value::Value;
@@ -60,7 +60,6 @@ impl Compiler {
             Statement::Clear(clear) => self.cc_clear(&clear),
             Statement::Insert(insert) => self.cc_insert(insert)?,
             Statement::Select(select) => self.cc_select(select)?,
-            Statement::Update(update) => self.cc_update(update)?,
         };
         self.emit_halt();
 
@@ -139,57 +138,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compile a scan-driven mutation loop over a bound table: open the cursor,
-    /// scan, run the per-row `body` (guarded by `where_`), advance, then drain
-    /// the staged mutations with `Apply`. `body` stages the row's mutations
-    /// (`Delete`/`Write`); this owns the open/scan/back-patch math so the delete
-    /// and update lowerings cannot drift.
-    fn cc_scan_mutate(
-        &mut self,
-        csr: usize,
-        oid: u32,
-        where_: Option<Where>,
-        body: impl FnOnce(&mut Self) -> Result<()>,
-    ) -> Result<()> {
-        self.ensure_txn(TransactionMode::Write);
-
-        // Open the target table and begin a forward scan. The scan's jmp leaves
-        // the loop when the table is empty or exhausted; patched once the
-        // trailing `Apply` is known.
-        self.emit_open(csr, oid);
-        self.emit_scan(csr, 0);
-        let begin = self.pc();
-
-        // Loop body: evaluate the predicate (if any) and skip the row when it is
-        // false, otherwise stage its mutations. Reads go through the cursor
-        // against the unmutated store (writes are staged until `Apply`), so a
-        // set expression sees the row as it stood before the statement.
-        let top = self.code.len();
-        let mut where_fail = None;
-        if let Some(where_) = where_ {
-            self.cc_expr(where_)?;
-            self.emit_if_not(0);
-            where_fail = Some(self.pc());
-        }
-        body(self)?;
-
-        // Advance; when more rows remain, jump back to the top of the body.
-        self.emit_next(csr, top);
-        let next_pc = self.pc();
-
-        // After the loop, drain the staged mutations. Both the scan's empty
-        // exit and the loop's exhaustion fall here, so the log is always
-        // flushed.
-        self.emit_apply(csr);
-        let apply_pc = self.pc();
-
-        self.patch(begin, apply_pc)?;
-        if let Some(pc) = where_fail {
-            self.patch(pc, next_pc)?;
-        }
-        Ok(())
-    }
-
     /// The bound (cursor slot, table oid) of a mutation's `from`. Both are set
     /// by the binder; a missing one means the target was never bound (a compiler
     /// invariant), so error rather than panic.
@@ -204,66 +152,71 @@ impl Compiler {
     }
 
     fn cc_delete(&mut self, delete: Delete) -> Result<()> {
+        self.ensure_txn(TransactionMode::Write);
         let Delete { from, where_ } = delete;
-        let (csr, oid) = Self::bound_target(&from)?;
-        self.cc_scan_mutate(csr, oid, where_, |c| {
-            // Stage the current row's key for deletion.
-            c.emit_load_key(csr);
-            c.emit_delete(csr);
-            Ok(())
-        })
-    }
+        let (tcsr, oid) = Self::bound_target(&from)?;
 
-    fn cc_update(&mut self, update: Update) -> Result<()> {
-        let Update { from, set, where_, keys } = update;
-        let (csr, oid) = Self::bound_target(&from)?;
-        self.cc_scan_mutate(csr, oid, where_, move |c| {
-            // Always remove the row at its current key first. For a keyed row an
-            // assignment may move the key, so the old row must go; for a keyless
-            // row the key is unchanged, but deleting-then-writing it (rather than
-            // a bare overwrite) lets `Apply` treat any *surviving* key as a
-            // genuine collision with an untargeted row.
-            c.emit_load_key(csr);
-            c.emit_delete(csr);
+        // Pass 1. collect the keys of matching rows into an array value.
+        self.emit_arr();
+        self.emit_open(tcsr, oid);
+        // `dcsr` iterates the collected key array in phase 2. Allocate it after
+        // `tcsr` is in use so it never collides with the binder's cursor index.
+        let dcsr = self.alloc_cursor();
 
-            // Build the new row: start from the stored value, then apply each
-            // assignment over the accumulator object.
-            c.emit_load(csr);
-            for Assignment { col, val } in set {
-                c.cc_expr(val)?;
-                c.emit_obj_assign(col);
-            }
+        self.emit_scan(tcsr, 0); // jmp patched to the Close (empty/exhausted)
+        let scan = self.pc();
+        let top = self.code.len();
 
-            // Derive the write key: keyed rows re-encode from the new fields,
-            // keyless rows reuse the existing id. Either way the key lands above
-            // the value, ready for Write to consume.
-            if keys.is_empty() {
-                c.emit_load_key(csr);
-            } else {
-                c.emit_new_key(keys);
-            }
-            c.emit_write(csr);
-            Ok(())
-        })
+        let mut where_fail = None;
+        if let Some(where_) = where_ {
+            self.cc_expr(where_)?;
+            self.emit_if_not(0);
+            where_fail = Some(self.pc());
+        }
+        self.emit_load_key(tcsr);
+        self.emit_arr_push();
+
+        self.emit_next(tcsr, top);
+        let next_pc = self.pc();
+
+        // Pass 2. Call delete for each key in the array value.
+        self.emit_close(tcsr);
+        let close_pc = self.pc();
+
+        self.emit_iter(dcsr, 0); // jmp patched to the exit (empty key list)
+        let iter = self.pc();
+        let loop_top = self.code.len();
+
+        self.emit_load(dcsr);
+        self.emit_delete(tcsr);
+        self.emit_next(dcsr, loop_top);
+
+        let exit = self.pc() + 1;
+        self.patch(scan, close_pc)?;
+        self.patch(iter, exit)?;
+        if let Some(pc) = where_fail {
+            self.patch(pc, next_pc)?;
+        }
+        Ok(())
     }
 
     fn cc_drop(&mut self, drop: &Drop) {
         self.ensure_txn(TransactionMode::Write);
         let oid = drop.oid.expect("drop target should be bound to table oid");
 
-        // Dropping a table removes its catalog row then clears its data btree.
+        // Dropping a table deletes its catalog row then clears its data btree.
+        // The catalog delete is a point delete of a known key with no scan, so
+        // it writes immediately.
         //
         // 0   Open { tbl=0 }      Open the 'catalog' system table (oid=0)
         // 1   Push { val=oid }    Push the table oid; the catalog key to delete.
-        // 2   Delete              Stage catalog[oid] for deletion.
-        // 3   Apply               Drain the staged delete through the cursor.
-        // 4   Clear { oid }       Clear the dropped table's data btree.
+        // 2   Delete              Delete catalog[oid] immediately.
+        // 3   Clear { oid }       Clear the dropped table's data btree.
         //
         let csr = self.alloc_cursor();
         self.emit_open(csr, CATALOG_OID);
         self.emit_push(Value::Oid(oid));
         self.emit_delete(csr);
-        self.emit_apply(csr);
         self.emit_clear(oid);
     }
 
@@ -659,14 +612,9 @@ impl Compiler {
         self.code.push(Vop::Delete { csr });
     }
 
-    fn emit_write(&mut self, csr: usize) {
+    fn emit_close(&mut self, csr: usize) {
         self.use_cursor(csr);
-        self.code.push(Vop::Write { csr });
-    }
-
-    fn emit_apply(&mut self, csr: usize) {
-        self.use_cursor(csr);
-        self.code.push(Vop::Apply { csr });
+        self.code.push(Vop::Close { csr });
     }
 
     fn emit_load_key(&mut self, csr: usize) {
@@ -826,20 +774,27 @@ mod tests {
     fn delete_all_bytecode_shape() {
         let (_dir, storage, catalog) = fixture();
         let program = compile_sql(&storage, &catalog, "delete from catalog;");
-        assert_eq!(program.cursors, 1);
+        assert_eq!(program.cursors, 2);
         let code = program.instructions;
-        assert_eq!(code.len(), 10);
-        assert!(matches!(code[0], Vop::Init { jmp: 8 }));
-        assert!(matches!(code[1], Vop::Open { csr: 0, tbl: 0 }));
-        // Scan exits to the trailing Apply when the table is empty.
-        assert!(matches!(code[2], Vop::Scan { csr: 0, jmp: 6 }));
-        assert!(matches!(code[3], Vop::LoadKey { csr: 0 }));
-        assert!(matches!(code[4], Vop::Delete { csr: 0 }));
-        assert!(matches!(code[5], Vop::Next { csr: 0, jmp: 3 }));
-        assert!(matches!(code[6], Vop::Apply { csr: 0 }));
-        assert!(matches!(code[7], Vop::Halt));
-        assert!(matches!(code[8], Vop::Transaction { txm: TransactionMode::Write }));
-        assert!(matches!(code[9], Vop::Jump { jmp: 1 }));
+        assert_eq!(code.len(), 15);
+        assert!(matches!(code[0], Vop::Init { jmp: 13 }));
+        assert!(matches!(code[1], Vop::Arr));
+        assert!(matches!(code[2], Vop::Open { csr: 0, tbl: 0 }));
+        // Phase 1: collect matching keys; an empty table jumps straight to Close.
+        assert!(matches!(code[3], Vop::Scan { csr: 0, jmp: 7 }));
+        assert!(matches!(code[4], Vop::LoadKey { csr: 0 }));
+        assert!(matches!(code[5], Vop::ArrPush));
+        assert!(matches!(code[6], Vop::Next { csr: 0, jmp: 4 }));
+        // Release the table's read iterator before any delete.
+        assert!(matches!(code[7], Vop::Close { csr: 0 }));
+        // Phase 2: `select delete(key) from keys` over a value cursor.
+        assert!(matches!(code[8], Vop::Iter { csr: 1, jmp: 12 }));
+        assert!(matches!(code[9], Vop::LoadVal { csr: 1 }));
+        assert!(matches!(code[10], Vop::Delete { csr: 0 }));
+        assert!(matches!(code[11], Vop::Next { csr: 1, jmp: 9 }));
+        assert!(matches!(code[12], Vop::Halt));
+        assert!(matches!(code[13], Vop::Transaction { txm: TransactionMode::Write }));
+        assert!(matches!(code[14], Vop::Jump { jmp: 1 }));
     }
 
     #[test]
@@ -848,14 +803,19 @@ mod tests {
         let program =
             compile_sql(&storage, &catalog, "delete from catalog where catalog.name = 'x';");
         let code = program.instructions;
-        // Scan exits to Apply; a false predicate skips the delete and advances.
-        assert!(matches!(code[2], Vop::Scan { csr: 0, jmp: 11 }));
-        assert!(matches!(code[3], Vop::LoadVal { csr: 0 }));
-        assert!(matches!(code[7], Vop::IfNot(10)));
-        assert!(matches!(code[8], Vop::LoadKey { csr: 0 }));
-        assert!(matches!(code[9], Vop::Delete { csr: 0 }));
-        assert!(matches!(code[10], Vop::Next { csr: 0, jmp: 3 }));
-        assert!(matches!(code[11], Vop::Apply { csr: 0 }));
+        // Phase 1: scan exits to Close; a false predicate skips the collect.
+        assert!(matches!(code[3], Vop::Scan { csr: 0, jmp: 12 }));
+        assert!(matches!(code[4], Vop::LoadVal { csr: 0 }));   // predicate reads the row
+        assert!(matches!(code[8], Vop::IfNot(11)));
+        assert!(matches!(code[9], Vop::LoadKey { csr: 0 }));
+        assert!(matches!(code[10], Vop::ArrPush));
+        assert!(matches!(code[11], Vop::Next { csr: 0, jmp: 4 }));
+        assert!(matches!(code[12], Vop::Close { csr: 0 }));
+        // Phase 2: delete each collected key.
+        assert!(matches!(code[13], Vop::Iter { csr: 1, jmp: 17 }));
+        assert!(matches!(code[14], Vop::LoadVal { csr: 1 }));
+        assert!(matches!(code[15], Vop::Delete { csr: 0 }));
+        assert!(matches!(code[16], Vop::Next { csr: 1, jmp: 14 }));
     }
 
     #[test]
@@ -926,56 +886,4 @@ mod tests {
         assert!(encode < insert, "EncodeKey must precede Insert");
     }
 
-    #[test]
-    fn update_keyless_bytecode_shape() {
-        // A keyless update deletes the row at its current key then rewrites it
-        // there (key reused via LoadKey), so a surviving key signals a genuine
-        // collision at Apply.
-        let mut stmt = SqlParser::new()
-            .parse(SqlLexer::new("update t set x = 9;"))
-            .unwrap();
-        let Statement::Update(u) = &mut stmt else {
-            panic!("expected update");
-        };
-        u.from.csr = Some(0);
-        u.from.oid = Some(1);
-        // keys left empty => keyless path: key reused via LoadKey, not NewKey.
-
-        let code = Compiler::new().compile(stmt).unwrap().instructions;
-        assert!(matches!(code[1], Vop::Open { csr: 0, tbl: 1 }));
-        assert!(matches!(code[2], Vop::Scan { csr: 0, .. }));
-        assert!(matches!(code[3], Vop::LoadKey { csr: 0 }));
-        assert!(matches!(code[4], Vop::Delete { csr: 0 }));
-        assert!(matches!(code[5], Vop::LoadVal { csr: 0 }));
-        assert!(matches!(code[7], Vop::ObjAssign(ref n) if n == "x"));
-        assert!(matches!(code[8], Vop::LoadKey { csr: 0 }));
-        assert!(matches!(code[9], Vop::Write { csr: 0 }));
-        assert!(matches!(code[10], Vop::Next { csr: 0, jmp: 3 }));
-        assert!(matches!(code[11], Vop::Apply { csr: 0 }));
-    }
-
-    #[test]
-    fn update_keyed_bytecode_shape() {
-        // A keyed update may move the row's key, so it deletes the old key and
-        // re-derives the new one (NewKey) before buffering the write.
-        let mut stmt = SqlParser::new()
-            .parse(SqlLexer::new("update t set x = 5;"))
-            .unwrap();
-        let Statement::Update(u) = &mut stmt else {
-            panic!("expected update");
-        };
-        u.from.csr = Some(0);
-        u.from.oid = Some(1);
-        u.keys = vec![Key { name: "x".into(), ty: Type::Int }];
-
-        let code = Compiler::new().compile(stmt).unwrap().instructions;
-        assert!(matches!(code[3], Vop::LoadKey { csr: 0 }));
-        assert!(matches!(code[4], Vop::Delete { csr: 0 }));
-        assert!(matches!(code[5], Vop::LoadVal { csr: 0 }));
-        assert!(matches!(code[7], Vop::ObjAssign(ref n) if n == "x"));
-        assert!(matches!(code[8], Vop::NewKey { .. }));
-        assert!(matches!(code[9], Vop::Write { csr: 0 }));
-        assert!(matches!(code[10], Vop::Next { csr: 0, jmp: 3 }));
-        assert!(matches!(code[11], Vop::Apply { csr: 0 }));
-    }
 }

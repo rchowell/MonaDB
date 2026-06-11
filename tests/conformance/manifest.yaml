@@ -30,6 +30,3 @@ suites:
   - file: suites/13-keys.yaml
     title: keys
     spec_ref: "§6.2"
-  - file: suites/14-update.yaml
-    title: update
-    spec_ref: "§7.4"

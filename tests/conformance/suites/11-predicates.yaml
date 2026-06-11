@@ -524,3 +524,44 @@ tests:
           select * from N where N.x is null;
         result:
           - {x: null}
+
+  # Array comparison regression tests — Value::Arr must not panic in eq/ne.
+
+  - id: arr-eq-equal
+    description: two identical array literals are equal
+    steps:
+      - sql: |
+          select [1] = [1] from T;
+        result: [true]
+
+  - id: arr-eq-not-equal
+    description: two distinct array literals are not equal
+    steps:
+      - sql: |
+          select [1] = [2] from T;
+        result: [false]
+
+  - id: arr-ne
+    description: ne on unequal arrays is true
+    steps:
+      - sql: |
+          select [1] != [2] from T;
+        result: [true]
+
+  - id: arr-ne-equal
+    description: ne on equal arrays is false
+    steps:
+      - sql: |
+          select [1, 2] != [1, 2] from T;
+        result: [false]
+
+  - id: arr-is-truthy-in-where
+    description: a non-empty array is truthy in a WHERE clause
+    setup:
+      - create table W;
+      - |
+        insert into W ({v: 42});
+    steps:
+      - sql: |
+          select w.v from W as w where [1];
+        result: [42]
