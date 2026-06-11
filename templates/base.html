@@ -1,1 +1,37 @@
-<!DOCTYPE html><html><body>{% block content %}{% endblock content %}</body></html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}MonaDB{% endblock title %}</title>
+  <meta name="description" content="{% block description %}MonaDB — an embedded database with a query language of its own{% endblock description %}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=Courier+Prime:ital,wght@0,400;0,700;1,400&family=Space+Mono:wght@400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ get_url(path='style.css') }}">
+  <script src="{{ get_url(path='grain.js') }}" defer></script>
+</head>
+<body>
+  <header class="site-nav">
+    <div class="nav-inner">
+      <a class="nav-brand" href="{{ get_url(path='/') }}">mona<span class="nav-dot">·</span>db</a>
+      <nav class="nav-links">
+        <a href="{{ get_url(path='@/language/introduction.md') }}"
+          {% if current_path is containing("/language/") %}class="nav-active"{% endif %}>Language</a>
+        <a href="{{ get_url(path='@/design.md') }}"
+          {% if current_path is containing("/design/") %}class="nav-active"{% endif %}>Design</a>
+        <a href="https://github.com/rchowell/MonaDB" class="nav-github">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  {% block content %}{% endblock content %}
+
+  <footer class="site-foot">
+    <div class="foot-inner">
+      <span class="foot-name">MonaDB</span>
+      <a href="https://github.com/rchowell/MonaDB" class="foot-link">rchowell/MonaDB</a>
+    </div>
+  </footer>
+</body>
+</html>
