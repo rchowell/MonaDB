@@ -2,7 +2,6 @@
 title = "Functions"
 description = "Function call syntax, aggregate functions, string functions, and read()."
 weight = 6
-template = "language/page.html"
 +++
 
 # Functions
