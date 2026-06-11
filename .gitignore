@@ -29,3 +29,6 @@ wheels/
 examples/todo/*.db
 todos.db
 *.monadb
+
+# zola
+public/
