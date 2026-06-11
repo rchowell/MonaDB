@@ -1,2 +1,10 @@
 {% extends "base.html" %}
-{% block content %}{{ page.content | safe }}{% endblock content %}
+
+{% block title %}{{ page.title }} — MonaDB{% endblock title %}
+{% block description %}{{ page.description }}{% endblock description %}
+
+{% block content %}
+<div class="prose-page">
+  {{ page.content | safe }}
+</div>
+{% endblock content %}
