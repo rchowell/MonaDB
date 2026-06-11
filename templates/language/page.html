@@ -1,2 +1,26 @@
 {% extends "base.html" %}
-{% block content %}{{ page.content | safe }}{% endblock content %}
+
+{% block title %}{{ page.title }} — Language — MonaDB{% endblock title %}
+{% block description %}{{ page.description }}{% endblock description %}
+
+{% block content %}
+{% set lang_section = get_section(path="language/_index.md") %}
+<div class="lang-page">
+  <aside class="lang-sidebar">
+    <p class="sidebar-heading">Language</p>
+    <ul class="sidebar-nav">
+      {% for p in lang_section.pages %}
+      <li>
+        <a href="{{ p.permalink }}"
+          {% if p.permalink == current_url %}class="active"{% endif %}>
+          {{ p.title }}
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+  </aside>
+  <main class="lang-content">
+    {{ page.content | safe }}
+  </main>
+</div>
+{% endblock content %}
