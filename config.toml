@@ -4,6 +4,8 @@ compile_sass = false
 generate_feeds = false
 minify_html = false
 
+[markdown]
+render_emoji = false
 
 [extra]
 github = "https://github.com/rchowell/MonaDB"
