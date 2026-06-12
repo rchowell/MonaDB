@@ -1,4 +1,4 @@
-base_url = "https://rchowell.github.io/MonaDB"
+base_url = "https://monadb.org"
 title = "MonaDB"
 compile_sass = false
 generate_feeds = false
