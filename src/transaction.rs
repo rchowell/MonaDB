@@ -1,3 +1,12 @@
+//! Read/write transactions over the LMDB environment.
+//!
+//! A [`Transaction`] owns its LMDB handle alongside a `Storage` clone, dropped
+//! last, so the (lifetime-erased) handle never outlives the env it borrows:
+//!
+//!   Transaction
+//!     ├─ inner: RoTxn / RwTxn   borrows the env, 'static-erased
+//!     └─ _storage: Storage      `Arc<Env>` keep-alive, dropped last
+
 use heed::{RoTxn, RwTxn, WithoutTls};
 
 use crate::{
@@ -36,13 +45,14 @@ pub struct Transaction {
 
 /// Inner transaction state actually holding the LMDB handles.
 enum TransactionInner {
-    /// Read-only LMDB transaction; lifetime-erased, backed by storge.
+    /// Read-only LMDB transaction; lifetime-erased, backed by storage.
     Read(RoTxn<'static, WithoutTls>),
     /// Read-write LMDB transaction; lifetime-erased, backed by storage.
     Write(RwTxn<'static>),
 }
 
 impl Transaction {
+    /// Begins a transaction in the given mode.
     pub fn new(storage: &Storage, mode: TransactionMode) -> Result<Self> {
         match mode {
             TransactionMode::Read => Self::read(storage),
@@ -80,7 +90,7 @@ impl Transaction {
         })
     }
 
-    /// Borrow as a read txn; write transactions can deref as read-only.
+    /// Borrows as a read txn; a write transaction derefs as read-only.
     pub fn as_ro(&self) -> &RoTxn<'_, WithoutTls> {
         match &self.inner {
             TransactionInner::Read(t) => t,
@@ -88,7 +98,7 @@ impl Transaction {
         }
     }
 
-    /// Borrow mutably as a write txn; fails if read-only.
+    /// Borrows mutably as a write txn; errors if this is read-only.
     #[allow(clippy::unnecessary_wraps)]
     pub fn as_rw(&mut self) -> Result<&mut RwTxn<'static>> {
         match &mut self.inner {
@@ -99,7 +109,7 @@ impl Transaction {
         }
     }
 
-    /// Commit the transaction, releasing any underlying resources.
+    /// Commits the transaction, releasing any underlying resources.
     pub fn commit(self) -> Result<()> {
         match self.inner {
             TransactionInner::Read(t) => Ok(t.commit()?),
@@ -107,7 +117,7 @@ impl Transaction {
         }
     }
 
-    /// Abort the transaction; drop is sufficient too.
+    /// Aborts the transaction; dropping it has the same effect.
     pub fn abort(self) {
         drop(self);
     }

@@ -1,3 +1,10 @@
+//! The binder: name resolution and cursor-slot assignment.
+//!
+//! A `VisitMut` pass over the IR that assigns each from-source a cursor slot,
+//! resolves table names to oids and variables to their binding, and lowers a
+//! keyed-table subscript (`t[k]`) to an `Expr::Get`. Errors are collected; the
+//! first encountered is returned.
+
 use crate::catalog::Catalog;
 use crate::error::{Error, Result};
 use crate::ir::{Clear, Drop, Expr, From, Get, Insert, Source, Statement, TableDefinition};
@@ -19,7 +26,7 @@ pub struct Binder<'txn> {
 }
 
 impl<'txn> Binder<'txn> {
-    /// Create a new binder with a catalog reference.
+    /// Creates a new binder with a catalog reference.
     pub fn new(catalog: Catalog, txn: &'txn Transaction) -> Self {
         Binder {
             txn,
@@ -30,7 +37,7 @@ impl<'txn> Binder<'txn> {
         }
     }
 
-    /// Binds all table and
+    /// Binds the statement in place, returning the first error encountered.
     pub fn bind(&mut self, statement: &mut Statement) -> Result<()> {
         self.visit_statement_mut(statement);
         if let Some(err) = self.errors.first() {
@@ -40,14 +47,14 @@ impl<'txn> Binder<'txn> {
         }
     }
 
-    /// Allocate a new cursor ID and increment the counter.
+    /// Allocates and returns the next cursor slot.
     fn next_cursor(&mut self) -> u32 {
         let id = self.next_cursor;
         self.next_cursor += 1;
         id
     }
 
-    /// Resolve a table name to its definition, recording a bind error on failure.
+    /// Resolves a table name to its definition, recording a bind error on failure.
     fn get_table(&mut self, name: &str) -> Option<TableDefinition> {
         match self.catalog.get_table(self.txn, name) {
             Ok(def) => Some(def),
@@ -76,8 +83,9 @@ impl VisitMut for Binder<'_> {
             Source::Value(expr) => {
                 // TODO derived binding names?
                 if var.is_empty() {
-                    self.errors
-                        .push(Error::BindError("value source requires an alias".to_string()));
+                    self.errors.push(Error::BindError(
+                        "value source requires an alias".to_string(),
+                    ));
                     return;
                 }
                 // Bind the expression against the current scope (lateral refs).
@@ -98,14 +106,17 @@ impl VisitMut for Binder<'_> {
         visit_insert_mut(self, i);
     }
 
+    /// Resolves the drop target table to its oid.
     fn visit_drop_mut(&mut self, i: &mut Drop) {
         i.oid = self.get_table(&i.name).and_then(|d| d.oid);
     }
 
+    /// Resolves the clear target table to its oid.
     fn visit_clear_mut(&mut self, i: &mut Clear) {
         i.oid = self.get_table(&i.name).and_then(|d| d.oid);
     }
 
+    /// Lowers a keyed-table subscript to a `Get`, else resolves a variable.
     fn visit_expr_mut(&mut self, i: &mut Expr) {
         // A subscript whose base is a bare name that resolves to a catalog
         // table (and is NOT shadowed by a binding) is a keyed table lookup.
@@ -289,19 +300,19 @@ struct Scope {
 }
 
 impl Scope {
-    /// Create a new empty scope.
+    /// Creates a new empty scope.
     fn new() -> Self {
         Scope {
             bindings: Vec::new(),
         }
     }
 
-    /// Add a new cursor alias to the scope.
+    /// Adds a cursor alias to the scope.
     fn push(&mut self, name: String, csr: u32) {
         self.bindings.push(Binding { name, csr });
     }
 
-    /// Resolve a variable, returning either the bound variable or a resolution error.
+    /// Resolves a name to its cursor slot, innermost binding first.
     fn resolve(&self, name: &str) -> Option<u32> {
         for binding in self.bindings.iter().rev() {
             if binding.name == name {
@@ -322,7 +333,8 @@ mod test {
 
     fn db_fixture() -> MonaDB {
         let mut db = MonaDB::memory().unwrap();
-        db.execute("create table users (id int, name string);").unwrap();
+        db.execute("create table users (id int, name string);")
+            .unwrap();
         db
     }
 
@@ -553,7 +565,10 @@ mod test {
         };
         assert_eq!(get.keys.len(), 1);
         assert_eq!(get.args.len(), 1);
-        assert!(get.oid > 0, "oid should be derived from the table definition");
+        assert!(
+            get.oid > 0,
+            "oid should be derived from the table definition"
+        );
     }
 
     #[test]

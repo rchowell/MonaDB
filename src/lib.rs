@@ -1,3 +1,11 @@
+//! MonaDB — an embedded database with a small SQL dialect compiled to bytecode.
+//!
+//! A statement flows through a fixed pipeline:
+//!
+//!   SQL text ─▶ lexer ─▶ parser ─▶ IR ─▶ binder ─▶ compiler ─▶ Vop ─▶ VM ─▶ LMDB
+//!
+//! [`MonaDB`] is the public handle; `query` and `execute` drive that pipeline.
+
 pub mod error;
 pub mod ir;
 
@@ -6,8 +14,8 @@ mod catalog;
 mod compiler;
 mod cursor;
 mod display;
-mod schema;
 mod lexer;
+mod schema;
 mod storage;
 mod transaction;
 mod value;
@@ -109,6 +117,7 @@ impl MonaDB {
         cc.compile(statement)
     }
 
+    /// Prints a program's bytecode as an address/operation table (a debug aid).
     fn debug(program: &Program) {
         println!();
         println!("addr\toperation");

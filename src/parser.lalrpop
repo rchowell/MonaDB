@@ -1,3 +1,8 @@
+// MonaDB grammar — the LALRPOP LR(1) parser.
+//
+// Rules stay thin: each action constructs an IR node via an `ir.rs` function.
+// Tokens come from the external `lexer.rs`, declared in the `extern` block below.
+
 use crate::error::Error;
 use crate::ir;
 use crate::lexer::Token;

@@ -797,11 +797,7 @@ pub mod fold {
         TableDefinition {
             oid: i.oid,
             name: i.name,
-            keys: i
-                .keys
-                .into_iter()
-                .map(|m| f.fold_table_member(m))
-                .collect(),
+            keys: i.keys.into_iter().map(|m| f.fold_table_member(m)).collect(),
         }
     }
 
@@ -827,7 +823,10 @@ pub mod fold {
                 keys: o
                     .keys
                     .into_iter()
-                    .map(|k| OrderKey { expr: f.fold_expr(k.expr), desc: k.desc })
+                    .map(|k| OrderKey {
+                        expr: f.fold_expr(k.expr),
+                        desc: k.desc,
+                    })
                     .collect(),
             }),
             limit: i.limit.map(|l| f.fold_limit(l)),

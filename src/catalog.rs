@@ -1,3 +1,8 @@
+//! The catalog: table metadata, stored as rows in a reserved system table.
+//!
+//! Table definitions live as catalog rows (oid 0), like SQLite's
+//! `sqlite_master` — each row is an [`Object`] carrying the original DDL.
+
 use std::sync::Arc;
 
 use heed::byteorder::{BigEndian, ByteOrder};
@@ -25,7 +30,7 @@ pub struct Object {
 }
 
 impl Object {
-    /// Parse the stored `sql` back into its table definition.
+    /// Parses the stored `sql` back into its table definition.
     fn table_definition(&self) -> Result<TableDefinition> {
         if let Statement::Create(Create::Table(def)) = MonaDB::parse(&self.sql)? {
             Ok(def)
@@ -67,7 +72,7 @@ impl Catalog {
         })
     }
 
-    /// Look up a table by name, returning its full definition: oid, name, and members.
+    /// Looks up a table by name, returning its full definition: oid, name, keys.
     pub fn get_table(&self, txn: &Transaction, name: &str) -> Result<TableDefinition> {
         for entry in self.catalog.iter(txn.as_ro())? {
             let (key, val) = entry?;

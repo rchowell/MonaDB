@@ -6,16 +6,17 @@
 
 use serde_json::json;
 
+use crate::Result;
 use crate::catalog::CATALOG_OID;
 use crate::error::Error;
 use crate::ir::{
-    Call, Clear, Constructor, Create, Delete, Drop, Expr, Get, Insert, Jpe, Jpi, Jpk, Limit, Member, Obj, Key, Type, Var, Select, Source, Statement, ToSql
+    Call, Clear, Constructor, Create, Delete, Drop, Expr, Get, Insert, Jpe, Jpi, Jpk, Key, Limit,
+    Member, Obj, Select, Source, Statement, ToSql, Type, Var,
 };
 use crate::schema;
 use crate::transaction::TransactionMode;
 use crate::value::Value;
 use crate::vm::{Program, Vop};
-use crate::{Result};
 use std::vec;
 
 #[macro_export]
@@ -139,7 +140,10 @@ impl Compiler {
     fn cc_insert(&mut self, insert: Insert) -> Result<()> {
         self.ensure_txn(TransactionMode::Write);
         let csr = self.alloc_cursor();
-        let tbl = insert.target.oid.expect("insert target should be resolved to an oid");
+        let tbl = insert
+            .target
+            .oid
+            .expect("insert target should be resolved to an oid");
         self.emit_open(csr, tbl);
         let members = insert.target.keys;
         for val in insert.source {
@@ -246,7 +250,9 @@ impl Compiler {
     /// Compiles a CLEAR: empty the table's data btree, leaving its catalog row.
     fn cc_clear(&mut self, clear: &Clear) {
         self.ensure_txn(TransactionMode::Write);
-        let oid = clear.oid.expect("clear target should be bound to table oid");
+        let oid = clear
+            .oid
+            .expect("clear target should be bound to table oid");
         // Clearing a table empties its data btree but leaves the catalog row.
         self.emit_clear(oid);
     }
@@ -265,7 +271,12 @@ impl Compiler {
         // Initialize the limit counters before the loop.
         let (cnt_skip, cnt_take) = self.emit_limit_counters(select.limit.as_ref());
 
-        let Select { from, where_, select: constructor, .. } = select;
+        let Select {
+            from,
+            where_,
+            select: constructor,
+            ..
+        } = select;
 
         // Compile the select <value>; form. `*` and `.` project a binding
         // tuple, so they are meaningless without a from clause.
@@ -281,7 +292,12 @@ impl Compiler {
         // The (alias, cursor) bindings in item order; drive `*` and `.` forms.
         let bindings: Vec<(String, usize)> = from
             .iter()
-            .map(|f| (f.var.clone(), f.csr.expect("from item should be bound") as usize))
+            .map(|f| {
+                (
+                    f.var.clone(),
+                    f.csr.expect("from item should be bound") as usize,
+                )
+            })
             .collect();
 
         let n = bindings.len();
@@ -383,14 +399,25 @@ impl Compiler {
     /// the spec, select runs after limit (§4.9), so projection is post-sort.
     #[allow(clippy::too_many_lines)]
     fn cc_order(&mut self, select: Select) -> Result<()> {
-        let Select { from, where_, order, limit, select: constructor } = select;
+        let Select {
+            from,
+            where_,
+            order,
+            limit,
+            select: constructor,
+        } = select;
         let order = order.expect("cc_order requires an order clause");
         let dirs: Vec<bool> = order.keys.iter().map(|k| k.desc).collect();
 
         // The (alias, cursor) bindings in item order; drive the payload + projection.
         let bindings: Vec<(String, usize)> = from
             .iter()
-            .map(|f| (f.var.clone(), f.csr.expect("from item should be bound") as usize))
+            .map(|f| {
+                (
+                    f.var.clone(),
+                    f.csr.expect("from item should be bound") as usize,
+                )
+            })
             .collect();
         let n = bindings.len();
 
@@ -638,13 +665,13 @@ impl Compiler {
             Expr::Lit(val) => {
                 self.cc_expr_lit(val);
                 Ok(())
-            },
+            }
             Expr::Obj(obj) => self.cc_expr_obj(obj),
             Expr::Array(items) => self.cc_expr_array(items),
             Expr::Var(var) => {
                 self.cc_expr_var(&var);
                 Ok(())
-            },
+            }
             // Binding already lowered a full-key table subscript to this node;
             // we encode the literal key and emit the point lookup.
             Expr::Get(get) => self.cc_expr_get(&get),
@@ -681,26 +708,26 @@ impl Compiler {
     fn cc_expr_call(&mut self, call: Call) -> Result<()> {
         let Call { name, args } = call;
         let (arity_ok, op) = match name.as_str() {
-            "*"   => (args.len() == 2, Vop::Mul),
-            "/"   => (args.len() == 2, Vop::Div),
-            "%"   => (args.len() == 2, Vop::Rem),
-            "+"   => (args.len() == 2, Vop::Add),
-            "-"   => (args.len() == 2, Vop::Sub),
-            "<"   => (args.len() == 2, Vop::Lt),
-            "<="  => (args.len() == 2, Vop::Le),
-            "="   => (args.len() == 2, Vop::Eq),
-            ">="  => (args.len() == 2, Vop::Ge),
-            ">"   => (args.len() == 2, Vop::Gt),
-            "!="  => (args.len() == 2, Vop::Ne),
+            "*" => (args.len() == 2, Vop::Mul),
+            "/" => (args.len() == 2, Vop::Div),
+            "%" => (args.len() == 2, Vop::Rem),
+            "+" => (args.len() == 2, Vop::Add),
+            "-" => (args.len() == 2, Vop::Sub),
+            "<" => (args.len() == 2, Vop::Lt),
+            "<=" => (args.len() == 2, Vop::Le),
+            "=" => (args.len() == 2, Vop::Eq),
+            ">=" => (args.len() == 2, Vop::Ge),
+            ">" => (args.len() == 2, Vop::Gt),
+            "!=" => (args.len() == 2, Vop::Ne),
             "and" => (args.len() == 2, Vop::And),
-            "or"  => (args.len() == 2, Vop::Or),
-            "not"         => (args.len() == 1, Vop::Not),
-            "is_null"     => (args.len() == 1, Vop::IsNull),
-            "is_true"     => (args.len() == 1, Vop::IsTrue),
-            "is_false"    => (args.len() == 1, Vop::IsFalse),
-            "is_unknown"  => (args.len() == 1, Vop::IsUnknown),
-            "between"     => (args.len() == 3, Vop::Between),
-            "in_list"     => (args.len() >= 1, Vop::InList(args.len().saturating_sub(1))),
+            "or" => (args.len() == 2, Vop::Or),
+            "not" => (args.len() == 1, Vop::Not),
+            "is_null" => (args.len() == 1, Vop::IsNull),
+            "is_true" => (args.len() == 1, Vop::IsTrue),
+            "is_false" => (args.len() == 1, Vop::IsFalse),
+            "is_unknown" => (args.len() == 1, Vop::IsUnknown),
+            "between" => (args.len() == 3, Vop::Between),
+            "in_list" => (args.len() >= 1, Vop::InList(args.len().saturating_sub(1))),
             _ => return Err(Error::UnknownFunction(name)),
         };
         if !arity_ok {
@@ -969,11 +996,11 @@ impl Compiler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::binder::Binder;
     use crate::catalog::Catalog;
     use crate::lexer::SqlLexer;
     use crate::parser::SqlParser;
     use crate::storage::Storage;
-    use crate::binder::Binder;
     use tempfile::TempDir;
 
     fn fixture() -> (TempDir, Storage, Catalog) {
@@ -1006,7 +1033,12 @@ mod tests {
         assert!(matches!(code[4], Vop::Yield));
         assert!(matches!(code[5], Vop::Next { csr: 0, jmp: 3 }));
         assert!(matches!(code[6], Vop::Halt));
-        assert!(matches!(code[7], Vop::Transaction { txm: TransactionMode::Read }));
+        assert!(matches!(
+            code[7],
+            Vop::Transaction {
+                txm: TransactionMode::Read
+            }
+        ));
         assert!(matches!(code[8], Vop::Jump { jmp: 1 }));
     }
 
@@ -1026,8 +1058,11 @@ mod tests {
     #[test]
     fn order_by_bytecode_shape() {
         let (_dir, storage, catalog) = fixture();
-        let program =
-            compile_sql(&storage, &catalog, "select * from catalog order by catalog.name;");
+        let program = compile_sql(
+            &storage,
+            &catalog,
+            "select * from catalog order by catalog.name;",
+        );
         // Two cursors: the table scan (0) and the sorted-payload iterator (1).
         assert_eq!(program.cursors, 2);
         let code = program.instructions;
@@ -1061,7 +1096,12 @@ mod tests {
         assert!(matches!(code[23], Vop::Yield));
         assert!(matches!(code[24], Vop::Next { csr: 1, jmp: 18 }));
         assert!(matches!(code[25], Vop::Halt));
-        assert!(matches!(code[26], Vop::Transaction { txm: TransactionMode::Read }));
+        assert!(matches!(
+            code[26],
+            Vop::Transaction {
+                txm: TransactionMode::Read
+            }
+        ));
         assert!(matches!(code[27], Vop::Jump { jmp: 1 }));
     }
 
@@ -1088,19 +1128,27 @@ mod tests {
         assert!(matches!(code[10], Vop::Delete { csr: 0 }));
         assert!(matches!(code[11], Vop::Next { csr: 1, jmp: 9 }));
         assert!(matches!(code[12], Vop::Halt));
-        assert!(matches!(code[13], Vop::Transaction { txm: TransactionMode::Write }));
+        assert!(matches!(
+            code[13],
+            Vop::Transaction {
+                txm: TransactionMode::Write
+            }
+        ));
         assert!(matches!(code[14], Vop::Jump { jmp: 1 }));
     }
 
     #[test]
     fn delete_where_bytecode_shape() {
         let (_dir, storage, catalog) = fixture();
-        let program =
-            compile_sql(&storage, &catalog, "delete from catalog where catalog.name = 'x';");
+        let program = compile_sql(
+            &storage,
+            &catalog,
+            "delete from catalog where catalog.name = 'x';",
+        );
         let code = program.instructions;
         // Phase 1: scan exits to Close; a false predicate skips the collect.
         assert!(matches!(code[3], Vop::Scan { csr: 0, jmp: 12 }));
-        assert!(matches!(code[4], Vop::LoadVal { csr: 0 }));   // predicate reads the row
+        assert!(matches!(code[4], Vop::LoadVal { csr: 0 })); // predicate reads the row
         assert!(matches!(code[8], Vop::IfNot(11)));
         assert!(matches!(code[9], Vop::LoadKey { csr: 0 }));
         assert!(matches!(code[10], Vop::ArrPush));
@@ -1127,7 +1175,12 @@ mod tests {
         assert!(matches!(code[4], Vop::NewBtree));
         assert!(matches!(code[5], Vop::Insert { csr: 0 }));
         assert!(matches!(code[6], Vop::Halt));
-        assert!(matches!(code[7], Vop::Transaction { txm: TransactionMode::Write }));
+        assert!(matches!(
+            code[7],
+            Vop::Transaction {
+                txm: TransactionMode::Write
+            }
+        ));
         assert!(matches!(code[8], Vop::Jump { jmp: 1 }));
     }
 
@@ -1163,8 +1216,14 @@ mod tests {
         };
         ins.target.oid = Some(1);
         ins.target.keys = vec![
-            Key { name: "a".into(), ty: Type::Int },
-            Key { name: "b".into(), ty: Type::String },
+            Key {
+                name: "a".into(),
+                ty: Type::Int,
+            },
+            Key {
+                name: "b".into(),
+                ty: Type::String,
+            },
         ];
         let members = ins.target.keys.clone();
 
@@ -1180,5 +1239,4 @@ mod tests {
             .expect("insert must emit Insert");
         assert!(encode < insert, "EncodeKey must precede Insert");
     }
-
 }

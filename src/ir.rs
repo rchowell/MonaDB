@@ -116,7 +116,7 @@ pub enum Source {
 #[derive(Debug)]
 pub struct From {
     pub src: Source,
-    pub var: String, // AS <var>
+    pub var: String,      // AS <var>
     pub csr: Option<u32>, // cursor slot, set by binder
     pub oid: Option<u32>, // table oid, set by binder for Table sources
 }
@@ -337,7 +337,11 @@ pub fn create_table(table: TableDefinition) -> Create {
 /// Builds a table definition from a name and its key columns.
 #[inline]
 pub fn table_definition(name: String, members: Vec<Key>) -> TableDefinition {
-    TableDefinition { oid: None, name, keys: members }
+    TableDefinition {
+        oid: None,
+        name,
+        keys: members,
+    }
 }
 
 /// Builds one key column from a name and type.
@@ -386,7 +390,13 @@ pub fn clear_table(name: String) -> Clear {
 /// Builds a from-less `select <value>`.
 #[inline]
 pub fn select_value(select: Constructor) -> Select {
-    Select { from: vec![], where_: None, order: None, limit: None, select }
+    Select {
+        from: vec![],
+        where_: None,
+        order: None,
+        limit: None,
+        select,
+    }
 }
 
 /// Builds a SELECT, attaching a projection to a parsed from/where/order/limit block.
@@ -427,7 +437,10 @@ pub fn order_by(keys: Vec<OrderKey>) -> OrderBy {
 /// Builds one ORDER BY key, defaulting to ascending when no direction is given.
 #[inline]
 pub fn order_key(expr: Expr, desc: Option<bool>) -> OrderKey {
-    OrderKey { expr, desc: desc.unwrap_or(false) }
+    OrderKey {
+        expr,
+        desc: desc.unwrap_or(false),
+    }
 }
 
 /// Builds a projected `expr as name` member.

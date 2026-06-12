@@ -1,3 +1,5 @@
+//! The LMDB storage environment and its per-table btree handles.
+
 use crate::transaction::Transaction;
 
 use std::path::Path;
@@ -6,8 +8,8 @@ use std::sync::Arc;
 use heed::types::Bytes;
 use heed::{Database, Env, EnvFlags, EnvOpenOptions, WithoutTls};
 
-use crate::error::Error;
 use crate::Result;
+use crate::error::Error;
 
 /// Reserved capacity for future named DBs (branches, commits, etc.).
 const LMDB_MAX_DBS: u32 = 8;
@@ -26,7 +28,7 @@ pub struct Storage {
 }
 
 impl Storage {
-    /// Open or create a database at the given path.
+    /// Opens or creates a database at the given path.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
         // LMDB (NO_SUB_DIR) derives the lock file from the path's parent, so a
         // bare filename like "todos.db" — whose parent is empty — fails to open.
@@ -49,7 +51,7 @@ impl Storage {
         Transaction::read(self)
     }
 
-    /// Returns a new read transaction.
+    /// Returns a new write transaction.
     pub fn write_txn(&self) -> Result<Transaction> {
         Transaction::write(self)
     }

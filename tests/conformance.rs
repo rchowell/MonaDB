@@ -131,12 +131,13 @@ fn error_category(err: &Error) -> &'static str {
         Error::UnknownTable(_)
         | Error::UnboundTable(_)
         | Error::UnknownFunction(_)
-        | Error::Unsupported(_) | Error::BindError(_) => "static",
+        | Error::Unsupported(_)
+        | Error::BindError(_) => "static",
         Error::JsonError(_) | Error::IoError(_) | Error::Storage(_) => "storage",
         Error::InternalError(_) | Error::Unknown => "runtime",
         Error::Transaction(_) => "transaction",
         Error::Schema(_) => "schema",
-        }
+    }
 }
 
 fn json_vecs_eq(a: &[Json], b: &[Json]) -> bool {

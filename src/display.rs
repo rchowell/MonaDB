@@ -1,8 +1,13 @@
+//! SQL pretty-printing via a small Wadler-style block algebra.
+//!
+//! [`ToSql`] renders IR nodes back to SQL text. `Block`s compose with `+` and
+//! `nest`/`indent`; [`Block::sql`] walks the tree to a string.
+
 use std::ops::Add;
 
-use crate::ir::{Create, Statement, TMember, TObject, TableDefinition, Key, Type};
+use crate::ir::{Create, Key, Statement, TMember, TObject, TableDefinition, Type};
 
-/// Trait for
+/// Renders an IR node back to SQL text.
 pub trait ToSql {
     /// Returns a block tree for formatting.
     fn block(&self) -> Block;
@@ -22,7 +27,7 @@ pub struct Block {
     next: Option<Box<Block>>,
 }
 
-/// Tokens are the wadler primitves for pretty-printing.
+/// Tokens are the Wadler primitives for pretty-printing.
 #[derive(Clone, Debug)]
 enum Token {
     /// Raw text string.
@@ -36,6 +41,7 @@ enum Token {
 }
 
 impl Block {
+    /// Wraps a single token as a one-element block.
     fn new(token: Token) -> Self {
         Self { token, next: None }
     }
@@ -70,12 +76,12 @@ impl Block {
         out
     }
 
-    /// Bump the indent level for this whole chain.
+    /// Bumps the indent level for this whole chain.
     fn indent(self) -> Block {
         Block::new(Token::Indent(Box::new(self)))
     }
 
-    /// Nest the chain with a prefix and suffix like '{ }' or '( )'.
+    /// Nests the chain inside a prefix/suffix pair like `{ }` or `( )`.
     fn nest(self, prefix: &'static str, postfix: &'static str) -> Block {
         text(prefix) + (line() + self).indent() + line() + text(postfix)
     }
@@ -191,10 +197,7 @@ impl ToSql for TableDefinition {
         if self.keys.is_empty() {
             return t;
         }
-        let body = join(
-            text(",") + linebreak(),
-            self.keys.iter().map(ToSql::block),
-        );
+        let body = join(text(",") + linebreak(), self.keys.iter().map(ToSql::block));
         t = t + " ";
         t = t + body.nest("(", ")");
         t

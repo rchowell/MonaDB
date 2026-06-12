@@ -100,7 +100,9 @@ impl Cursor {
     /// Advances the scan; returns true if there's an available row
     pub fn next(&mut self) -> Result<bool> {
         match &mut self.source {
-            Some(Source::Btree { scan: Some(scan), .. }) => scan.next(),
+            Some(Source::Btree {
+                scan: Some(scan), ..
+            }) => scan.next(),
             Some(Source::Value(value)) => Ok(value.next()),
             // Unreachable unless there's a compiler bug.
             _ => Err(Error::InternalError(
@@ -112,7 +114,9 @@ impl Cursor {
     /// Returns the current (key,val) bytes; table-backed scans only.
     pub fn current(&self) -> Option<(&[u8], &[u8])> {
         match &self.source {
-            Some(Source::Btree { scan: Some(scan), .. }) => scan.current(),
+            Some(Source::Btree {
+                scan: Some(scan), ..
+            }) => scan.current(),
             // Value-backed (or unpositioned) cursors have no raw key/val bytes.
             _ => None,
         }
@@ -121,7 +125,9 @@ impl Cursor {
     /// Returns the current row as a decoded Value.
     pub fn load(&self) -> Result<Value> {
         match &self.source {
-            Some(Source::Btree { scan: Some(scan), .. }) => scan.load(),
+            Some(Source::Btree {
+                scan: Some(scan), ..
+            }) => scan.load(),
             Some(Source::Value(value)) => value.load(),
             Some(Source::Single(value)) => Ok(value.clone()),
             _ => Err(unpositioned_cursor()),
@@ -175,7 +181,7 @@ impl Cursor {
 enum Source {
     /// The btree handle persists across the open → (scan | insert/last)
     /// lifecycle; `scan` becomes `Some` only once a forward scan has begun.
-    Btree { 
+    Btree {
         btree: BTree,
         scan: Option<TableScan>,
     },

@@ -1,5 +1,9 @@
 #![allow(deprecated)] // tolerate pyo3's IntoPy deprecations across versions
 
+//! Python bindings (pyo3) exposing a DuckDB-style `Connection`.
+//!
+//! Feature-gated behind `python`; the default build never compiles this module.
+
 use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyNotImplementedError};
 use pyo3::prelude::*;
@@ -105,6 +109,7 @@ impl Connection {
         Ok(())
     }
 
+    /// Errors with `monadb.Error` if the connection has been closed.
     fn ensure_open(&self) -> PyResult<()> {
         if self.db.is_none() {
             return Err(MonaDBError::new_err("connection is closed"));

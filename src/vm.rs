@@ -10,8 +10,8 @@ use std::vec;
 use crate::Result;
 use crate::cursor::Cursor;
 use crate::error::Error;
-use crate::schema;
 use crate::ir::Key;
+use crate::schema;
 use crate::storage::Storage;
 use crate::transaction::{Transaction, TransactionMode};
 use crate::value::Value;
@@ -624,7 +624,10 @@ fn sort_key(elem: &Value) -> &[u8] {
             }
         },
         _ => {
-            debug_assert!(false, "ORDER BY element must be a [key_bytes, payload] array");
+            debug_assert!(
+                false,
+                "ORDER BY element must be a [key_bytes, payload] array"
+            );
             &[]
         }
     }
@@ -646,7 +649,9 @@ fn ensure_object(val: &Value) -> Result<()> {
     if val.is_object() {
         Ok(())
     } else {
-        Err(Error::Schema(format!("row value must be an object, got {val}")))
+        Err(Error::Schema(format!(
+            "row value must be an object, got {val}"
+        )))
     }
 }
 

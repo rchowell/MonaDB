@@ -142,11 +142,14 @@ impl Value {
             Value::Null => JsonValue::Null,
             Value::Bool(b) => JsonValue::Bool(*b),
             Value::Int(i) => JsonValue::Number((*i).into()),
-            Value::Float(f) => serde_json::Number::from_f64(*f)
-                .map_or(JsonValue::Null, JsonValue::Number),
+            Value::Float(f) => {
+                serde_json::Number::from_f64(*f).map_or(JsonValue::Null, JsonValue::Number)
+            }
             Value::Oid(o) => JsonValue::Number((*o).into()),
             Value::String(s) => JsonValue::String(s.to_string()),
-            Value::Bytes(b) => JsonValue::Array(b.iter().map(|&x| JsonValue::Number(x.into())).collect()),
+            Value::Bytes(b) => {
+                JsonValue::Array(b.iter().map(|&x| JsonValue::Number(x.into())).collect())
+            }
             Value::Array(items) => JsonValue::Array(items.iter().map(Value::to_json).collect()),
             Value::Object(obj) => {
                 let mut map = Map::new();
@@ -228,7 +231,11 @@ impl Value {
     /// non-object.
     pub fn members(&self) -> Option<Vec<(String, Value)>> {
         if let Value::Object(obj) = self {
-            Some(obj.iter().map(|(k, v)| (k.to_string(), v.clone())).collect())
+            Some(
+                obj.iter()
+                    .map(|(k, v)| (k.to_string(), v.clone()))
+                    .collect(),
+            )
         } else {
             None
         }
@@ -584,7 +591,10 @@ impl Object {
 
     /// Returns the value for `key`, or `None` if absent.
     pub fn get(&self, key: &str) -> Option<&Value> {
-        self.members.iter().find(|(k, _)| &**k == key).map(|(_, v)| v)
+        self.members
+            .iter()
+            .find(|(k, _)| &**k == key)
+            .map(|(_, v)| v)
     }
 
     /// Inserts or updates `key`, preserving insertion order on update.
@@ -618,7 +628,10 @@ mod tests {
 
     #[test]
     fn int_plus_int_is_int() {
-        assert!(matches!(Value::int(2).add(Value::int(3)), Ok(Value::Int(5))));
+        assert!(matches!(
+            Value::int(2).add(Value::int(3)),
+            Ok(Value::Int(5))
+        ));
     }
 
     #[test]
@@ -631,7 +644,10 @@ mod tests {
 
     #[test]
     fn int_div_truncates_toward_zero() {
-        assert!(matches!(Value::int(7).div(Value::int(2)), Ok(Value::Int(3))));
+        assert!(matches!(
+            Value::int(7).div(Value::int(2)),
+            Ok(Value::Int(3))
+        ));
     }
 
     #[test]
