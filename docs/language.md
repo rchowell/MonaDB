@@ -286,7 +286,7 @@ t.items[0::2]      -- every other element
 **Keyed table access (`get`).** A subscript whose **base** is a bare identifier that does **not** resolve to a `from`/scope binding and **does** name a catalog table is a **key lookup** against that table, not value path-navigation (a binding of the same name shadows the table; the parser emits a uniform subscript node and the binder lowers it). The subscript is a key tuple matched positionally to the table's declared key columns (§5.1):
 
 - arity **==** the key-column count (a **full** key) yields the one stored row (an object), or `null` on a miss — e.g. `t[1]`, `c['x', 7]`.
-- arity **<** the **leading** key columns (a **partial** key) yields the **sub-sequence** of matching rows, in key order (empty on no match) — e.g. `c['x']`. *(Planned; see Appendix A — not yet implemented.)*
+- arity **<** the **leading** key columns (a **partial** key) yields the **sub-sequence** of matching rows as an array, in key order (empty on no match) — e.g. `c['x']`. The array is a first-class value: `c['x'][0]` indexes it, and `from c['x'] as r` scans it as a value source.
 - arity **==** 0, arity **>** the key-column count, or a **keyless** table is a **static** error; a literal key whose type mismatches its column (e.g. `t["a"]` on an `int` key) is a **`schema`** error.
 
 v1 restricts keys to **literals** (`t[1]`, `c['x', 7]`); runtime-expression keys (`t[x.id]`) are a follow-up.
@@ -905,7 +905,6 @@ Each item below is a deliberate omission. Add only with explicit language-design
 | JSONPath filter selectors `?<expr>`           | Filter inside paths duplicates `where`; pick one.                 |
 | Recursive descent `..` in paths               | Power-tool; can be added later without breaking changes.          |
 | Multi-selectors `[a, b]` in **value/path** expressions | Same rationale. Table key-tuples `t[a, b]` are separate (§3.3, *Keyed table access*) and supported. |
-| Partial-key prefix access `t[partial]` → sub-sequence | Semantics specified (§3.3); implementation deferred to a follow-up pass. |
 | `{key}` / `{hash, sort}` table options        | v1 uses declared columns in order as the key (§5.1); options syntax planned. |
 | Runtime-expression keys `t[x.id]`             | v1 keyed access takes **literal** keys only; expression keys are a follow-up. |
 | Single-record `T@<id>` syntax                 | Pure sugar over `where ... = <id>`; can be added later.           |

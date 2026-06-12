@@ -6,8 +6,8 @@ description: >
   btree point lookup, returning the stored row — or null when the key is absent
   (Redis GET → nil). It is an ordinary expression, so it composes and rides the
   bare `select <expr>` form. v1 covers single-column AND composite full-key
-  literal lookups; partial-key (leading-prefix) sub-sequence access is specified
-  but deferred to a later pass and is not yet covered here.
+  literal lookups, plus partial-key (leading-prefix) lookups that return the
+  sub-sequence of matching rows as an array, in key order (empty on no match).
 
 setup:
   - create table t (id int);
@@ -123,10 +123,70 @@ tests:
         result:
           - {a: "x", b: 7, v: "hit"}
 
-  # Partial-key (leading-prefix → sub-sequence) cases are deferred to the
-  # partial-key pass and are intentionally not present yet. An arity less than
-  # the key-column count is a PARTIAL key (a deferred sub-sequence lookup), not
-  # an error, under the reconciled key model.
+  # Partial-key (leading-prefix) access: an arity less than the key-column
+  # count is a PARTIAL key and yields the sub-sequence of matching rows as an
+  # array, in key order (empty array on no match) — not an error.
+
+  - id: get-partial-key-sub-sequence
+    description: a leading-prefix key returns the matching rows as an array in key order
+    steps:
+      - sql: |
+          create table c (a string, b int);
+      - sql: |
+          insert into c ({a: "x", b: 2, v: "q"}, {a: "x", b: 1, v: "p"}, {a: "y", b: 9, v: "r"});
+      - sql: |
+          select c["x"];
+        result:
+          - [{a: "x", b: 1, v: "p"}, {a: "x", b: 2, v: "q"}]
+
+  - id: get-partial-key-miss
+    description: a partial key matching no rows yields an empty array
+    steps:
+      - sql: |
+          create table c (a string, b int);
+      - sql: |
+          insert into c ({a: "x", b: 1, v: "p"});
+      - sql: |
+          select c["z"];
+        result:
+          - []
+
+  - id: get-partial-key-3col
+    description: a two-column prefix of a three-column key scans only the matching prefix
+    steps:
+      - sql: |
+          create table k (a string, b int, c int);
+      - sql: |
+          insert into k ({a: "x", b: 7, c: 2, v: "n"}, {a: "x", b: 7, c: 1, v: "m"}, {a: "x", b: 8, c: 9, v: "o"});
+      - sql: |
+          select k["x", 7];
+        result:
+          - [{a: "x", b: 7, c: 1, v: "m"}, {a: "x", b: 7, c: 2, v: "n"}]
+
+  - id: get-partial-key-indexes
+    description: the sub-sequence array composes — index into it
+    steps:
+      - sql: |
+          create table c (a string, b int);
+      - sql: |
+          insert into c ({a: "x", b: 1, v: "p"}, {a: "x", b: 2, v: "q"});
+      - sql: |
+          select c["x"][0];
+        result:
+          - {a: "x", b: 1, v: "p"}
+
+  - id: get-partial-key-from-source
+    description: the sub-sequence array composes — scan it as a value source
+    steps:
+      - sql: |
+          create table c (a string, b int);
+      - sql: |
+          insert into c ({a: "x", b: 1, v: "p"}, {a: "x", b: 2, v: "q"}, {a: "y", b: 9, v: "r"});
+      - sql: |
+          select r from c["x"] as r;
+        result:
+          - {a: "x", b: 1, v: "p"}
+          - {a: "x", b: 2, v: "q"}
 
   - id: get-composite-miss
     description: a full composite key with no matching row yields null

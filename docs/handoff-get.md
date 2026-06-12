@@ -85,9 +85,7 @@ Auto-registered by `build.rs`'s suite glob (one `#[test]` per case). Of its 11 c
 not "all green":
 - conformance: **14 fail** — 8 `get__*` (this feature), 3 `literals__*`, 3 `select_clause__*`
   (bare `select <expr> from T` WIP).
-- `tests/select.rs`: **6 fail** — the `catalog` table self-registers as a row (pre-existing;
-  confirmed on clean `main`).
-- lib + `create_table.rs`: green.
+- lib unit tests: green.
 
 Record the set first (`cargo test --no-fail-fast`), then ensure your work only *removes*
 `get__*` failures and adds green tests — no new reds elsewhere.
@@ -269,8 +267,8 @@ recorded baseline, confirm only `get__*` (and the prefix unit tests) move to gre
   Keep get cases in the bare-`select <expr>;` (no-FROM) form like `14-get.yaml` does.
 - **`get-wrong-type` is currently `schema`** in the suite — keep it that way (route through
   `encode_key_tuple` → `Error::Schema`).
-- Do **not** "fix" the 6 `tests/select.rs` / 3 `literals` / 3 `select_clause` failures — they
-  are out of scope and pre-existing (keep failing tests visible).
+- Do **not** "fix" the 3 `literals` / 3 `select_clause` failures — they are out of scope and
+  pre-existing (keep failing tests visible).
 
 ## 8. Key file index
 
@@ -284,5 +282,5 @@ recorded baseline, confirm only `get__*` (and the prefix unit tests) move to gre
 | `src/compiler.rs` | `cc_expr_get`; `emit_open`/`emit_push`; prefix-scan emission |
 | `src/vm.rs` | new `Vop::Get` (+ `GetRange` if materializing); reuse `pop_key` |
 | `src/cursor.rs` | un-`#[allow(dead_code)]` `get`; make `scan` honor `prefix`; un-ignore prefix tests |
-| `tests/conformance/suites/14-get.yaml` | extend with composite + partial cases (Phase 1) |
+| `tests/suites/14-get.yaml` | extend with composite + partial cases (Phase 1) |
 | `docs/language.md`, `docs/sql/*.adoc` | Phase 0 reconciliation |

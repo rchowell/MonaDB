@@ -167,17 +167,13 @@ impl Binder<'_> {
             )));
             return true;
         }
-        // A leading prefix (0 < arity < n) is a deferred sub-sequence lookup.
-        if arity < n {
-            self.errors.push(Error::Unsupported(
-                "partial-key prefix access is not yet implemented".to_string(),
-            ));
-            return true;
-        }
+        // A leading prefix (0 < arity < n) is a partial key: it lowers to the
+        // same `Expr::Get`, and the compiler distinguishes full (point lookup)
+        // from partial (prefix range → array) by comparing `args` to `keys`.
 
-        // Full key (arity == n). v1 accepts literal keys only. Check before
-        // taking ownership so that non-literal args are visited for their own
-        // BindErrors (e.g. an unresolved variable inside t[ghost]).
+        // v1 accepts literal keys only. Check before taking ownership so that
+        // non-literal args are visited for their own BindErrors (e.g. an
+        // unresolved variable inside t[ghost]).
         let all_literal = Self::args_all_literal(i);
         if !all_literal {
             self.visit_subscript_args(i);
@@ -605,12 +601,23 @@ mod test {
     }
 
     #[test]
-    fn test_bind_get_partial_key_unsupported() {
-        // A leading prefix (0 < arity < key count) is deferred, not built.
+    fn test_bind_get_partial_key_lowers_to_get() {
+        // A leading prefix (0 < arity < key count) lowers to the same `Get`,
+        // carrying fewer args than key columns — the compiler reads that as a
+        // prefix range lookup (→ an array of matching rows).
         let mut db = MonaDB::memory().unwrap();
         db.execute("create table c (a int, b int);").unwrap();
         let mut stmt = MonaDB::parse("select c[1];").unwrap();
-        assert!(matches!(db.bind(&mut stmt), Err(Error::Unsupported(_))));
+        db.bind(&mut stmt).unwrap();
+        let Expr::Get(get) = projected_expr(stmt) else {
+            panic!("expected Get for a partial-key (leading-prefix) subscript")
+        };
+        assert_eq!(get.keys.len(), 2);
+        assert_eq!(
+            get.args.len(),
+            1,
+            "a partial key carries fewer args than key columns"
+        );
     }
 
     #[test]

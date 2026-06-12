@@ -461,15 +461,22 @@ impl Compiler {
         }
     }
 
-    /// Keyed-table point lookup `table[key, ...]`. Literal keys are encoded at
-    /// COMPILE time (v1: literal keys only); a type mismatch surfaces here as an
-    /// `Error::Schema` (e.g. `t["a"]` on an int key). The surrounding `select`
-    /// has already emitted `Transaction(Read)`, so the cursor ops run under it.
+    /// Keyed-table access `table[key, ...]`. Literal keys are encoded at COMPILE
+    /// time (v1: literal keys only); a type mismatch surfaces here as an
+    /// `Error::Schema` (e.g. `t["a"]` on an int key). A full key (arity == key
+    /// count) is a point lookup (`Get` → the one row or null); a leading prefix
+    /// (arity < key count) is a range lookup (`GetRange` → the matching rows as
+    /// an array, in key order). The surrounding `select` has already emitted
+    /// `Transaction(Read)`, so the cursor ops run under it.
     fn cc_expr_get(&mut self, get: &Get) -> Result<()> {
         let key = schema::encode_key_tuple(&get.args, &get.keys)?;
         self.emit_open(get.csr as usize, get.oid);
         self.emit_push(Value::Bytes(key.into()));
-        self.emit_get(get.csr as usize);
+        if get.args.len() == get.keys.len() {
+            self.emit_get(get.csr as usize);
+        } else {
+            self.emit_get_range(get.csr as usize);
+        }
         Ok(())
     }
 
@@ -713,6 +720,10 @@ impl Compiler {
 
     fn emit_get(&mut self, csr: usize) {
         self.code.push(Vop::Get { csr });
+    }
+
+    fn emit_get_range(&mut self, csr: usize) {
+        self.code.push(Vop::GetRange { csr });
     }
 
     fn emit_scan(&mut self, csr: usize, jmp: usize) {

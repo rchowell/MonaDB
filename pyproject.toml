@@ -12,13 +12,12 @@ readme = "README.md"
 [tool.maturin]
 # Build the monadb crate with its `python` feature so the pyo3 module is compiled in.
 features = ["python"]
-# The compiled extension is installed at python/monadb/_monadb.*.so
+# The compiled extension is installed at monadb/_monadb.*.so
 module-name = "monadb._monadb"
-# Pure-Python package lives under python/ (mixed Rust/Python layout).
-python-source = "python"
+python-source = "."
 
 [tool.pytest.ini_options]
-testpaths = ["python/tests"]
+testpaths = ["monadb/tests"]
 
 [dependency-groups]
 dev = ["pytest>=8", "maturin>=1.7,<2"]

@@ -34,18 +34,34 @@ impl Cursor {
         self.source = Some(Source::Btree { btree, scan: None });
     }
 
-    /// Begins a forward scan; returns true if there's an available row.
-    #[allow(unused)]
+    /// Begins a forward scan, optionally restricted to keys sharing `prefix`;
+    /// returns true if there's an available row. A non-empty prefix scans only
+    /// the contiguous run of matching keys (a leading-column range); an absent
+    /// or empty prefix scans the whole table.
     pub fn scan(&mut self, txn: &Transaction, prefix: Option<&[u8]>) -> Result<bool> {
         let Some(Source::Btree { btree, scan }) = &mut self.source else {
             panic!("cursor must be open");
         };
         let btree = *btree;
-        // SAFETY: ...
         let rtxn = txn.as_ro();
-        let iter = btree.iter(rtxn)?;
-        let iter: RoIter<'static, Bytes, Bytes> = unsafe { std::mem::transmute(iter) };
-        let mut table = TableScan::new(TableIter::Fwd(iter));
+        // SAFETY: the iterator borrows the storage env, which outlives the
+        // cursor (yolk keep-alive); the lifetime is erased to 'static for
+        // self-reference. A non-empty prefix uses LMDB's prefix iterator — the
+        // order-preserving, self-delimiting key encoding makes a leading-column
+        // byte prefix an exact match at the column boundary.
+        let iter = match prefix {
+            Some(p) if !p.is_empty() => {
+                let iter = btree.prefix_iter(rtxn, p)?;
+                let iter: RoPrefix<'static, Bytes, Bytes> = unsafe { std::mem::transmute(iter) };
+                TableIter::FwdPre(iter)
+            }
+            _ => {
+                let iter = btree.iter(rtxn)?;
+                let iter: RoIter<'static, Bytes, Bytes> = unsafe { std::mem::transmute(iter) };
+                TableIter::Fwd(iter)
+            }
+        };
+        let mut table = TableScan::new(iter);
         let available = table.next()?;
         *scan = Some(table);
         // Return true if there's an available row
@@ -474,7 +490,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "prefix arg currently unused in scan"]
     fn scan_with_prefix_yields_only_matching_keys() {
         let rows: &[(&[u8], &[u8])] = &[(b"aa", b"1"), (b"ab", b"2"), (b"ba", b"3"), (b"bb", b"4")];
         let (_dir, storage) = fixture(rows);
@@ -488,7 +503,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "prefix arg currently unused in scan"]
     fn scan_with_empty_prefix_matches_everything() {
         let rows: &[(&[u8], &[u8])] = &[(b"a", b"1"), (b"b", b"2")];
         let (_dir, storage) = fixture(rows);
@@ -501,7 +515,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "prefix arg currently unused in scan"]
     fn scan_with_prefix_on_empty_btree_returns_false() {
         let (_dir, storage) = fixture(&[]);
         let (txn, btree) = open_read(&storage);

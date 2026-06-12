@@ -13,7 +13,7 @@ Functions are called by name with positional arguments. Named arguments use `nam
 ```
 upper('hello')
 round(3.14159, 2)
-read('data.jsonl', format: 'jsonl')
+read('examples/data.jsonl', format: 'jsonl')
 ```
 
 ## Aggregate functions
@@ -51,7 +51,7 @@ select { tag: tag, n: count(*) }
 `read(path)` reads a file and returns its contents as a value or row sequence for use in `from`. Format is inferred from the file extension; override with the `format:` named argument.
 
 ```
-select * from read('data.jsonl') as row;
+select * from read('examples/data.jsonl') as row;
 select * from read('records.csv', header: true) as row;
 ```
 

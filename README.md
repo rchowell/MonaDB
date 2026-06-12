@@ -10,8 +10,6 @@ Things I need to remember to do.
 - feat: joins
 - feat: aggregations
 - feat: order by
-- feat: deletes
-- feat: upserts
 - feat: functions
 - feat: lateral joins
 - feat: derived binding names

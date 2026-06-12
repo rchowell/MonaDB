@@ -1,6 +1,6 @@
 # SQL Conformance Test Suite — Format Specification
 
-> Version 1. This document defines the authoritative schema for all files in `tests/conformance/`.
+> Version 1. This document defines the authoritative schema for all files in `tests/`.
 
 ---
 

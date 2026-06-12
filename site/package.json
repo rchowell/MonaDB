@@ -1,6 +1,7 @@
 {
   "name": "monadb-site",
   "private": true,
+  "packageManager": "pnpm@11.6.0",
   "scripts": {
     "build": "tailwindcss -i input.css -o static/style.css --minify",
     "dev": "tailwindcss -i input.css -o static/style.css --watch"
@@ -8,10 +9,5 @@
   "devDependencies": {
     "@tailwindcss/cli": "4.1.0",
     "tailwindcss": "4.1.0"
-  },
-  "pnpm": {
-    "overrides": {
-      "enhanced-resolve": "5.23.0"
-    }
   }
 }

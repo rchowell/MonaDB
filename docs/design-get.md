@@ -1,10 +1,10 @@
 # Design note — `t[...]` keyed table subscript access ("get")
 
 **Status:** Signed off and implemented — the spec edits in §7 are applied (`docs/language.md`), and
-the full-key point lookup is built (parse/bind → `encode_key_tuple` + `cc_expr_get` + `Vop::Get`).
-**Scope of this pass:** full-key point lookup only. Partial-key prefix sub-sequence (handoff §5.5)
-is **deferred** at the user's instruction; this note records its intended semantics so the spec is
-coherent, but the implementation lands later.
+both the full-key point lookup (`cc_expr_get` + `Vop::Get`) **and** the partial-key prefix
+sub-sequence (handoff §5.5) are built. Partial keys lower to the same `Get`; the compiler reads
+`args.len() < keys.len()` and emits `Vop::GetRange`, which prefix-scans (`Cursor::scan` now honors
+its prefix arg) and materializes the matching rows into a `Value::Array` in key order.
 
 ---
 
@@ -17,17 +17,17 @@ create table t (id int);
 select t[1];            -- full key       -> the one stored row, or null on miss
 create table c (a string, b int);
 select c['x', 7];       -- full composite  -> the one row, or null
-select c['x'];          -- PARTIAL (leading prefix) -> sub-sequence of rows with a = 'x'  [DEFERRED]
+select c['x'];          -- PARTIAL (leading prefix) -> sub-sequence of rows with a = 'x'
 ```
 
 Key-completeness decides element vs. sub-sequence:
 
 | subscript arity vs. key columns | result | status |
 |---|---|---|
-| `== key count` (full key) | the one row (object) or `null` | **this pass** |
-| `0 < arity < key count` (leading prefix) | a sub-sequence (array) of matching rows, in key order | **deferred (5.5)** |
-| `arity == 0`, `arity > key count`, or keyless table | **static** error | this pass |
-| base is a non-table unbound name | **static** error (unresolved) | this pass |
+| `== key count` (full key) | the one row (object) or `null` | **done** |
+| `0 < arity < key count` (leading prefix) | a sub-sequence (array) of matching rows, in key order | **done** |
+| `arity == 0`, `arity > key count`, or keyless table | **static** error | done |
+| base is a non-table unbound name | **static** error (unresolved) | done |
 
 ---
 
@@ -76,9 +76,9 @@ is order-preserving, and a leading-column subset is a correct byte-prefix for th
 
 - `select t[full]` → **one row** (the stored object) per evaluation, or `null` on miss.
 - `select t[partial]` → **one value** that is the **sub-sequence** (array) of matching rows, in key
-  order; partial-miss → empty sequence. *(deferred — 5.5.)* Intended to be a first-class value that
-  composes (`t['a'][0]`, `from t['a']`); materialize-to-`Array` is the recommended first
-  implementation when 5.5 lands.
+  order; partial-miss → empty array. It is a first-class value that composes — `t['a'][0]` indexes
+  it and `from t['a'] as r` scans it as a value source (both covered in `14-get.yaml`). Implemented
+  by materialize-to-`Array` (`Vop::GetRange`); a lazy cursor-backed sequence remains a future option.
 
 ## 6. Error categories (handoff §7 — get them exactly right)
 
@@ -87,7 +87,6 @@ is order-preserving, and a leading-column subset is a correct byte-prefix for th
 | keyless table, `arity == 0`, `arity > key count` | `Error::BindError` (or `Unsupported`) | `static` |
 | unbound non-table name | `Error::BindError` (unresolved) | `static` |
 | literal key whose type mismatches the column (`t["a"]` on int key) | **`Error::Schema`** | `schema` |
-| partial key (this pass only, until 5.5) | `Error::Unsupported` | `static` |
 
 Routing a literal type-mismatch through `encode_key_tuple → Error::Schema` is what keeps
 `get-wrong-type` in the `schema` category.
@@ -107,9 +106,11 @@ key, in order"; mark `{key}`/`{hash,sort}` as future.
 **`docs/sql/*.adoc`** — these are draft/historical (path.adoc, select.adoc, model.adoc, from.adoc,
 create.adoc); add a one-line pointer to the normative `language.md` get section. Low priority.
 
-## 8. Deferred (not this pass)
+## 8. Deferred (still not built)
 
-- Partial-key prefix sub-sequence + `Cursor::scan(prefix)` + the 3 `scan_with_prefix_*` unit tests
-  (handoff §5.5). Spec semantics documented; implementation later.
 - Runtime-expression keys (`foo[x.id]`) — v1 is **literal keys only**, encoded at compile time.
+  This applies to both full and partial keys.
+- Reverse-order range scans (`scan_rev` with a prefix) — there is no descending-order surface yet.
+- A lazy, cursor-backed sub-sequence value (avoiding materialization) — `Vop::GetRange` eagerly
+  builds a `Value::Array` for now.
 - `{key}` / `{hash, sort}` options syntax.

@@ -1,6 +1,6 @@
 // Conformance test harness for the SQL language spec.
 //
-// Test data lives in tests/conformance/suites/*.yaml (see FORMAT.md for the schema).
+// Test data lives in tests/suites/*.yaml (see tests/FORMAT.md for the schema).
 // build.rs walks the suites directory and emits one #[test] per case into
 // $OUT_DIR/conformance_generated.rs, which is included at the bottom of this file.
 //

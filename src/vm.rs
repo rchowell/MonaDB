@@ -74,6 +74,10 @@ pub enum Vop {
     /// btree, and push the decoded row value (or null on a miss). The cursor
     /// must already be `Open`.
     Get { csr: usize },
+    /// Range lookup: pop an encoded key prefix, prefix-scan cursor (csr)'s
+    /// btree, and push the matching rows as a `Value::Array` in key order
+    /// (empty on no match). The cursor must already be `Open`.
+    GetRange { csr: usize },
     /// Create a new object on the stack.
     Obj,
     /// Assign a value to an object member.
@@ -490,6 +494,18 @@ impl VM {
                     let txn = self.txn.as_ref().expect("Get before Transaction");
                     let val = self.cursors[*csr].get(txn, &key)?;
                     self.push(val);
+                }
+                Vop::GetRange { csr } => {
+                    let prefix = pop_key(self.pop())?;
+                    let txn = self.txn.as_ref().expect("GetRange before Transaction");
+                    let cursor = &mut self.cursors[*csr];
+                    let mut arr = Value::array();
+                    let mut more = cursor.scan(txn, Some(&prefix))?;
+                    while more {
+                        arr.push(cursor.load()?);
+                        more = cursor.next()?;
+                    }
+                    self.push(arr);
                 }
                 Vop::Scan { csr, jmp } => {
                     let txn = self.txn.as_ref().expect("Scan before Transaction");

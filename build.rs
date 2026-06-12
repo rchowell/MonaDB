@@ -6,7 +6,7 @@ fn main() {
 }
 
 fn generate_conformance_tests() {
-    let suites_dir = "tests/conformance/suites";
+    let suites_dir = "tests/suites";
     println!("cargo:rerun-if-changed={suites_dir}");
 
     let out_dir = std::env::var("OUT_DIR").unwrap();

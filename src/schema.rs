@@ -43,7 +43,7 @@ pub fn encode_key(val: &Value, keys: &[Key]) -> Result<Vec<u8>> {
 
 /// Encode literal key values positionally against the **leading** key columns
 /// (`keys.iter().take(vals.len())`). For a full key `vals.len() == keys.len()`;
-/// a shorter `vals` is a leading prefix (used by the future partial-key pass).
+/// a shorter `vals` is a leading prefix (used by partial-key range reads).
 /// The per-column encoding is byte-identical to [`encode_key`], so a `get`
 /// reproduces exactly the key an `insert` of the same logical row would store.
 pub fn encode_key_tuple(vals: &[Value], keys: &[Key]) -> Result<Vec<u8>> {
