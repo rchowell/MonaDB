@@ -1,29 +1,38 @@
+//! The runtime value type and its in-memory object.
+//!
+//! [`Value`] is the single currency of the VM stack, storage, and query results
+//! — a JSON-like tagged union with `Rc`-backed heap variants (cheap `Clone`,
+//! copy-on-write mutation). `serde_json` bridges to and from stored bytes.
+
 use std::fmt::{Debug, Display};
 use std::rc::Rc;
 
 use crate::error::{Error, Result};
 use serde_json::{Map, Value as JsonValue};
 
-/// Value representation for the virutal machine.
+/// A value in the virtual machine: a JSON-like tagged union.
+///
+/// Heap variants (`String`/`Bytes`/`Array`/`Object`) are `Rc`-backed, so `Clone`
+/// is a refcount bump and mutation copies-on-write (see `set`/`push`/`spread`).
 #[derive(Clone)]
 pub enum Value {
-    /// The JSON null value.
+    /// The null value.
     Null,
-    /// The JSON boolean value type.
+    /// A boolean.
     Bool(bool),
-    /// The JSON number value type.
+    /// A signed 64-bit integer.
     Int(i64),
-    /// The JSON number value type.
+    /// A 64-bit float (never NaN or infinity).
     Float(f64),
-    /// The JSON number value type.
+    /// An internal object/table id, not user-visible.
     Oid(u32),
-    /// The JSON string value type.
+    /// A UTF-8 string.
     String(Rc<str>),
-    /// Raw binary data.
+    /// Raw binary data, e.g. an encoded key (internal).
     Bytes(Rc<[u8]>),
-    /// The JSON array value type.
+    /// An ordered array.
     Array(Rc<Vec<Value>>),
-    /// The JSON object value type.
+    /// An insertion-ordered object.
     Object(Rc<Object>),
 }
 
@@ -40,21 +49,25 @@ impl Value {
         Self::from_json(value)
     }
 
+    /// Returns the null value.
     #[inline]
     pub fn null() -> Value {
         Value::Null
     }
 
+    /// Wraps a boolean.
     #[inline]
     pub fn bool(value: bool) -> Value {
         Value::Bool(value)
     }
 
+    /// Wraps an `i64`.
     #[inline]
     pub fn int(value: i64) -> Value {
         Value::Int(value)
     }
 
+    /// Wraps an `f64`.
     #[inline]
     pub fn float(value: f64) -> Value {
         Value::Float(value)
@@ -70,17 +83,20 @@ impl Value {
         }
     }
 
+    /// Builds a string from a raw literal, stripping quotes and unescaping.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // for .lalrpop
     pub fn string(raw: String) -> Value {
         Value::String(Rc::from(parse_string_literal(&raw)))
     }
 
+    /// Returns a new empty object.
     #[inline]
     pub fn object() -> Value {
         Value::Object(Rc::new(Object::new()))
     }
 
+    /// Returns a new empty array.
     #[inline]
     pub fn array() -> Value {
         Value::Array(Rc::new(Vec::new()))
@@ -195,6 +211,8 @@ impl Value {
     // Predicates / accessors
     //------------------------------
 
+    /// Returns the value's truthiness: `null`, `false`, `0`, and `0.0` are
+    /// falsy; everything else is truthy.
     #[inline]
     pub fn is_truthy(&self) -> bool {
         match self {
@@ -206,7 +224,8 @@ impl Value {
         }
     }
 
-    /// If the value is an object, return the members – otherwise, None.
+    /// Returns the object's members as `(name, value)` pairs, or `None` for a
+    /// non-object.
     pub fn members(&self) -> Option<Vec<(String, Value)>> {
         if let Value::Object(obj) = self {
             Some(obj.iter().map(|(k, v)| (k.to_string(), v.clone())).collect())
@@ -215,18 +234,22 @@ impl Value {
         }
     }
 
+    /// Returns true if this is a boolean.
     pub fn is_bool(&self) -> bool {
         matches!(self, Value::Bool(_))
     }
 
+    /// Returns true if this is null.
     pub fn is_null(&self) -> bool {
         matches!(self, Value::Null)
     }
 
+    /// Returns true if this is an int or a float.
     pub fn is_number(&self) -> bool {
         matches!(self, Value::Int(_) | Value::Float(_))
     }
 
+    /// Returns the value as an `f64` (an `Int` widens), or `None` if non-numeric.
     pub fn as_f64(&self) -> Option<f64> {
         match self {
             Value::Int(i) => Some(*i as f64),
@@ -235,10 +258,12 @@ impl Value {
         }
     }
 
+    /// Returns true if this is a string.
     pub fn is_string(&self) -> bool {
         matches!(self, Value::String(_))
     }
 
+    /// Returns the string slice, or `None` if this is not a string.
     pub fn as_str(&self) -> Option<&str> {
         if let Value::String(s) = self {
             Some(s)
@@ -247,10 +272,12 @@ impl Value {
         }
     }
 
+    /// Returns true if this is an array.
     pub fn is_array(&self) -> bool {
         matches!(self, Value::Array(_))
     }
 
+    /// Returns true if this is an object.
     pub fn is_object(&self) -> bool {
         matches!(self, Value::Object(_))
     }
@@ -268,7 +295,8 @@ impl Value {
     // Navigation (Rc-sharing, not deep copy)
     //------------------------------
 
-    /// JSON Path Expression: dispatch on the index value's type.
+    /// Navigates by a value: a non-negative int indexes an array, a string
+    /// keys an object (the computed-path step `input[expr]`).
     pub fn jpe(&self, v: Value) -> Option<Value> {
         match v {
             Value::Int(i) if i >= 0 => self.jpi(i as usize),
@@ -286,7 +314,8 @@ impl Value {
         }
     }
 
-    /// JSON Path Index: `array[idx]`. The `.cloned()` is an Rc bump on heap leaves.
+    /// Returns `array[idx]`, or `None` if out of range or not an array. The
+    /// `.cloned()` is an Rc bump on heap leaves, not a deep copy.
     pub fn jpi(&self, idx: usize) -> Option<Value> {
         match self {
             Value::Array(items) => items.get(idx).cloned(),
@@ -294,7 +323,8 @@ impl Value {
         }
     }
 
-    /// JSON Path Key: `object[key]`. The `.cloned()` is an Rc bump on heap leaves.
+    /// Returns `object[key]`, or `None` if absent or not an object. The
+    /// `.cloned()` is an Rc bump on heap leaves, not a deep copy.
     pub fn jpk(&self, key: &str) -> Option<Value> {
         match self {
             Value::Object(obj) => obj.get(key).cloned(),
@@ -334,6 +364,8 @@ impl Value {
     // Encoding (JSON bytes for now)
     //------------------------------
 
+    /// Encodes the value to stored bytes: `Oid`/`Bytes` stay raw, everything
+    /// else serializes to JSON.
     pub fn encode(&self) -> Result<Vec<u8>> {
         match self {
             Value::Oid(oid) => Ok(oid.to_be_bytes().to_vec()),
@@ -342,6 +374,7 @@ impl Value {
         }
     }
 
+    /// Decodes a value from stored JSON bytes.
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         let json: JsonValue = serde_json::from_slice(bytes)?;
         Ok(Self::from_json(json))
@@ -359,6 +392,7 @@ impl Value {
     //   - a non-number operand -> Err (a user-reachable type error, not a panic).
     //------------------------------
 
+    /// Adds two numbers.
     pub fn add(self, other: Value) -> Result<Value> {
         if let (Value::Int(a), Value::Int(b)) = (&self, &other) {
             return a
@@ -369,6 +403,7 @@ impl Value {
         Self::float_op(&self, &other, "+", |a, b| a + b)
     }
 
+    /// Subtracts two numbers.
     pub fn sub(self, other: Value) -> Result<Value> {
         if let (Value::Int(a), Value::Int(b)) = (&self, &other) {
             return a
@@ -379,6 +414,7 @@ impl Value {
         Self::float_op(&self, &other, "-", |a, b| a - b)
     }
 
+    /// Multiplies two numbers.
     pub fn mul(self, other: Value) -> Result<Value> {
         if let (Value::Int(a), Value::Int(b)) = (&self, &other) {
             return a
@@ -389,6 +425,7 @@ impl Value {
         Self::float_op(&self, &other, "*", |a, b| a * b)
     }
 
+    /// Divides two numbers; errors on division by zero.
     pub fn div(self, other: Value) -> Result<Value> {
         if let (Value::Int(a), Value::Int(b)) = (&self, &other) {
             // checked_div is None on a zero divisor and on i64::MIN / -1.
@@ -400,6 +437,7 @@ impl Value {
         Self::float_op_nonzero(&self, &other, "/", |a, b| a / b)
     }
 
+    /// Remainder of two numbers; errors on division by zero.
     pub fn rem(self, other: Value) -> Result<Value> {
         if let (Value::Int(a), Value::Int(b)) = (&self, &other) {
             return a
@@ -467,6 +505,8 @@ impl Debug for Value {
     }
 }
 
+/// Unquotes a string literal: strips matching `'`/`"` delimiters and collapses
+/// a doubled quote (`''`/`""`) to a single one. Returns unquoted input as-is.
 fn parse_string_literal(raw: &str) -> String {
     let bytes = raw.as_bytes();
     if raw.len() >= 2
@@ -529,21 +569,25 @@ impl PartialOrd for Value {
     }
 }
 
-/// Object representation for the virtual machine, linear key lookup is fine for small objects.
+/// An insertion-ordered object: a list of `(key, value)` members. Lookup is
+/// linear, which is fine for the small objects rows produce.
 #[derive(Clone, Default)]
 pub struct Object {
     members: Vec<(Rc<str>, Value)>,
 }
 
 impl Object {
+    /// Returns a new empty object.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Returns the value for `key`, or `None` if absent.
     pub fn get(&self, key: &str) -> Option<&Value> {
         self.members.iter().find(|(k, _)| &**k == key).map(|(_, v)| v)
     }
 
+    /// Inserts or updates `key`, preserving insertion order on update.
     pub fn insert(&mut self, key: Rc<str>, value: Value) {
         if let Some(slot) = self.members.iter_mut().find(|(k, _)| *k == key) {
             slot.1 = value;
@@ -552,14 +596,17 @@ impl Object {
         }
     }
 
+    /// Iterates the members in insertion order.
     pub fn iter(&self) -> impl Iterator<Item = (&str, &Value)> {
         self.members.iter().map(|(k, v)| (&**k, v))
     }
 
+    /// Returns the number of members.
     pub fn len(&self) -> usize {
         self.members.len()
     }
 
+    /// Returns true if the object has no members.
     pub fn is_empty(&self) -> bool {
         self.members.is_empty()
     }

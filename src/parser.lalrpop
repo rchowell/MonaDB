@@ -40,10 +40,13 @@ extern {
         // keywords
         "and"       => Token::And,
         "as"        => Token::As,
+        "asc"       => Token::Asc,
         "between"   => Token::Between,
+        "by"        => Token::By,
         "clear"     => Token::Clear,
         "create"    => Token::Create,
         "delete"    => Token::Delete,
+        "desc"      => Token::Desc,
         "drop"      => Token::Drop,
         "in"        => Token::In,
         "is"        => Token::Is,
@@ -53,6 +56,7 @@ extern {
         "into"      => Token::Into,
         "not"       => Token::Not,
         "or"        => Token::Or,
+        "order"     => Token::Order,
         "select"    => Token::Select,
         "table"     => Token::Table,
         "unknown"   => Token::Unknown,
@@ -131,9 +135,19 @@ SelectItem: ir::Member = <Expr> "as" <"ident"> => ir::select_item(<>);
 SelectBlock: ir::Select =
     <From>
     <Where?>
+    <OrderBy?>
     <Limit?> => ir::select_block(<>);
 
 From: Vec<ir::From> = "from" <List<FromItem>>;
+
+OrderBy: ir::OrderBy = "order" "by" <List<OrderItem>> => ir::order_by(<>);
+
+OrderItem: ir::OrderKey = <Expr> <OrderDir?> => ir::order_key(<>);
+
+OrderDir: bool = {
+    "asc"   => false,
+    "desc"  => true,
+};
 
 FromItem: ir::From = <Expr> <("as"? <"ident">)?> => ir::from_item(<>);
 

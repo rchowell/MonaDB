@@ -1,9 +1,16 @@
+//! AST / IR types and the parser action functions that build them.
+//!
+//! The grammar in `parser.lalrpop` calls the `#[inline]` functions here to
+//! construct nodes; the binder then annotates them (cursor slots, table oids)
+//! and the compiler lowers them to bytecode.
+
 use std::vec;
 
 use crate::value::Value;
 
 pub use crate::display::ToSql;
 
+/// A top-level SQL statement — the unit the compiler turns into a `Program`.
 #[derive(Debug)]
 pub enum Statement {
     Clear(Clear),
@@ -14,46 +21,53 @@ pub enum Statement {
     Select(Select),
 }
 
+/// A CREATE statement. (`CREATE TABLE` is the only form today.)
 #[derive(Debug)]
 pub enum Create {
     Table(TableDefinition),
 }
 
+/// An INSERT of one or more row expressions into a table.
 #[derive(Debug)]
 pub struct Insert {
     pub target: TableDefinition,
     pub source: Vec<Expr>,
 }
 
+/// A DELETE of the `from` rows matching the optional `where_`.
 #[derive(Debug)]
 pub struct Delete {
     pub from: From,
     pub where_: Option<Where>,
 }
 
+/// A DROP TABLE of the named table.
 #[derive(Debug)]
 pub struct Drop {
     pub name: String,
-    pub oid: Option<u32>,
+    pub oid: Option<u32>, // set by binder
 }
 
+/// A CLEAR, emptying the named table's rows but keeping its definition.
 #[derive(Debug)]
 pub struct Clear {
     pub name: String,
-    pub oid: Option<u32>,
+    pub oid: Option<u32>, // set by binder
 }
 
 //------------------------------
 // Table Definition
 //------------------------------
 
+/// A table's name and its declared key columns (the composite key, in order).
 #[derive(Debug, PartialEq, Clone)]
 pub struct TableDefinition {
-    pub oid: Option<u32>,
+    pub oid: Option<u32>, // set by binder
     pub name: String,
     pub keys: Vec<Key>,
 }
 
+/// One key column: a name and its declared type (int or string).
 #[derive(Debug, PartialEq, Clone)]
 pub struct Key {
     pub name: String,
@@ -64,6 +78,8 @@ pub struct Key {
 // DQL
 //------------------------------
 
+/// A SELECT query: its from-sources, residual filter, order, limit, and
+/// projection. Clauses run in spec order — from → where → order → limit → select.
 #[derive(Debug)]
 pub struct Select {
     pub from: Vec<From>,
@@ -71,42 +87,69 @@ pub struct Select {
     pub where_: Option<Where>,
     // group
     // having
-    // order
+    pub order: Option<OrderBy>,
     pub limit: Option<Limit>,
     pub select: Constructor,
 }
 
+/// The projection form of a SELECT.
 #[derive(Debug)]
 pub enum Constructor {
+    /// Identity `.` — project the binding tuple as an object.
     None,
+    /// Spread `*` — merge all bindings into one object.
     Star,
+    /// A single expression value.
     Expr(Expr),
+    /// An explicit `{ k: v, ... }` member list.
     List(Vec<Member>),
 }
 
+/// A from-clause source: a named table, or an evaluated value to iterate.
 #[derive(Debug)]
 pub enum Source {
     Table(String),
     Value(Box<Expr>),
 }
 
+/// One from-item: a source bound to an alias, plus binder-assigned slots.
 #[derive(Debug)]
 pub struct From {
     pub src: Source,
     pub var: String, // AS <var>
-    pub csr: Option<u32>,
-    pub oid: Option<u32>, // set by binder for Table sources
+    pub csr: Option<u32>, // cursor slot, set by binder
+    pub oid: Option<u32>, // table oid, set by binder for Table sources
 }
 
+/// A WHERE predicate — just an expression evaluated per binding tuple.
 pub type Where = Expr;
 
+/// A LIMIT clause as a half-open row range `[skip, skip+take)`.
 #[derive(Debug)]
 pub enum Limit {
+    /// `limit N..` — skip the first N rows.
     Skip(u64),
+    /// `limit N` — take at most N rows.
     Take(u64),
+    /// `limit N..M` — skip N, then take up to `M - N`.
     Slice(u64, u64),
 }
 
+/// An ORDER BY clause: its sort keys, most significant first.
+#[derive(Debug)]
+pub struct OrderBy {
+    pub keys: Vec<OrderKey>,
+}
+
+/// One ORDER BY key: the sort expression and its direction.
+#[derive(Debug)]
+pub struct OrderKey {
+    pub expr: Expr,
+    /// `true` sorts this key descending; `false` (the default) ascending.
+    pub desc: bool,
+}
+
+/// Whether a variable reference resolves to a table or a field at a cursor.
 #[derive(Debug)]
 pub enum Scope {
     Table,
@@ -118,7 +161,7 @@ pub enum Scope {
 pub struct Var {
     /// The reference name we get from parsing.
     pub name: String,
-    /// The bind is either the bound stack slot or
+    /// The bound cursor slot, or `None` until the binder resolves it.
     pub bind: Option<u32>,
 }
 
@@ -136,8 +179,10 @@ impl Var {
 // Types
 //------------------------------
 
+/// A boxed [`Type`], for the recursive object/array cases.
 pub type TypeRef = Box<Type>;
 
+/// A declared column or value type.
 #[derive(Debug, PartialEq, Clone)]
 pub enum Type {
     Any,
@@ -150,11 +195,13 @@ pub enum Type {
     Array,
 }
 
+/// A structural object type: its named members.
 #[derive(Debug, PartialEq, Clone)]
 pub struct TObject {
     pub members: Vec<TMember>,
 }
 
+/// One member of an object type: a name and its type.
 #[derive(Debug, PartialEq, Clone)]
 pub struct TMember {
     pub name: String,
@@ -165,18 +212,21 @@ pub struct TMember {
 // JSONPath
 //------------------------------
 
+/// A JSONPath: a root identifier followed by navigation segments.
 #[derive(Debug)]
 pub struct Path {
     pub identifier: String,
     pub segments: Vec<Segment>,
 }
 
+/// One path segment: a child step (`.x`) or a recursive descent (`..x`).
 #[derive(Debug)]
 pub enum Segment {
     Child(Vec<Selector>),
     Descd(Vec<Selector>),
 }
 
+/// A selector within a segment: a name, a `*` wildcard, or an array index.
 #[derive(Debug)]
 pub enum Selector {
     Name(String),
@@ -188,17 +238,27 @@ pub enum Selector {
 // Expressions
 //------------------------------
 
+/// A boxed [`Expr`], for the recursive cases.
 pub type ExprRef = Box<Expr>;
 
+/// An expression node — the value-producing core of the IR.
 #[derive(Debug)]
 pub enum Expr {
+    /// A builtin operator/function call.
     Call(Call),
+    /// Path index `input[i]`.
     Jpi(Jpi),
+    /// Path key `input.key`.
     Jpk(Jpk),
+    /// Computed path step `input[expr]`.
     Jpe(Jpe),
+    /// A literal value.
     Lit(Value),
+    /// An object constructor.
     Obj(Obj),
+    /// An array constructor.
     Array(Vec<Expr>),
+    /// A variable reference.
     Var(Var),
     /// Raw multi-element subscript `base[a, b, ...]` (>= 2 args) straight from
     /// the parser; the binder lowers it (table receiver → `Get`, value → error).
@@ -208,32 +268,38 @@ pub enum Expr {
     Get(Get),
 }
 
+/// An object constructor's members.
 pub type Obj = Vec<Member>;
 
+/// A builtin call: an operator/function name and its argument expressions.
 #[derive(Debug)]
 pub struct Call {
     pub name: String,
     pub args: Vec<Expr>,
 }
 
+/// One object-constructor member: a `k: v` assignment or a `...spread`.
 #[derive(Debug)]
 pub enum Member {
     Assign(String, Expr),
     Spread(Expr),
 }
 
+/// A path index `input[idx]`.
 #[derive(Debug)]
 pub struct Jpi {
     pub inp: ExprRef,
     pub idx: usize,
 }
 
+/// A path key `input.key`.
 #[derive(Debug)]
 pub struct Jpk {
     pub inp: ExprRef,
     pub key: String,
 }
 
+/// A computed path step `input[exp]`.
 #[derive(Debug)]
 pub struct Jpe {
     pub inp: ExprRef,
@@ -262,21 +328,25 @@ pub struct Get {
 // Parser Actions
 //------------------------------
 
+/// Builds a CREATE TABLE from a table definition.
 #[inline]
 pub fn create_table(table: TableDefinition) -> Create {
     Create::Table(table)
 }
 
+/// Builds a table definition from a name and its key columns.
 #[inline]
 pub fn table_definition(name: String, members: Vec<Key>) -> TableDefinition {
     TableDefinition { oid: None, name, keys: members }
 }
 
+/// Builds one key column from a name and type.
 #[inline]
 pub fn table_key(name: String, ty: Type) -> Key {
     Key { name, ty }
 }
 
+/// Builds an INSERT into the named table from row expressions.
 #[inline]
 pub fn insert(target: String, source: Vec<Expr>) -> Insert {
     Insert {
@@ -289,6 +359,7 @@ pub fn insert(target: String, source: Vec<Expr>) -> Insert {
     }
 }
 
+/// Builds a DELETE from a table, optional alias, and optional WHERE.
 #[inline]
 pub fn delete(table: String, alias: Option<String>, where_: Option<Where>) -> Delete {
     let from = From {
@@ -300,48 +371,74 @@ pub fn delete(table: String, alias: Option<String>, where_: Option<Where>) -> De
     Delete { from, where_ }
 }
 
+/// Builds a DROP TABLE for the named table.
 #[inline]
 pub fn drop_table(name: String) -> Drop {
     Drop { name, oid: None }
 }
 
+/// Builds a CLEAR for the named table.
 #[inline]
 pub fn clear_table(name: String) -> Clear {
     Clear { name, oid: None }
 }
 
+/// Builds a from-less `select <value>`.
 #[inline]
 pub fn select_value(select: Constructor) -> Select {
-    Select { from: vec![], where_: None, limit: None, select }
+    Select { from: vec![], where_: None, order: None, limit: None, select }
 }
 
+/// Builds a SELECT, attaching a projection to a parsed from/where/order/limit block.
 #[inline]
 pub fn select(select: Constructor, block: Select) -> Select {
     Select {
         from: block.from,
         where_: block.where_,
+        order: block.order,
         limit: block.limit,
         select,
     }
 }
 
+/// Builds the from/where/order/limit block; the projection is filled in later.
 #[inline]
-pub fn select_block(from: Vec<From>, where_: Option<Where>, limit: Option<Limit>) -> Select {
+pub fn select_block(
+    from: Vec<From>,
+    where_: Option<Where>,
+    order: Option<OrderBy>,
+    limit: Option<Limit>,
+) -> Select {
     Select {
         from,
         where_,
+        order,
         limit,
         select: Constructor::None,
     }
 }
 
+/// Builds an ORDER BY from its keys.
+#[inline]
+pub fn order_by(keys: Vec<OrderKey>) -> OrderBy {
+    OrderBy { keys }
+}
+
+/// Builds one ORDER BY key, defaulting to ascending when no direction is given.
+#[inline]
+pub fn order_key(expr: Expr, desc: Option<bool>) -> OrderKey {
+    OrderKey { expr, desc: desc.unwrap_or(false) }
+}
+
+/// Builds a projected `expr as name` member.
 #[inline]
 pub fn select_item(expr: Expr, name: String) -> Member {
     Member::Assign(name, expr)
 }
 
-/// Variable without path is assumed to be a table reference. I should
-/// probably fix up the grammar here, but this is a reasonable start.
+/// Builds a from-item: a bare variable becomes a table reference, any other
+/// expression a value source. (A variable without a path is assumed to be a
+/// table; the grammar could disambiguate this, but this is a reasonable start.)
 #[inline]
 pub fn from_item(src: Expr, alias: Option<String>) -> From {
     match src {
@@ -360,16 +457,19 @@ pub fn from_item(src: Expr, alias: Option<String>) -> From {
     }
 }
 
+/// Builds `limit N..` (skip N rows).
 #[inline]
 pub fn limit_skip(offset: u64) -> Limit {
     Limit::Skip(offset)
 }
 
+/// Builds `limit N` (take at most N rows).
 #[inline]
 pub fn limit_take(limit: u64) -> Limit {
     Limit::Take(limit)
 }
 
+/// Builds `limit N..M` (skip N, then take up to `M - N`).
 #[inline]
 pub fn limit_slice(offset: u64, limit: u64) -> Limit {
     Limit::Slice(offset, limit)
@@ -386,11 +486,13 @@ pub fn limit_slice(offset: u64, limit: u64) -> Limit {
 //     Member::Assign(name, expr)
 // }
 
+/// Builds a `name: expr` object member.
 #[inline]
 pub fn member_assign(name: String, expr: Expr) -> Member {
     Member::Assign(name, expr)
 }
 
+/// Builds a `...expr` spread member.
 #[inline]
 pub fn member_spread(expr: Expr) -> Member {
     Member::Spread(expr)
@@ -400,34 +502,42 @@ pub fn member_spread(expr: Expr) -> Member {
 // Parser Actions: Types
 //------------------------------
 
+/// Builds the `any` type.
 pub fn t_any() -> Type {
     Type::Any
 }
 
+/// Builds the `bool` type.
 pub fn t_bool() -> Type {
     Type::Bool
 }
 
+/// Builds the `int` type.
 pub fn t_int() -> Type {
     Type::Int
 }
 
+/// Builds the `float` type.
 pub fn t_float() -> Type {
     Type::Float
 }
 
+/// Builds the `number` type.
 pub fn t_number() -> Type {
     Type::Number
 }
 
+/// Builds the `string` type.
 pub fn t_string() -> Type {
     Type::String
 }
 
+/// Builds an object type from its members.
 pub fn t_object(members: Vec<TMember>) -> Type {
     Type::Object(TObject { members })
 }
 
+/// Builds one object-type member from a name and type.
 pub fn t_member(name: String, ty: Type) -> TMember {
     TMember {
         name,
@@ -435,6 +545,7 @@ pub fn t_member(name: String, ty: Type) -> TMember {
     }
 }
 
+/// Builds the `array` type.
 pub fn t_array() -> Type {
     Type::Array
 }
@@ -443,6 +554,7 @@ pub fn t_array() -> Type {
 // Parser Actions: JSONPath
 //------------------------------
 
+/// Builds a path from a root identifier and its segments.
 pub fn path(identifier: String, segments: Vec<Segment>) -> Path {
     Path {
         identifier,
@@ -450,38 +562,47 @@ pub fn path(identifier: String, segments: Vec<Segment>) -> Path {
     }
 }
 
+/// Builds a child segment (`.[...]`) from its selectors.
 pub fn segment_child(selectors: Vec<Selector>) -> Segment {
     Segment::Child(selectors)
 }
 
+/// Builds a child name segment (`.name`).
 pub fn segment_child_name(name: String) -> Segment {
     Segment::Child(vec![Selector::Name(name)])
 }
 
+/// Builds a child wildcard segment (`.*`).
 pub fn segment_child_wildcard() -> Segment {
     Segment::Child(vec![Selector::Wildcard])
 }
 
+/// Builds a descendant segment (`..[...]`) from its selectors.
 pub fn segment_descd(selectors: Vec<Selector>) -> Segment {
     Segment::Descd(selectors)
 }
 
+/// Builds a descendant name segment (`..name`).
 pub fn segment_descd_name(name: String) -> Segment {
     Segment::Descd(vec![Selector::Name(name)])
 }
 
+/// Builds a descendant wildcard segment (`..*`).
 pub fn segment_descd_wildcard() -> Segment {
     Segment::Descd(vec![Selector::Wildcard])
 }
 
+/// Builds a name selector (`name`).
 pub fn selector_name(name: String) -> Selector {
     Selector::Name(name)
 }
 
+/// Builds a wildcard selector (`*`).
 pub fn selector_wildcard() -> Selector {
     Selector::Wildcard
 }
 
+/// Builds an array-index selector (`[i]`).
 pub fn selector_index(idx: usize) -> Selector {
     Selector::Index(idx)
 }
@@ -490,16 +611,19 @@ pub fn selector_index(idx: usize) -> Selector {
 // Parser Actions: Expressions
 //------------------------------
 
+/// Builds an unbound variable reference.
 #[inline]
 pub fn expr_var(name: String) -> Expr {
     Expr::Var(Var::unbound(&name))
 }
 
+/// Builds a literal expression.
 #[inline]
 pub fn expr_lit(val: Value) -> Expr {
     Expr::Lit(val)
 }
 
+/// Builds a path-key access `inp.key`.
 #[inline]
 pub fn expr_jpk(inp: Expr, key: String) -> Expr {
     Expr::Jpk(Jpk {
@@ -508,6 +632,7 @@ pub fn expr_jpk(inp: Expr, key: String) -> Expr {
     })
 }
 
+/// Builds a computed path access `inp[exp]`.
 #[inline]
 pub fn expr_jpe(inp: Expr, exp: Expr) -> Expr {
     Expr::Jpe(Jpe {
@@ -529,16 +654,19 @@ pub fn expr_subscript(base: Expr, first: Expr, rest: Vec<Expr>) -> Expr {
     })
 }
 
+/// Builds an object constructor.
 #[inline]
 pub fn expr_obj(obj: Obj) -> Expr {
     Expr::Obj(obj)
 }
 
+/// Builds an array constructor.
 #[inline]
 pub fn expr_array(items: Vec<Expr>) -> Expr {
     Expr::Array(items)
 }
 
+/// Builds a binary operator call `lhs <sym> rhs`.
 #[inline]
 pub fn expr_binary(sym: &str, lhs: Expr, rhs: Expr) -> Expr {
     Expr::Call(Call {
@@ -547,11 +675,13 @@ pub fn expr_binary(sym: &str, lhs: Expr, rhs: Expr) -> Expr {
     })
 }
 
+/// Builds a named function call.
 #[inline]
 pub fn expr_call(name: String, args: Vec<Expr>) -> Expr {
     Expr::Call(Call { name, args })
 }
 
+/// Builds a `not arg` call.
 #[inline]
 pub fn expr_not(arg: Expr) -> Expr {
     Expr::Call(Call {
@@ -560,6 +690,7 @@ pub fn expr_not(arg: Expr) -> Expr {
     })
 }
 
+/// Builds an `arg is null` test.
 #[inline]
 pub fn expr_is_null(arg: Expr) -> Expr {
     Expr::Call(Call {
@@ -568,11 +699,13 @@ pub fn expr_is_null(arg: Expr) -> Expr {
     })
 }
 
+/// Builds an `arg is not null` test.
 #[inline]
 pub fn expr_is_not_null(arg: Expr) -> Expr {
     expr_not(expr_is_null(arg))
 }
 
+/// Builds an `arg is true` test.
 #[inline]
 pub fn expr_is_true(arg: Expr) -> Expr {
     Expr::Call(Call {
@@ -581,6 +714,7 @@ pub fn expr_is_true(arg: Expr) -> Expr {
     })
 }
 
+/// Builds an `arg is false` test.
 #[inline]
 pub fn expr_is_false(arg: Expr) -> Expr {
     Expr::Call(Call {
@@ -589,6 +723,7 @@ pub fn expr_is_false(arg: Expr) -> Expr {
     })
 }
 
+/// Builds an `arg is unknown` test.
 #[inline]
 pub fn expr_is_unknown(arg: Expr) -> Expr {
     Expr::Call(Call {
@@ -597,21 +732,25 @@ pub fn expr_is_unknown(arg: Expr) -> Expr {
     })
 }
 
+/// Builds an `arg is not true` test.
 #[inline]
 pub fn expr_is_not_true(arg: Expr) -> Expr {
     expr_not(expr_is_true(arg))
 }
 
+/// Builds an `arg is not false` test.
 #[inline]
 pub fn expr_is_not_false(arg: Expr) -> Expr {
     expr_not(expr_is_false(arg))
 }
 
+/// Builds an `arg is not unknown` test.
 #[inline]
 pub fn expr_is_not_unknown(arg: Expr) -> Expr {
     expr_not(expr_is_unknown(arg))
 }
 
+/// Builds an `x between a and b` test.
 #[inline]
 pub fn expr_between(x: Expr, a: Expr, b: Expr) -> Expr {
     Expr::Call(Call {
@@ -620,11 +759,13 @@ pub fn expr_between(x: Expr, a: Expr, b: Expr) -> Expr {
     })
 }
 
+/// Builds an `x not between a and b` test.
 #[inline]
 pub fn expr_not_between(x: Expr, a: Expr, b: Expr) -> Expr {
     expr_not(expr_between(x, a, b))
 }
 
+/// Builds an `x in (list...)` test, with the target as the first argument.
 #[inline]
 pub fn expr_in_list(x: Expr, list: Vec<Expr>) -> Expr {
     let mut args = Vec::with_capacity(list.len() + 1);
@@ -636,6 +777,7 @@ pub fn expr_in_list(x: Expr, list: Vec<Expr>) -> Expr {
     })
 }
 
+/// Builds an `x not in (list...)` test.
 #[inline]
 pub fn expr_not_in_list(x: Expr, list: Vec<Expr>) -> Expr {
     expr_not(expr_in_list(x, list))

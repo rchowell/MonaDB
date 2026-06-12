@@ -1,29 +1,46 @@
+//! The crate-wide error and result types, plus the `error!` early-return macro.
+
 use crate::lexer::Token;
 use lalrpop_util::ParseError;
 
 /// Top-level result type.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
-/// Top-level error type.
+/// Top-level error type — every fallible path returns one of these.
 #[derive(Default, Debug, Clone, PartialEq)]
 pub enum Error {
+    /// JSON (de)serialization failed.
     JsonError(String),
+    /// An I/O failure.
     IoError(String),
+    /// An internal invariant was violated (a bug, not bad input).
     InternalError(String),
+    /// The underlying LMDB storage returned an error.
     Storage(String),
+    /// The input failed to lex or parse.
     SyntaxError(Hint),
+    /// A recognized but unimplemented feature.
     Unsupported(String),
+    /// A transaction could not be started, committed, or aborted.
     Transaction(String),
+    /// An unspecified error (the `Default`).
     #[default]
     Unknown,
+    /// A referenced table does not exist.
     UnknownTable(String),
+    /// A called function/operator is undefined or has the wrong arity.
     UnknownFunction(String),
+    /// A table reference was used before being bound.
     UnboundTable(String),
+    /// Name resolution / binding failed.
     BindError(String),
+    /// A value violated the schema (missing/mistyped key, non-object row).
     Schema(String),
 }
 
 impl Error {
+    /// Renders the error against the source `input`. A syntax error shows the
+    /// offending line with a caret and an "expected" hint; others use `Debug`.
     pub fn pretty(&self, input: &str) -> String {
         match self {
             Error::SyntaxError(hint) => {
@@ -63,6 +80,7 @@ impl Error {
     }
 }
 
+/// Returns early with an [`Error::InternalError`] formatted from the arguments.
 #[macro_export]
 macro_rules! error {
     ($($arg:tt)*) => {{
@@ -135,6 +153,8 @@ impl From<ParseError<usize, Token, Error>> for Error {
     }
 }
 
+/// A syntax-error hint: the message, the byte offset in the input, and the set
+/// of tokens the parser expected there.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Hint {
     pub message: String,

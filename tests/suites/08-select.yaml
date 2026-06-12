@@ -33,7 +33,7 @@ tests:
       - sql: |
           insert into T ({x: 1}, {x: 2});
       - sql: |
-          select t.x from T as t order t.x;
+          select t.x from T as t order by t.x;
         result: [1, 2]
 
   - id: select-expr-literal
@@ -42,7 +42,7 @@ tests:
       - sql: |
           insert into T ({x: 1}, {x: 2});
       - sql: |
-          select 7 from T as t order t.x;
+          select 7 from T as t order by t.x;
         result: [7, 7]
 
   - id: select-expr-object

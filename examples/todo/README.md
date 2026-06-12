@@ -13,7 +13,7 @@ uv run maturin develop
 uv run python examples/todo/main.py
 ```
 
-## Session
+## Example
 
 ```
 todo — monadb @ todos.db  (type 'help')
@@ -34,20 +34,13 @@ removed #2
 todo> quit
 ```
 
-Data persists in the database file, so todos survive between sessions.
+## Reference
 
-## How it maps to monadb
-
-| command      | monadb SQL                                                        |
-|--------------|------------------------------------------------------------------|
-| (startup)    | `create table todos (id int);`                                   |
-| `add`        | `insert into todos ({id: N, text: '...', done: false});`         |
-| `list`       | `select * from todos;`                                            |
-| `done`       | read the row, then re-`insert` it with `done` flipped            |
-| `rm`         | `delete from todos where todos.id = N;`                           |
-| `clear`      | `delete from todos;`                                              |
-
-monadb has no `UPDATE` statement, so `done` relies on **upsert**: inserting an
-object whose key (`id`) already exists overwrites that row. And because monadb has
-no bind parameters, the example quotes user text by delimiting it with a quote
-character the text doesn't contain (so apostrophes like `O'Brien` just work).
+| Action    | MonaDB SQL                                               |
+| --------- | -------------------------------------------------------- |
+| (startup) | `create table todos (id int);`                           |
+| `add`     | `insert into todos ({id: N, text: '...', done: false});` |
+| `list`    | `select * from todos;`                                   |
+| `done`    | read the row, then re-`insert` it with `done` flipped    |
+| `rm`      | `delete from todos where todos.id = N;`                  |
+| `clear`   | `delete from todos;`                                     |

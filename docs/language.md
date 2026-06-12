@@ -442,7 +442,7 @@ expr_call
 
 ## 4. Data Query Language (DQL)
 
-A query is a `select` followed by zero or more clauses. The clauses must appear in this order: `from`, `with`, `where`, `group`, `order`, `limit`. A query may be combined with another query via `union`, `intersect`, or `except`.
+A query is a `select` followed by zero or more clauses. The clauses must appear in this order: `from`, `with`, `where`, `group`, `order by`, `limit`. A query may be combined with another query via `union`, `intersect`, or `except`.
 
 The grammar root for the entire language is:
 
@@ -625,28 +625,33 @@ group_item
     expr "as" identifier
 ```
 
-### 4.6 order
+### 4.6 order by
 
-**Description.** `order` sorts the binding-tuple stream by one or more keys.
+**Description.** `order by` sorts the binding-tuple stream by one or more keys.
 
 **Examples.**
 ```sql
-select * from T as t order t.x;
-select * from T as t order t.x desc;
-select * from T as t order t.x, t.y desc;
+select * from T as t order by t.x;
+select * from T as t order by t.x desc;
+select * from T as t order by t.x, t.y desc;
 ```
 
 **Rules.**
 1. Default direction is `asc`.
 2. `null` sorts last in `asc`, first in `desc`.
-3. Heterogeneous types in the same key are an error (compare strings with strings, numbers with numbers).
+3. Numbers order by numeric value across `int` and `float`; `1` and `1.0` compare equal.
 4. The sort is **not** guaranteed to be stable.
+
+**Deferred.** Heterogeneous types within one key currently sort by a fixed
+cross-type order rather than raising an error; `nulls first` / `nulls last`
+overrides are not available; and two distinct integers beyond 2⁵³ may compare
+equal, since keys are encoded through `f64`.
 
 **Syntax.**
 ```mckeeman
 order_clause_opt
     ""
-    "order" order_items
+    "order" "by" order_items
 
 order_items
     order_item
@@ -730,7 +735,7 @@ set_op
 
 ### 4.9 Clause evaluation order
 
-Clauses execute in this order regardless of source order: `from` → `with` → `where` → `group` → `order` → `limit` → `select`. Set ops apply to the entire pipelined output of each side.
+Clauses execute in this order regardless of source order: `from` → `with` → `where` → `group` → `order by` → `limit` → `select`. Set ops apply to the entire pipelined output of each side.
 
 ---
 

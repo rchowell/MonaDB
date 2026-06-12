@@ -41,6 +41,24 @@ bd sync               # Sync with git
 
 ## Conventions
 
+### Comment Style
+- Every public item (and non-obvious private one) opens with a one-line `///` summary: imperative, present tense, ends with a period — `/// Opens a btree with the given transaction mode.`
+- When one line isn't enough: the summary, a blank `///` line, then prose and/or an indented ASCII illustration. Use backticks for identifiers and byte literals, and intra-doc links (`` [`encode_key`] ``) to related items.
+- Illustrate layouts, stack effects, and bytecode addresses with ASCII diagrams *inside* the doc comment — byte layouts (`schema.rs`), `stack: … a b → … (a+b)` effects (`vm.rs`), address maps (`compiler.rs`), lifecycles (`cursor.rs`). Aesthetics matter: align the art.
+- Keep `//` for in-body step narration, `// SAFETY:` blocks, and field annotations; keep `//-----` section dividers. Don't promote these to `///`.
+- Each file opens with a concise `//!` module header stating its role in the pipeline.
+- Mechanical/forwarding items stay bare — the `visitor.rs` `visit_*`/`fold_*` forwarders, raw token variants, and one-to-one `emit_*` wrappers. Uniformity shouldn't add noise.
+
+```rust
+/// Returns the cursor's current key, or null if unpositioned.
+pub fn current_key(&self) -> Value { ... }
+
+/// Adds the top two stack values.
+///
+///   stack:  … a b  ─▶  … (a + b)
+Add,
+```
+
 ### Naming
 - Compiler dispatch methods: `cc_` prefix — `cc_select`, `cc_expr`, `cc_expr_op`, ...
 - Compiler emit helpers: `emit_` prefix — `emit_push`, `emit_jpk`, `emit_rewind`, ...

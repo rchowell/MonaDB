@@ -1,3 +1,9 @@
+//! IR → `Vop` bytecode compiler.
+//!
+//! `cc_*` methods walk a bound [`Statement`] and append instructions through the
+//! `emit_*` helpers. Control-flow ops are emitted with placeholder jump targets
+//! and back-patched via [`Compiler::patch`] once the loop body's extent is known.
+
 use serde_json::json;
 
 use crate::catalog::CATALOG_OID;
@@ -20,7 +26,7 @@ macro_rules! unsupported {
     }}
 }
 
-/// Compiler translates SQL queries to Vops.
+/// Translates a bound SQL statement into a `Program` of `Vop` bytecode.
 pub struct Compiler {
     code: Vec<Vop>,
     /// Number of cursor slots required (max index + 1).
@@ -33,6 +39,7 @@ pub struct Compiler {
 
 #[allow(dead_code, unused)]
 impl Compiler {
+    /// Creates an empty compiler.
     pub fn new() -> Compiler {
         Compiler {
             code: vec![],
@@ -42,6 +49,16 @@ impl Compiler {
         }
     }
 
+    /// Compiles a statement into a self-contained `Program`, laid out in three
+    /// blocks. `Init` jumps over the body to the transaction block; that block
+    /// opens the transaction and `Jump`s back, so the body always runs inside a
+    /// live transaction. The body ends at `Halt`, which commits.
+    ///
+    ///   addr 0      Init         ────┐
+    ///   addr 1..M   [ body ]     ◀─┐ │
+    ///   addr M      Halt           │ │
+    ///   addr N      Transaction   ◀─┼─┘
+    ///   addr N+1    Jump           ──┘
     pub fn compile(mut self, statement: Statement) -> Result<Program> {
         // Setup Block
         //
@@ -81,6 +98,7 @@ impl Compiler {
         })
     }
 
+    /// Compiles a CREATE TABLE: insert the table's definition into the catalog.
     fn cc_create(&mut self, create: &Create) -> Result<()> {
         self.txm = Some(TransactionMode::Write);
 
@@ -117,6 +135,7 @@ impl Compiler {
         Ok(())
     }
 
+    /// Compiles an INSERT: open the target, then build and store each row.
     fn cc_insert(&mut self, insert: Insert) -> Result<()> {
         self.ensure_txn(TransactionMode::Write);
         let csr = self.alloc_cursor();
@@ -152,6 +171,8 @@ impl Compiler {
         Ok((csr as usize, oid))
     }
 
+    /// Compiles a DELETE as two passes: collect the matching keys into an array,
+    /// then delete each (a scan can't mutate its own btree mid-iteration).
     fn cc_delete(&mut self, delete: Delete) -> Result<()> {
         self.ensure_txn(TransactionMode::Write);
         let Delete { from, where_ } = delete;
@@ -201,6 +222,7 @@ impl Compiler {
         Ok(())
     }
 
+    /// Compiles a DROP TABLE: delete the catalog row, then clear the data btree.
     fn cc_drop(&mut self, drop: &Drop) {
         self.ensure_txn(TransactionMode::Write);
         let oid = drop.oid.expect("drop target should be bound to table oid");
@@ -221,6 +243,7 @@ impl Compiler {
         self.emit_clear(oid);
     }
 
+    /// Compiles a CLEAR: empty the table's data btree, leaving its catalog row.
     fn cc_clear(&mut self, clear: &Clear) {
         self.ensure_txn(TransactionMode::Write);
         let oid = clear.oid.expect("clear target should be bound to table oid");
@@ -228,33 +251,19 @@ impl Compiler {
         self.emit_clear(oid);
     }
 
+    /// Compiles a SELECT, streaming the nested-loop from/where/limit/project
+    /// path. An `ORDER BY` can't stream, so it detours to [`Self::cc_order`].
     fn cc_select(&mut self, select: Select) -> Result<()> {
         self.ensure_txn(TransactionMode::Read);
 
-        // Initialize the limit counters before the loop.
-        // 
-        // Limit N..M is half-open [N, M); skip N rows, then take M - N.
-        // saturating, so M <= N yields nothing. Could be a static analysis
-        // error, but this is fine.
-        let mut cnt_skip: Option<usize> = None;
-        let mut cnt_take: Option<usize> = None;
-        if let Some(limit) = &select.limit {
-            let (skip, take) = match limit {
-                Limit::Skip(n) => (Some(*n), None),
-                Limit::Take(n) => (None, Some(*n)),
-                Limit::Slice(n, m) => (Some(*n), Some(m.saturating_sub(*n))),
-            };
-            if let Some(n) = skip {
-                let c = self.alloc_counter();
-                self.emit_cnt_set(c, n);
-                cnt_skip = Some(c);
-            }
-            if let Some(n) = take {
-                let c = self.alloc_counter();
-                self.emit_cnt_set(c, n);
-                cnt_take = Some(c);
-            }
+        // ORDER BY can't stream: it materializes the post-where stream, sorts
+        // it, then projects. That two-phase path lives in cc_order.
+        if select.order.is_some() {
+            return self.cc_order(select);
         }
+
+        // Initialize the limit counters before the loop.
+        let (cnt_skip, cnt_take) = self.emit_limit_counters(select.limit.as_ref());
 
         let Select { from, where_, select: constructor, .. } = select;
 
@@ -326,19 +335,8 @@ impl Compiler {
             where_fail = Some(self.pc());
         }
 
-        // Compile the offset (skip)
-        let mut offset = None;
-        if let Some(c) = cnt_skip {
-            self.emit_cnt_if_pos(c, 0);
-            offset = Some(self.pc());
-        }
-
-        // Compile the limit (take)
-        let mut limit_pc = None;
-        if let Some(c) = cnt_take {
-            self.emit_cnt_if_zero(c, 0);
-            limit_pc = Some(self.pc());
-        }
+        // Compile the offset/limit guards.
+        let (offset, limit_pc) = self.emit_limit_checks(cnt_skip, cnt_take);
 
         // Compile the 'select' projection (constructor).
         self.cc_select_constructor(constructor, &bindings)?;
@@ -374,6 +372,202 @@ impl Compiler {
         Ok(())
     }
 
+    /// Compiles a query with an ORDER BY. Two phases over one materialized array:
+    ///
+    /// Phase 1 scans the `from`/`where` stream (the same nested-loop machinery
+    /// as `cc_select`) and, per surviving binding tuple, pushes a tagged element
+    /// `[order_key_bytes, payload]` onto a collector array. Phase 2 sorts the
+    /// collector by the key bytes, then iterates it on a payload cursor: it
+    /// applies the limit, re-seeds each from-binding via `SetVal` so the select
+    /// constructor compiles exactly as in the streaming path, and yields. Per
+    /// the spec, select runs after limit (§4.9), so projection is post-sort.
+    #[allow(clippy::too_many_lines)]
+    fn cc_order(&mut self, select: Select) -> Result<()> {
+        let Select { from, where_, order, limit, select: constructor } = select;
+        let order = order.expect("cc_order requires an order clause");
+        let dirs: Vec<bool> = order.keys.iter().map(|k| k.desc).collect();
+
+        // The (alias, cursor) bindings in item order; drive the payload + projection.
+        let bindings: Vec<(String, usize)> = from
+            .iter()
+            .map(|f| (f.var.clone(), f.csr.expect("from item should be bound") as usize))
+            .collect();
+        let n = bindings.len();
+
+        // Register the from-cursors, then allocate the phase-2 payload cursor.
+        for (_, csr) in &bindings {
+            self.use_cursor(*csr);
+        }
+        let payload_csr = self.alloc_cursor();
+
+        // The collector array lives at the bottom of the stack across phase 1.
+        self.emit_arr();
+
+        // Open table sources once before the loop; value sources need no open.
+        for f in &from {
+            if let Source::Table(_) = &f.src {
+                let csr = f.csr.expect("from item should be bound") as usize;
+                let oid = f.oid.expect("bind pass must set oid for Table");
+                self.emit_open(csr, oid);
+            }
+        }
+
+        // Begin one iteration per source, outer to inner (mirrors cc_select).
+        let mut entry = vec![0usize; n];
+        let mut begin = vec![0usize; n];
+        for (i, f) in from.into_iter().enumerate() {
+            let csr = f.csr.expect("from item should be bound") as usize;
+            match f.src {
+                Source::Table(_) => {
+                    self.emit_scan(csr, 0);
+                    entry[i] = self.pc();
+                }
+                Source::Value(expr) => {
+                    entry[i] = self.pc() + 1;
+                    self.cc_expr(*expr)?;
+                    self.emit_iter(csr, 0);
+                }
+            }
+            begin[i] = self.pc();
+        }
+
+        // Innermost body: residual filter, then tag + collect.
+        let body = self.code.len();
+        let mut where_fail = None;
+        if let Some(where_) = where_ {
+            self.cc_expr(where_)?;
+            self.emit_if_not(0);
+            where_fail = Some(self.pc());
+        }
+
+        // Build the tagged element [order_key_bytes, payload].
+        self.emit_arr();
+        for k in order.keys {
+            self.cc_expr(k.expr)?;
+        }
+        self.emit_order_key(dirs);
+        self.emit_arr_push();
+        // The payload is the binding tuple, exactly what `select .` builds.
+        self.cc_select_constructor(Constructor::None, &bindings)?;
+        self.emit_arr_push();
+        self.emit_arr_push();
+
+        // Close the loops inner to outer (mirrors cc_select).
+        let mut next_pc = vec![0usize; n];
+        for i in (0..n).rev() {
+            let resume = if i + 1 < n { entry[i + 1] } else { body };
+            self.emit_next(bindings[i].1, resume);
+            next_pc[i] = self.pc();
+        }
+
+        // Patch the phase-1 exhaust edges. The outermost source exhausting ends
+        // phase 1 and falls into the sort; an inner source advances its enclosing one.
+        let sort_pc = self.pc() + 1;
+        self.patch(begin[0], sort_pc)?;
+        for i in 1..n {
+            self.patch(begin[i], next_pc[i - 1])?;
+        }
+        let inner = next_pc[n - 1];
+        if let Some(pc) = where_fail {
+            self.patch(pc, inner)?;
+        }
+
+        // Phase 2: drop the read iterators, then sort the collector by key bytes.
+        for (_, csr) in &bindings {
+            self.emit_close(*csr);
+        }
+        self.emit_sort();
+
+        // Limit counters apply to the sorted stream (order then limit, §4.9).
+        let (cnt_skip, cnt_take) = self.emit_limit_counters(limit.as_ref());
+
+        // Iterate the sorted collector on the payload cursor.
+        self.emit_iter(payload_csr, 0);
+        let begin_payload = self.pc();
+        let loop_top = self.code.len();
+
+        // Limit: skip drops the row, take exhausted ends the scan.
+        let (offset, limit_pc) = self.emit_limit_checks(cnt_skip, cnt_take);
+
+        // Re-seed each from-binding from the payload (element[1]) so the select
+        // constructor reads it via the same LoadVal as a live scan.
+        for (alias, csr) in &bindings {
+            self.emit_load(payload_csr);
+            self.emit_jpi(1);
+            self.emit_jpk(alias.clone());
+            self.emit_set_val(*csr);
+        }
+
+        // Project and yield.
+        self.cc_select_constructor(constructor, &bindings)?;
+        self.emit_yield();
+
+        // Advance; patch the exhaust/skip/take edges now that targets are known.
+        self.emit_next(payload_csr, loop_top);
+        let next_payload = self.pc();
+        let exit = self.pc() + 1;
+        self.patch(begin_payload, exit)?;
+        if let Some(pc) = offset {
+            self.patch(pc, next_payload)?;
+        }
+        if let Some(pc) = limit_pc {
+            self.patch(pc, exit)?;
+        }
+        Ok(())
+    }
+
+    /// Allocates and initializes the skip/take counters for a `limit`, returning
+    /// their slots. `Limit N..M` is half-open `[N, M)`: skip N rows, then take
+    /// `M - N` (saturating, so `M <= N` yields nothing). The `CntSet`s emit at
+    /// the current pc, so the caller controls placement — before the streaming
+    /// loop (`cc_select`) or after the sort (`cc_order`).
+    fn emit_limit_counters(&mut self, limit: Option<&Limit>) -> (Option<usize>, Option<usize>) {
+        let mut cnt_skip = None;
+        let mut cnt_take = None;
+        if let Some(limit) = limit {
+            let (skip, take) = match limit {
+                Limit::Skip(n) => (Some(*n), None),
+                Limit::Take(n) => (None, Some(*n)),
+                Limit::Slice(n, m) => (Some(*n), Some(m.saturating_sub(*n))),
+            };
+            if let Some(n) = skip {
+                let c = self.alloc_counter();
+                self.emit_cnt_set(c, n);
+                cnt_skip = Some(c);
+            }
+            if let Some(n) = take {
+                let c = self.alloc_counter();
+                self.emit_cnt_set(c, n);
+                cnt_take = Some(c);
+            }
+        }
+        (cnt_skip, cnt_take)
+    }
+
+    /// Emits the per-row offset/limit guards from counters made by
+    /// [`Self::emit_limit_counters`], returning the `(offset, limit)` jump sites
+    /// to back-patch: `offset` drops the row (skip not yet exhausted), `limit`
+    /// exits the loop (take exhausted).
+    fn emit_limit_checks(
+        &mut self,
+        cnt_skip: Option<usize>,
+        cnt_take: Option<usize>,
+    ) -> (Option<usize>, Option<usize>) {
+        let mut offset = None;
+        if let Some(c) = cnt_skip {
+            self.emit_cnt_if_pos(c, 0);
+            offset = Some(self.pc());
+        }
+        let mut limit_pc = None;
+        if let Some(c) = cnt_take {
+            self.emit_cnt_if_zero(c, 0);
+            limit_pc = Some(self.pc());
+        }
+        (offset, limit_pc)
+    }
+
+    /// Compiles the projection onto the stack: `.` builds a tuple of the
+    /// bindings, `*` merges them into one object, an expr/list builds a value.
     fn cc_select_constructor(
         &mut self,
         constructor: Constructor,
@@ -408,7 +602,7 @@ impl Compiler {
         Ok(())
     }
 
-    /// Patch the control-flow instruction at src to have jmp=dst.
+    /// Patches the jump target of the control-flow instruction at `src` to `dst`.
     fn patch(&mut self, src: usize, dst: usize) -> Result<()> {
         // TODO: actual error handling
         match self.code.get_mut(src).unwrap() {
@@ -425,7 +619,7 @@ impl Compiler {
         Ok(())
     }
 
-    /// Ensures the program has at least the given transaction mode
+    /// Raises the program's transaction mode to at least `txn`.
     fn ensure_txn(&mut self, txn: TransactionMode) {
         self.txm = Some(txn.coalesce(self.txm));
     }
@@ -434,6 +628,7 @@ impl Compiler {
     // EXPRESSIONS
     //------------------------------
 
+    /// Compiles an expression, leaving its value on top of the stack.
     fn cc_expr(&mut self, expr: Expr) -> Result<()> {
         match expr {
             Expr::Call(call) => self.cc_expr_call(call),
@@ -480,6 +675,8 @@ impl Compiler {
         Ok(())
     }
 
+    /// Compiles a builtin call to its operator: arithmetic, comparison, 3VL
+    /// logic, `between`, or `in_list`. An unknown name or bad arity errors.
     #[allow(clippy::len_zero)]
     fn cc_expr_call(&mut self, call: Call) -> Result<()> {
         let Call { name, args } = call;
@@ -516,6 +713,7 @@ impl Compiler {
         Ok(())
     }
 
+    /// Compiles a computed path step `input[expr]`.
     fn cc_expr_jpe(&mut self, jpe: Jpe) -> Result<()> {
         self.cc_expr(*jpe.inp)?;
         self.cc_expr(*jpe.exp)?;
@@ -523,22 +721,26 @@ impl Compiler {
         Ok(())
     }
 
+    /// Compiles a path index `input[i]`.
     fn cc_expr_jpi(&mut self, jpi: Jpi) -> Result<()> {
         self.cc_expr(*jpi.inp)?;
         self.emit_jpi(jpi.idx);
         Ok(())
     }
 
+    /// Compiles a path key `input.key`.
     fn cc_expr_jpk(&mut self, jpk: Jpk) -> Result<()> {
         self.cc_expr(*jpk.inp)?;
         self.emit_jpk(jpk.key);
         Ok(())
     }
 
+    /// Compiles a literal: push it onto the stack.
     fn cc_expr_lit(&mut self, value: Value) {
         self.emit_push(value);
     }
 
+    /// Compiles an object constructor, assigning or spreading each member.
     fn cc_expr_obj(&mut self, obj: Obj) -> Result<()> {
         self.emit_obj();
         for m in obj {
@@ -556,6 +758,7 @@ impl Compiler {
         Ok(())
     }
 
+    /// Compiles an array constructor, pushing then appending each element.
     fn cc_expr_array(&mut self, items: Vec<Expr>) -> Result<()> {
         self.emit_arr();
         for item in items {
@@ -565,6 +768,7 @@ impl Compiler {
         Ok(())
     }
 
+    /// Compiles a variable reference: load its bound cursor's current value.
     fn cc_expr_var(&mut self, var: &Var) {
         let csr = var.bind.expect("all variables should be bound") as usize;
         self.emit_load(csr);
@@ -574,24 +778,24 @@ impl Compiler {
     // HELPERS
     //------------------------------
 
-    /// Return current pc index.
+    /// Returns the index of the last emitted instruction.
     fn pc(&self) -> usize {
         self.code.len() - 1
     }
 
-    /// Record that cursor slot `csr` is in use.
+    /// Records that cursor slot `csr` is in use, growing the slot count.
     fn use_cursor(&mut self, csr: usize) {
         self.cursor_slots = self.cursor_slots.max(csr + 1);
     }
 
-    /// Allocate the next cursor slot.
+    /// Allocates and returns the next cursor slot.
     fn alloc_cursor(&mut self) -> usize {
         let csr = self.cursor_slots;
         self.cursor_slots += 1;
         csr
     }
 
-    /// Allocate the next counter slot.
+    /// Allocates and returns the next counter slot.
     fn alloc_counter(&mut self) -> usize {
         let cnt = self.counter_slots;
         self.counter_slots += 1;
@@ -713,6 +917,19 @@ impl Compiler {
         self.code.push(Vop::ArrPush);
     }
 
+    fn emit_order_key(&mut self, dirs: Vec<bool>) {
+        self.code.push(Vop::OrderKey { dirs });
+    }
+
+    fn emit_sort(&mut self) {
+        self.code.push(Vop::Sort);
+    }
+
+    fn emit_set_val(&mut self, csr: usize) {
+        self.use_cursor(csr);
+        self.code.push(Vop::SetVal { csr });
+    }
+
     fn emit_open(&mut self, csr: usize, tbl: u32) {
         self.use_cursor(csr);
         self.code.push(Vop::Open { csr, tbl });
@@ -804,6 +1021,48 @@ mod tests {
         assert!(matches!(code[5], Vop::LoadVal { csr: 0 }));
         assert!(matches!(code[6], Vop::Yield));
         assert!(matches!(code[7], Vop::Next { csr: 0, jmp: 3 }));
+    }
+
+    #[test]
+    fn order_by_bytecode_shape() {
+        let (_dir, storage, catalog) = fixture();
+        let program =
+            compile_sql(&storage, &catalog, "select * from catalog order by catalog.name;");
+        // Two cursors: the table scan (0) and the sorted-payload iterator (1).
+        assert_eq!(program.cursors, 2);
+        let code = program.instructions;
+        assert_eq!(code.len(), 28);
+        assert!(matches!(code[0], Vop::Init { jmp: 26 }));
+        assert!(matches!(code[1], Vop::Arr)); // collector
+        assert!(matches!(code[2], Vop::Open { csr: 0, tbl: 0 }));
+        // Phase 1: scan, build [sortkey, payload], collect; empty table -> Close.
+        assert!(matches!(code[3], Vop::Scan { csr: 0, jmp: 15 }));
+        assert!(matches!(code[4], Vop::Arr)); // element
+        assert!(matches!(code[5], Vop::LoadVal { csr: 0 }));
+        assert!(matches!(code[6], Vop::Jpk(_))); // catalog.name
+        assert!(matches!(code[7], Vop::OrderKey { .. }));
+        assert!(matches!(code[8], Vop::ArrPush)); // elem[0] = key bytes
+        assert!(matches!(code[9], Vop::Obj)); // payload {catalog: row}
+        assert!(matches!(code[10], Vop::LoadVal { csr: 0 }));
+        assert!(matches!(code[11], Vop::ObjAssign(_)));
+        assert!(matches!(code[12], Vop::ArrPush)); // elem[1] = payload
+        assert!(matches!(code[13], Vop::ArrPush)); // collector += elem
+        assert!(matches!(code[14], Vop::Next { csr: 0, jmp: 4 }));
+        // Phase 2: release the read iterator, sort, then drain the sorted array.
+        assert!(matches!(code[15], Vop::Close { csr: 0 }));
+        assert!(matches!(code[16], Vop::Sort));
+        assert!(matches!(code[17], Vop::Iter { csr: 1, jmp: 25 }));
+        // Re-seed the `catalog` binding from the payload, then project + yield.
+        assert!(matches!(code[18], Vop::LoadVal { csr: 1 }));
+        assert!(matches!(code[19], Vop::Jpi(1)));
+        assert!(matches!(code[20], Vop::Jpk(_)));
+        assert!(matches!(code[21], Vop::SetVal { csr: 0 }));
+        assert!(matches!(code[22], Vop::LoadVal { csr: 0 }));
+        assert!(matches!(code[23], Vop::Yield));
+        assert!(matches!(code[24], Vop::Next { csr: 1, jmp: 18 }));
+        assert!(matches!(code[25], Vop::Halt));
+        assert!(matches!(code[26], Vop::Transaction { txm: TransactionMode::Read }));
+        assert!(matches!(code[27], Vop::Jump { jmp: 1 }));
     }
 
     #[test]

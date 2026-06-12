@@ -192,6 +192,11 @@ pub mod visit {
         if let Some(w) = &i.where_ {
             v.visit_expr(w);
         }
+        if let Some(o) = &i.order {
+            for k in &o.keys {
+                v.visit_expr(&k.expr);
+            }
+        }
         if let Some(l) = &i.limit {
             v.visit_limit(l);
         }
@@ -535,6 +540,11 @@ pub mod visit_mut {
         if let Some(w) = &mut i.where_ {
             v.visit_expr_mut(w);
         }
+        if let Some(o) = &mut i.order {
+            for k in &mut o.keys {
+                v.visit_expr_mut(&mut k.expr);
+            }
+        }
         if let Some(l) = &mut i.limit {
             v.visit_limit_mut(l);
         }
@@ -813,6 +823,13 @@ pub mod fold {
         Select {
             from: i.from.into_iter().map(|x| f.fold_from(x)).collect(),
             where_: i.where_.map(|w| f.fold_expr(w)),
+            order: i.order.map(|o| OrderBy {
+                keys: o
+                    .keys
+                    .into_iter()
+                    .map(|k| OrderKey { expr: f.fold_expr(k.expr), desc: k.desc })
+                    .collect(),
+            }),
             limit: i.limit.map(|l| f.fold_limit(l)),
             select: f.fold_constructor(i.select),
         }

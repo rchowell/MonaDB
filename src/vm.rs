@@ -1,3 +1,9 @@
+//! Stack-based bytecode interpreter.
+//!
+//! [`VM::next`] drives a fetch-decode-execute loop over a [`Program`]'s [`Vop`]
+//! stream, operating on a value stack plus fixed banks of cursors and counters.
+//! Each `Yield` pauses the loop with one result row; `Halt` commits and stops.
+
 use std::mem::take;
 use std::vec;
 
@@ -22,19 +28,21 @@ pub struct Program {
     pub instructions: Vec<Vop>,
 }
 
-/// Vop is a virtual machine instruction code.
+/// A virtual machine instruction.
 ///
-/// Operand naming conventions are strict 3-chars
-///   csr  – cursor slot
-///   tbl  – a btree table oid
-///   cst  – index into vm constants (does not exist yet)
-///   jmp  – jump target (absolute PC)
-///   cnt  – count (arity, column count, …)
-///   key  – (does not exist yet)
-///   val  - inline (for now) values
+/// Operands follow a strict 3-char naming convention:
+///
+///   csr  cursor slot
+///   tbl  a btree table oid
+///   cst  index into vm constants (does not exist yet)
+///   jmp  jump target (absolute PC)
+///   cnt  count (arity, column count, …)
+///   key  (does not exist yet)
+///   val  inline (for now) value
+///
+/// Stack effects are written `… before ─▶ … after`, top-of-stack on the right.
 ///
 /// TODO: Make this Copy in the near future.
-///
 #[derive(Debug, Clone)]
 pub enum Vop {
     /// Initialize the virtual machine, then jump to jmp.
@@ -60,6 +68,10 @@ pub enum Vop {
     LoadKey { csr: usize },
     /// Load the cursor's (csr) current val onto the stack.
     LoadVal { csr: usize },
+    /// Pop a value and bind it as cursor (csr)'s single current value, so a
+    /// later `LoadVal { csr }` returns it. Used to re-seed a from-binding from a
+    /// materialized payload after a sort (ORDER BY).
+    SetVal { csr: usize },
     /// Next from the cursor, else jump.
     Next { csr: usize, jmp: usize },
     /// Pushes a new OID for the given cursor (csr) onto the stack.
@@ -91,33 +103,40 @@ pub enum Vop {
     Arr,
     /// Append the top value to the array beneath it.
     ArrPush,
+    /// Pop the order-key values for one row and push their order-preserving
+    /// `Bytes` encoding (one per `dirs` entry; `true` = descending). The bytes
+    /// sort in ORDER BY order, so a later `Sort` clusters rows correctly.
+    OrderKey { dirs: Vec<bool> },
+    /// Sort the top-of-stack array in place by each element's `[0]` key bytes
+    /// (the tag pushed by `OrderKey`). Unstable, per the spec.
+    Sort,
     /// Set a counter to a value.
     CntSet(usize, u64),
     /// If the counter is greater than 0, decrement it and jump to p1.
     CntIfPos(usize, usize),
     /// If the counter is 0, jump to p1.
     CntIfZero(usize, usize),
-    /// Add two values on the stack.
+    /// Adds the top two values:  … a b ─▶ … (a + b).
     Add,
-    /// Subtract two values on the stack.
+    /// Subtracts the top two values:  … a b ─▶ … (a - b).
     Sub,
-    /// Multiply two values on the stack.
+    /// Multiplies the top two values:  … a b ─▶ … (a * b).
     Mul,
-    /// Divide two values on the stack.
+    /// Divides the top two values:  … a b ─▶ … (a / b).
     Div,
-    /// Remainder of two values on the stack.
+    /// Remainder of the top two values:  … a b ─▶ … (a % b).
     Rem,
-    /// Less than two values on the stack.
+    /// Tests the top two values:  … a b ─▶ … (a < b).
     Lt,
-    /// Less than or equal to two values on the stack.
+    /// Tests the top two values:  … a b ─▶ … (a <= b).
     Le,
-    /// Greater than two values on the stack.
+    /// Tests the top two values:  … a b ─▶ … (a > b).
     Gt,
-    /// Greater than or equal to two values on the stack.
+    /// Tests the top two values:  … a b ─▶ … (a >= b).
     Ge,
-    /// Equal to two values on the stack.
+    /// Tests the top two values:  … a b ─▶ … (a == b).
     Eq,
-    /// Not equal to two values on the stack.
+    /// Tests the top two values:  … a b ─▶ … (a != b).
     Ne,
     /// Logical NOT with 3VL semantics.
     Not,
@@ -183,6 +202,7 @@ pub struct VM {
 }
 
 impl VM {
+    /// Builds a VM primed to run `program` against `storage`.
     pub fn init(storage: Storage, program: Program) -> VM {
         // Allocate an unopened cursor for each slot
         let mut cursors = Vec::with_capacity(program.cursors);
@@ -199,27 +219,36 @@ impl VM {
         }
     }
 
+    /// Pushes a value onto the stack.
     fn push<V: Into<Value>>(&mut self, value: V) {
         self.stack.push(value.into());
     }
 
+    /// Pushes a boolean onto the stack.
     fn push_bool(&mut self, value: bool) {
         self.stack.push(Value::bool(value));
     }
 
+    /// Pops and returns the top value.
     fn pop(&mut self) -> Value {
         self.stack.pop().expect("Stack is empty")
     }
 
+    /// Pops and returns the top `n` values, preserving their stack order.
     fn take(&mut self, n: usize) -> Vec<Value> {
         let i = self.stack.len() - n;
         self.stack.split_off(i)
     }
 
+    /// Returns a mutable reference to the top value.
     fn peek(&mut self) -> &mut Value {
         self.stack.last_mut().unwrap()
     }
 
+    /// Runs the fetch-decode-execute loop until it yields a row or halts.
+    ///
+    /// Returns `Some(row)` at each `Yield` (the VM stays resumable) and `None`
+    /// at `Halt`, after committing the transaction.
     #[allow(clippy::too_many_lines)]
     pub fn next(&mut self) -> Result<Option<Value>> {
         loop {
@@ -320,6 +349,23 @@ impl VM {
                     let val = self.pop();
                     let arr = self.peek();
                     arr.push(val);
+                }
+                Vop::OrderKey { dirs } => {
+                    let vals = self.take(dirs.len());
+                    let key = schema::encode_order_key(&vals, dirs);
+                    self.push(Value::Bytes(key.into()));
+                }
+                Vop::Sort => {
+                    let mut arr = self.pop();
+                    debug_assert!(
+                        matches!(arr, Value::Array(_)),
+                        "Sort expects the collector array on top of stack",
+                    );
+                    if let Value::Array(rc) = &mut arr {
+                        std::rc::Rc::make_mut(rc)
+                            .sort_unstable_by(|a, b| sort_key(a).cmp(sort_key(b)));
+                    }
+                    self.push(arr);
                 }
                 Vop::Pop => {
                     let _ = self.pop();
@@ -528,6 +574,10 @@ impl VM {
                     let val = self.cursors[*csr].load()?;
                     self.push(val);
                 }
+                Vop::SetVal { csr } => {
+                    let val = self.pop();
+                    self.cursors[*csr].set(val);
+                }
                 Vop::LoadKey { csr } => {
                     let key = self.cursors[*csr]
                         .current()
@@ -559,6 +609,27 @@ impl VM {
     }
 }
 
+/// The sort key of a materialized ORDER BY element `[key_bytes, payload]`: its
+/// `[0]` component as raw bytes. `Value` has no total `Ord` (and `Bytes` isn't
+/// in its `PartialOrd`), so `Sort` compares these byte slices directly. The key
+/// is borrowed out of the element — no clone per comparison. A well-formed
+/// element always has `Bytes` at `[0]`; anything else sorts as empty.
+fn sort_key(elem: &Value) -> &[u8] {
+    match elem {
+        Value::Array(items) => match items.first() {
+            Some(Value::Bytes(bytes)) => bytes,
+            _ => {
+                debug_assert!(false, "ORDER BY element[0] must be the key bytes");
+                &[]
+            }
+        },
+        _ => {
+            debug_assert!(false, "ORDER BY element must be a [key_bytes, payload] array");
+            &[]
+        }
+    }
+}
+
 /// Take an encoded key off the stack. `LoadKey`/`NewKey` already push encoded
 /// key bytes, so move them out rather than re-cloning them through `encode()`.
 fn pop_key(val: Value) -> Result<Vec<u8>> {
@@ -579,8 +650,8 @@ fn ensure_object(val: &Value) -> Result<()> {
     }
 }
 
-/// This coerces a value to unknown (None), true, false. It is not precisely
-/// what I want, but good enough for now. It's for 3VL.
+/// Coerces a value to a 3VL truth value: `null` → unknown (`None`), else its
+/// truthiness as `Some(bool)`.
 fn to_bool(v: &Value) -> Option<bool> {
     if v.is_null() {
         None
@@ -595,6 +666,7 @@ pub struct Rows {
 }
 
 impl Rows {
+    /// Wraps a primed VM as a pull-based row iterator.
     pub fn new(vm: VM) -> Self {
         Self { vm }
     }

@@ -91,14 +91,20 @@ pub enum Token {
     And,
     #[token("as")]
     As,
+    #[token("asc")]
+    Asc,
     #[token("between")]
     Between,
+    #[token("by")]
+    By,
     #[token("clear")]
     Clear,
     #[token("create")]
     Create,
     #[token("delete")]
     Delete,
+    #[token("desc")]
+    Desc,
     #[token("drop")]
     Drop,
     #[token("in")]
@@ -117,6 +123,8 @@ pub enum Token {
     Not,
     #[token("or")]
     Or,
+    #[token("order")]
+    Order,
     #[token("select")]
     Select,
     #[token("table")]

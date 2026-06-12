@@ -1,3 +1,9 @@
+//! Row traversal over a btree table or an in-memory value.
+//!
+//! A [`Cursor`] is the VM's iteration register: scans, point/range gets,
+//! inserts, and deletes all run through one. It unifies a persistent btree scan
+//! and an in-memory array behind the same `scan`/`next`/`load` interface.
+
 use heed::types::Bytes;
 use heed::{RoIter, RoPrefix, RoRevIter, RoRevPrefix};
 
@@ -11,7 +17,14 @@ fn unpositioned_cursor() -> Error {
     Error::InternalError("load on unpositioned cursor".to_string())
 }
 
-/// Cursor controls traversal of a source e.g. btree or value.
+/// Controls traversal of one source — a btree table or an in-memory value.
+///
+/// A table-backed cursor moves through a fixed lifecycle. `close` drops the read
+/// iterator but leaves the cursor open, so it can still be written through:
+///
+///   new ─▶ open ─▶ scanning ─▶ exhausted
+///           ▲                      │
+///           └──────── close ───────┘
 #[derive(Default)]
 pub struct Cursor {
     /// The bound source, if any.
@@ -68,6 +81,13 @@ impl Cursor {
         Ok(available)
     }
 
+    /// Binds this cursor to a single in-memory value, so `load` returns it.
+    /// Used to re-seed a from-binding from a materialized payload after a sort
+    /// (ORDER BY), keeping projection compilation identical to a live scan.
+    pub fn set(&mut self, value: Value) {
+        self.source = Some(Source::Single(value));
+    }
+
     /// Begins iterating an array value; returns true if there's an available row.
     #[allow(clippy::unnecessary_wraps, clippy::iter_not_returning_iterator)]
     pub fn iter(&mut self, source: Value) -> Result<bool> {
@@ -103,6 +123,7 @@ impl Cursor {
         match &self.source {
             Some(Source::Btree { scan: Some(scan), .. }) => scan.load(),
             Some(Source::Value(value)) => value.load(),
+            Some(Source::Single(value)) => Ok(value.clone()),
             _ => Err(unpositioned_cursor()),
         }
     }
@@ -142,6 +163,7 @@ impl Cursor {
         }
     }
 
+    /// Returns the last (key, val) in the btree, or none if it is empty.
     pub fn last(&self, txn: &Transaction) -> Result<Option<(Vec<u8>, Vec<u8>)>> {
         let res = self.btree().last(txn.as_ro())?;
         let res = res.map(|(k, v)| (k.to_vec(), v.to_vec()));
@@ -159,6 +181,8 @@ enum Source {
     },
     /// Element-wise iteration over an in-memory array value.
     Value(ValueIter),
+    /// A single in-memory value (re-seeded via `set`); `load` returns it.
+    Single(Value),
 }
 
 /// Value-backed iteration over a collection's elements.
@@ -176,7 +200,7 @@ impl ValueIter {
         Self { source, pos: None }
     }
 
-    /// Advance to the next element; true if one is available. A non-array
+    /// Advances to the next element; true if one is available. A non-array
     /// source (or an out-of-range index) yields nothing. This only inspects
     /// the array length, so it never clones an element — `load` does that.
     fn next(&mut self) -> bool {
@@ -185,7 +209,7 @@ impl ValueIter {
         self.source.len().is_some_and(|len| i < len)
     }
 
-    /// Return the current element.
+    /// Returns the current element.
     fn load(&self) -> Result<Value> {
         self.pos
             .and_then(|i| self.source.jpi(i))
@@ -206,6 +230,7 @@ impl TableScan {
         Self { iter, curr: None }
     }
 
+    /// Advances to the next row, caching its owned bytes; true if one exists.
     fn next(&mut self) -> Result<bool> {
         self.curr = self.iter.next()?.map(|(k, v)| (k.to_vec(), v.to_vec()));
         Ok(self.curr.is_some())
