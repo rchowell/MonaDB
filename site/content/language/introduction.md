@@ -1,43 +1,65 @@
 +++
 title = "Introduction"
-description = "What RQL is, how it relates to SQL, and how to read this reference."
+description = "What the SQL dialect is and how to read this reference."
 weight = 1
 +++
 
 # Introduction
 
-RQL is a SQL-flavored query language for embedded document storage. It keeps the clause vocabulary of standard SQL — `select`, `from`, `where`, `group`, `order`, `limit` — and extends it to treat objects, arrays, and path traversal as core constructs rather than extensions.
+SQL is the query language for embedded document storage. It keeps a familiar clause vocabulary — `select`, `from`, `where`, `order`, `limit` — and treats objects, arrays, and path navigation as core constructs rather than extensions.
 
 Every query compiles to a sequence of stack-based bytecode instructions and runs inside the host process. There is no server, no network, no configuration file. The database is a library.
 
-## The clause model
+## The Clause Model
 
-Each clause in a query is a transform over a stream of bindings.
+Each clause in a query is a transform over a stream of bindings. The clauses compose left-to-right: From produces bindings; each subsequent clause transforms them; Select maps them to output values.
 
-| Clause | Operation |
-|--------|-----------|
-| `from` | Iterate — produce one binding per row |
-| `with` | Map — extend each binding |
-| `select` | Map — construct the output value |
-| `where` | Filter — drop bindings that fail the predicate |
-| `group` | Reduce — collapse bindings by key |
-| `order` | Sort — reorder the binding stream |
-| `limit` / `fetch` | Limit — take at most N bindings, with optional offset |
+**From** iterates — one binding per row or collection element:
 
-The clauses compose left-to-right. `from` produces bindings; each subsequent clause transforms them; `select` maps them to output values.
+```
+select t.x from T as t;
+select x from [1, 2, 3] as x;
+```
+
+**Select** maps — construct the output value:
+
+```
+select { x: t.a, y: t.b } from T as t;
+select * from T;
+```
+
+**Where** filters — drop bindings that fail the predicate:
+
+```
+select * from T where T.x > 0;
+```
+
+**Order by** sorts — reorder the binding stream:
+
+```
+select * from T order by T.x desc;
+```
+
+**Limit** takes, skips, or slices the stream:
+
+```
+select * from T limit 10;
+select * from T limit 2..;
+```
 
 ## Documents
 
-RQL treats objects and arrays as first-class values. Object literals use `{ key: value }` syntax. Arrays use `[value, value]`. Path traversal uses `$` notation rooted at a table or variable.
+SQL treats objects and arrays as first-class values. Object literals use `{ key: value }` syntax. Arrays use `[value, value]`. Navigate into values with dot and bracket notation on a binding alias.
 
 ```
 { x: 1, y: 2 }           -- object literal
 [1, 2, 3]                 -- array literal
-T$.address.city           -- path into T
+t.address.city            -- path into binding t
+from T as t, t.items as item   -- unnest an array field
 ```
 
-Schemas are optional. A table declared without a schema accepts any value.
+Tables may declare key columns (`int` or `string`) or omit them entirely. A keyless table accepts any value on insert.
 
-## How to read this reference
+## How to Read This Reference
 
-The remaining sections cover the language in bottom-up order: [Syntax](@/language/syntax.md) and identifiers first, then [Types](@/language/types.md), then [Expressions](@/language/expressions.md), then [Statements](@/language/statements.md) that compose them. [Functions](@/language/functions.md) covers built-in functions and `read()`. Start with [Statements](@/language/statements.md) if you want to write queries immediately.
+The remaining sections cover the language in bottom-up order: [Syntax](@/language/syntax.md) and identifiers first, then [Types](@/language/types.md), then [Expressions](@/language/expressions.md), then [Statements](@/language/statements.md) that compose them. [Functions](@/language/functions.md) covers the built-in scalar library. Start with [Statements](@/language/statements.md) if you want to write queries immediately.

@@ -12,7 +12,7 @@ NOTE: Draft. The normative spec is `docs/language.md` §5.1. In v1 the declared 
 A table is a collection of some type with zero or more constraints.
 
 .Example
-[source,rql]
+[source,sql]
 ----
 -- equivalent (no-schema)
 create table points;

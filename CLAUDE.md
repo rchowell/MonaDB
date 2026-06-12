@@ -17,6 +17,7 @@ SQL text → Lexer (logos) → Parser (lalrpop) → IR → Compiler → Vop byte
 | `src/ir.rs`          | AST/IR types + parser action functions (called from grammar rules) |
 | `src/compiler.rs`    | IR → Vop bytecode (`cc_*` methods, `emit_*` helpers)               |
 | `src/vm.rs`          | Stack-based bytecode interpreter — `next()` loop over `Vop`        |
+| `src/functions.rs`   | Builtin scalar standard library — flat `fn(&[Value])` registry      |
 | `src/error.rs`       | Error enum + `error!` / `unsupported!` macros                      |
 
 ## Build & Test

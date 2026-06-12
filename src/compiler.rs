@@ -9,6 +9,7 @@ use serde_json::json;
 use crate::Result;
 use crate::catalog::CATALOG_OID;
 use crate::error::Error;
+use crate::functions;
 use crate::ir::{
     Call, Clear, Constructor, Create, Delete, Drop, Expr, Get, Insert, Jpe, Jpi, Jpk, Key, Limit,
     Member, Obj, Select, Source, Statement, ToSql, Type, Var,
@@ -702,42 +703,36 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compiles a builtin call to its operator: arithmetic, comparison, 3VL
-    /// logic, `between`, or `in_list`. An unknown name or bad arity errors.
-    #[allow(clippy::len_zero)]
+    /// Compiles a builtin call. A built-in operator (arithmetic, comparison, 3VL
+    /// logic, `between`, `in_list`) compiles to its dedicated opcode; any other
+    /// name resolves against the `functions` standard-library registry and
+    /// compiles to a generic `Vop::Call`. An unknown name or bad arity errors.
     fn cc_expr_call(&mut self, call: Call) -> Result<()> {
         let Call { name, args } = call;
-        let (arity_ok, op) = match name.as_str() {
-            "*" => (args.len() == 2, Vop::Mul),
-            "/" => (args.len() == 2, Vop::Div),
-            "%" => (args.len() == 2, Vop::Rem),
-            "+" => (args.len() == 2, Vop::Add),
-            "-" => (args.len() == 2, Vop::Sub),
-            "<" => (args.len() == 2, Vop::Lt),
-            "<=" => (args.len() == 2, Vop::Le),
-            "=" => (args.len() == 2, Vop::Eq),
-            ">=" => (args.len() == 2, Vop::Ge),
-            ">" => (args.len() == 2, Vop::Gt),
-            "!=" => (args.len() == 2, Vop::Ne),
-            "and" => (args.len() == 2, Vop::And),
-            "or" => (args.len() == 2, Vop::Or),
-            "not" => (args.len() == 1, Vop::Not),
-            "is_null" => (args.len() == 1, Vop::IsNull),
-            "is_true" => (args.len() == 1, Vop::IsTrue),
-            "is_false" => (args.len() == 1, Vop::IsFalse),
-            "is_unknown" => (args.len() == 1, Vop::IsUnknown),
-            "between" => (args.len() == 3, Vop::Between),
-            "in_list" => (args.len() >= 1, Vop::InList(args.len().saturating_sub(1))),
-            _ => return Err(Error::UnknownFunction(name)),
-        };
-        if !arity_ok {
-            return Err(Error::UnknownFunction(name));
+        // Built-in operators compile to dedicated opcodes (hot path, special
+        // promotion/3VL semantics live in the VM).
+        if let Some((arity_ok, op)) = operator_op(&name, args.len()) {
+            if !arity_ok {
+                return Err(Error::UnknownFunction(name));
+            }
+            for arg in args {
+                self.cc_expr(arg)?;
+            }
+            self.code.push(op);
+            return Ok(());
         }
-        for arg in args {
-            self.cc_expr(arg)?;
+        // Otherwise resolve against the standard-library registry.
+        match functions::lookup(&name) {
+            Some(fun) if functions::arity_ok(fun, args.len()) => {
+                let cnt = args.len();
+                for arg in args {
+                    self.cc_expr(arg)?;
+                }
+                self.code.push(Vop::Call { fun, cnt });
+                Ok(())
+            }
+            _ => Err(Error::UnknownFunction(name)),
         }
-        self.code.push(op);
-        Ok(())
     }
 
     /// Compiles a computed path step `input[expr]`.
@@ -991,6 +986,36 @@ impl Compiler {
     fn emit_transaction(&mut self, txn: TransactionMode) {
         self.code.push(Vop::Transaction { txm: txn });
     }
+}
+
+/// Maps a built-in operator name to its opcode, or `None` if `name` is not an
+/// operator (in which case it is resolved as a standard-library function). The
+/// returned bool reports whether `argc` is a valid arity for that operator.
+#[allow(clippy::len_zero)]
+fn operator_op(name: &str, argc: usize) -> Option<(bool, Vop)> {
+    Some(match name {
+        "*" => (argc == 2, Vop::Mul),
+        "/" => (argc == 2, Vop::Div),
+        "%" => (argc == 2, Vop::Rem),
+        "+" => (argc == 2, Vop::Add),
+        "-" => (argc == 2, Vop::Sub),
+        "<" => (argc == 2, Vop::Lt),
+        "<=" => (argc == 2, Vop::Le),
+        "=" => (argc == 2, Vop::Eq),
+        ">=" => (argc == 2, Vop::Ge),
+        ">" => (argc == 2, Vop::Gt),
+        "!=" => (argc == 2, Vop::Ne),
+        "and" => (argc == 2, Vop::And),
+        "or" => (argc == 2, Vop::Or),
+        "not" => (argc == 1, Vop::Not),
+        "is_null" => (argc == 1, Vop::IsNull),
+        "is_true" => (argc == 1, Vop::IsTrue),
+        "is_false" => (argc == 1, Vop::IsFalse),
+        "is_unknown" => (argc == 1, Vop::IsUnknown),
+        "between" => (argc == 3, Vop::Between),
+        "in_list" => (argc >= 1, Vop::InList(argc.saturating_sub(1))),
+        _ => return None,
+    })
 }
 
 #[cfg(test)]

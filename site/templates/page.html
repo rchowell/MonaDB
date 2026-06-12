@@ -1,10 +1,14 @@
 {% extends "base.html" %}
+{% import "macros/content_nav.html" as content_nav %}
 
 {% block title %}{{ page.title }} — MonaDB{% endblock title %}
 {% block description %}{{ page.description }}{% endblock description %}
 
 {% block content %}
-<div class="prose-page">
-  {{ page.content | safe }}
+<div class="prose-layout{% if page.toc %} has-content-nav{% endif %}">
+  <main class="prose-page{% if page.extra.page_class %} {{ page.extra.page_class }}{% endif %}">
+    <article class="content-body">{{ page.content | safe }}</article>
+  </main>
+  {{ content_nav::render_content_nav(toc=page.toc) }}
 </div>
 {% endblock content %}

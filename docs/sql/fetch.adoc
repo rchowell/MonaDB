@@ -3,7 +3,7 @@
 The fetch clause is a concise limit/offset.
 
 .Examples
-[source,rql]
+[source,sql]
 ----
 limit 100
 limit 50..100

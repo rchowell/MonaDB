@@ -10,6 +10,7 @@ use std::vec;
 use crate::Result;
 use crate::cursor::Cursor;
 use crate::error::Error;
+use crate::functions;
 use crate::ir::Key;
 use crate::schema;
 use crate::storage::Storage;
@@ -156,6 +157,10 @@ pub enum Vop {
     Between,
     /// Variadic membership: pop n list values then target; push target in list.
     InList(usize),
+    /// Call builtin `fun` (a `functions` registry index) on its `cnt` arguments:
+    ///
+    ///   stack:  … a b c  ─▶  … fun(a, b, c)
+    Call { fun: usize, cnt: usize },
     /// If the value on the stack is true, jump to p1.
     If(usize),
     /// If the value on the stack is false, jump to p1.
@@ -514,6 +519,10 @@ impl VM {
                         }
                     }
                     self.push_bool(hit);
+                }
+                Vop::Call { fun, cnt } => {
+                    let args = self.take(*cnt);
+                    self.push(functions::call(*fun, &args)?);
                 }
                 Vop::If(jmp) => {
                     if self.pop().is_truthy() {

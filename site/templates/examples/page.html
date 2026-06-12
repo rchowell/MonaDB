@@ -1,16 +1,18 @@
 {% extends "base.html" %}
 {% import "macros/content_nav.html" as content_nav %}
 
-{% block title %}{{ page.title }} — Language — MonaDB{% endblock title %}
+{% block title %}{{ page.title }} — Examples — MonaDB{% endblock title %}
 {% block description %}{{ page.description }}{% endblock description %}
 
 {% block content %}
-{% set lang_section = get_section(path="language/_index.md") %}
-{% set reference_slugs = ["statements", "functions"] %}
+{% set examples_section = get_section(path="examples/_index.md") %}
 <div class="lang-page{% if page.toc %} has-content-nav{% endif %}">
   <aside class="lang-sidebar">
+    <div class="sidebar-head">
+      <p class="sidebar-heading">Examples</p>
+    </div>
     <ul class="sidebar-nav">
-      {% for p in lang_section.pages %}
+      {% for p in examples_section.pages %}
       <li>
         <a href="{{ p.permalink }}"
           {% if p.permalink == current_url %}class="active"{% endif %}>
@@ -20,7 +22,7 @@
       {% endfor %}
     </ul>
   </aside>
-  <main class="lang-content lang-content--{{ page.slug }}{% if page.slug in reference_slugs %} lang-reference{% endif %}{% if page.slug == "statements" %} examples-content{% endif %}">
+  <main class="lang-content examples-content">
     <article class="content-body">{{ page.content | safe }}</article>
   </main>
   {{ content_nav::render_content_nav(toc=page.toc) }}

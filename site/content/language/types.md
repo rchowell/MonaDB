@@ -1,47 +1,56 @@
 +++
 title = "Types"
-description = "Scalar types, collection types, aliases, and nullability."
+description = "Runtime value types and DDL type keywords for key columns."
 weight = 4
 +++
 
 # Types
 
-RQL has five base types. All have a canonical name and a short alias. Types appear in `create table` schema declarations and in cast expressions.
-
-| Type | Alias | Description |
-|------|-------|-------------|
-| `boolean` | `bool` | `true` or `false` |
-| `number` | `num` | 64-bit floating-point |
-| `string` | `str` | UTF-8 text |
-| `array` | `arr` | Ordered sequence of values |
-| `object` | `obj` | Unordered map of named fields |
-
-## Nullability
-
-Schema members are `NOT NULL` by default. Append `|null` to a type to allow null.
+MonaDB uses a JSON-like type system at runtime. Values stored in tables and produced by expressions are one of null, boolean, integer, float, string, array, or object.
 
 ```
-create table readings ({
-    sensor: string,
-    value:  number,
-    label:  string|null,   -- nullable
-});
+null                    -- distinct from missing object keys
+true    false           -- booleans
+1       -5              -- exact 64-bit signed integers
+1.5     3.14            -- floats; non-finite values error on keyed insert
+'hello'                 -- UTF-8 text
+[1, 2, 3]               -- ordered sequence
+{ x: 1, y: 2 }          -- insertion-ordered map of named fields
 ```
 
-A nullable field accepts either a typed value or `null`. A non-nullable field rejects `null` at insert time.
+`typeof(value)` reports runtime type names: `null`, `bool`, `int`, `float`, `string`, `array`, or `object`.
 
-## Open content
+## Key Columns
 
-Append `...` as the last member of an object schema to allow extra fields. Without `...`, inserting an object with undeclared fields is a type error.
+`create table` accepts an optional parenthesised list of **key columns**. Each column is a name followed by a type keyword. Only `int` (integer key component) and `string` (string key component) are accepted:
 
 ```
-create table events ({
-    id:   number,
-    name: string,
-    ...               -- any extra fields allowed
-});
+create table users (id int, name string);
+create table pages (slug string);
 ```
 
-## No schema
+The parser recognises additional type keywords (`bool`, `float`, `number`, `object`, `array`, `any`), but using any of them in a key-column position is rejected at compile time.
 
-A table declared as `create table t;` accepts any value. Type checking is skipped entirely.
+## Keyless Tables
+
+A table declared without key columns accepts any JSON object (or scalar) on insert. No field-level schema checking is performed.
+
+```
+create table t;
+create table t ();     -- equivalent
+```
+
+Rows in a keyless table keep surrogate ids and return in insertion order. Rows in a keyed table are sorted by their encoded key.
+
+## Key Validation
+
+When key columns are declared, each insert must supply every key field with the correct type. Missing or mistyped keys are schema errors. Extra payload fields beyond the declared keys are allowed.
+
+```
+create table t (x int);
+insert into t ({ x: 1, note: 'ok' });   -- ok
+insert into t ({ note: 'no key' });   -- schema error
+insert into t ({ x: 'a' });           -- schema error
+```
+
+Explicit cast syntax is not implemented. Values retain their runtime types.

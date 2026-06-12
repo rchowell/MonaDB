@@ -3,11 +3,14 @@
   "private": true,
   "packageManager": "pnpm@11.6.0",
   "scripts": {
-    "build": "tailwindcss -i input.css -o static/style.css --minify",
-    "dev": "tailwindcss -i input.css -o static/style.css --watch"
+    "build": "node scripts/gen-examples.mjs && node scripts/gen-statements.mjs && tailwindcss -i input.css -o static/style.css --minify",
+    "dev": "tailwindcss -i input.css -o static/style.css --watch",
+    "gen-examples": "node scripts/gen-examples.mjs",
+    "gen-statements": "node scripts/gen-statements.mjs"
   },
   "devDependencies": {
     "@tailwindcss/cli": "4.1.0",
+    "js-yaml": "4.1.0",
     "tailwindcss": "4.1.0"
   }
 }

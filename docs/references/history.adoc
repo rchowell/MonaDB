@@ -95,7 +95,7 @@ _This section contains various mini-goals to drive the project._
 
 === Sep 2024
 
-For September, I would like to have the CRUD operations working and start the RQL support/documentation.
+For September, I would like to have the CRUD operations working and start the SQL support/documentation.
 
 * Commands
 ** [x] `.select <table>`

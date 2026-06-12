@@ -6,7 +6,7 @@ The Select Statement _maps_ the input bindings and applies the constructor; the 
 * [ ] where clause
 
 .Examples
-[source,rql]
+[source,sql]
 ----
 select 1 + 1;
 
@@ -58,7 +58,7 @@ select_path
 == Proposals
 
 .select/delete one
-[source,rql]
+[source,sql]
 ----
 -- select one
 select T@<id>;
@@ -72,7 +72,7 @@ delete T@<id>;
 
 == Spread Operator
 
-[source,rql]
+[source,sql]
 ----
 select * from T     -- map vars.*   / spread
 select . from T     -- map vars     / identity
@@ -87,7 +87,7 @@ a.*, b.*    <=> { ...a, ...b }
 ----
 
 .Example 1
-[source,rql]
+[source,sql]
 ----
 -- input: T = [ { x: 1, y: 2 } ]
 
@@ -111,7 +111,7 @@ select . from T as t with { ...t };  -- ..
 ----
 
 .Example 3
-[source,rql]
+[source,sql]
 ----
 -- input: T = [ { x: 1, y: 2 } ]
 

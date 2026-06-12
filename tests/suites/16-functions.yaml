@@ -1,0 +1,366 @@
+suite: functions
+spec_ref: "§5"
+description: >
+  Builtin scalar functions — the standard library. Each case evaluates a
+  function via a bare `select <expr>` (no from), which yields the result value
+  directly as a single row. Covers happy paths, dynamic-on-value dispatch,
+  null propagation, the null-aware exceptions, and the static/runtime errors.
+  Note: MonaDB has no unary minus, so negatives are written `0 - n`.
+
+tests:
+  #----------------------------------------------------------------------------
+  # Type / conditional / null-aware
+  #----------------------------------------------------------------------------
+  - id: fn-typeof
+    description: typeof reports the value's runtime type name
+    steps:
+      - sql: select typeof(1);
+        result: ["int"]
+      - sql: select typeof(1.5);
+        result: ["float"]
+      - sql: select typeof('x');
+        result: ["string"]
+      - sql: select typeof(true);
+        result: ["bool"]
+      - sql: select typeof(null);
+        result: ["null"]
+      - sql: "select typeof([1, 2]);"
+        result: ["array"]
+      - sql: "select typeof({a: 1});"
+        result: ["object"]
+
+  - id: fn-coalesce
+    description: coalesce returns the first non-null argument
+    steps:
+      - sql: select coalesce(null, null, 7);
+        result: [7]
+      - sql: select coalesce(null, 'x');
+        result: ["x"]
+      - sql: select coalesce(1, 2);
+        result: [1]
+      - sql: select coalesce(null, null);
+        result: [null]
+
+  - id: fn-nullif
+    description: nullif yields null when the two arguments are equal
+    steps:
+      - sql: select nullif(5, 5);
+        result: [null]
+      - sql: select nullif(5, 3);
+        result: [5]
+
+  - id: fn-ifnull-nvl
+    description: ifnull / nvl substitute a default for null
+    steps:
+      - sql: select ifnull(null, 'd');
+        result: ["d"]
+      - sql: select ifnull('v', 'd');
+        result: ["v"]
+      - sql: select nvl(null, 9);
+        result: [9]
+
+  - id: fn-iif
+    description: iif selects a branch on the truthiness of the condition
+    steps:
+      - sql: select iif(true, 'y', 'n');
+        result: ["y"]
+      - sql: select iif(1 = 2, 'y', 'n');
+        result: ["n"]
+      - sql: select iif(null, 'y', 'n');
+        result: ["n"]
+
+  #----------------------------------------------------------------------------
+  # Math
+  #----------------------------------------------------------------------------
+  - id: fn-abs
+    description: abs of ints and floats
+    steps:
+      - sql: select abs(0 - 5);
+        result: [5]
+      - sql: select abs(5);
+        result: [5]
+      - sql: select abs(0.0 - 2.5);
+        result: [2.5]
+
+  - id: fn-ceil-floor-trunc
+    description: ceil, floor, and trunc round floats; ints pass through
+    steps:
+      - sql: select ceil(3.2);
+        result: [4]
+      - sql: select ceiling(3.2);
+        result: [4]
+      - sql: select floor(3.8);
+        result: [3]
+      - sql: select trunc(3.9);
+        result: [3]
+      - sql: select ceil(7);
+        result: [7]
+
+  - id: fn-round
+    description: round to nearest integer, and to n decimals
+    steps:
+      - sql: select round(3.7);
+        result: [4]
+      - sql: select round(3.14159, 0);
+        result: [3]
+      - sql: select round(5);
+        result: [5]
+
+  - id: fn-sign
+    description: sign returns -1, 0, or 1
+    steps:
+      - sql: select sign(0 - 5);
+        result: [-1]
+      - sql: select sign(5);
+        result: [1]
+      - sql: select sign(0);
+        result: [0]
+
+  - id: fn-sqrt-pow
+    description: sqrt and pow (integer powers stay integers)
+    steps:
+      - sql: select sqrt(9);
+        result: [3]
+      - sql: select pow(2, 10);
+        result: [1024]
+      - sql: select power(3, 2);
+        result: [9]
+
+  - id: fn-exp-ln-log10
+    description: exp, ln, and log10 at exact points
+    steps:
+      - sql: select exp(0);
+        result: [1]
+      - sql: select ln(1);
+        result: [0]
+      - sql: select log10(1);
+        result: [0]
+
+  - id: fn-mod
+    description: mod is the integer remainder
+    steps:
+      - sql: select mod(7, 3);
+        result: [1]
+      - sql: select mod(10, 5);
+        result: [0]
+
+  - id: fn-greatest-least
+    description: greatest and least over numbers and strings
+    steps:
+      - sql: select greatest(1, 5, 3);
+        result: [5]
+      - sql: select least(1, 5, 3);
+        result: [1]
+      - sql: select greatest('a', 'c', 'b');
+        result: ["c"]
+
+  #----------------------------------------------------------------------------
+  # String  (length / reverse / contains are dynamic on value)
+  #----------------------------------------------------------------------------
+  - id: fn-length-dynamic
+    description: length dispatches on value — chars, elements, or members
+    steps:
+      - sql: select length('hello');
+        result: [5]
+      - sql: "select length([1, 2, 3]);"
+        result: [3]
+      - sql: "select length({x: 1, y: 2});"
+        result: [2]
+      - sql: select length('café');
+        result: [4]
+
+  - id: fn-upper-lower
+    description: upper and lower case strings
+    steps:
+      - sql: select upper('hi');
+        result: ["HI"]
+      - sql: select lower('HI');
+        result: ["hi"]
+
+  - id: fn-trim
+    description: trim, ltrim, and rtrim strip surrounding whitespace
+    steps:
+      - sql: select trim('  hi  ');
+        result: ["hi"]
+      - sql: select ltrim('  hi');
+        result: ["hi"]
+      - sql: select rtrim('hi  ');
+        result: ["hi"]
+
+  - id: fn-substr
+    description: substr is 1-based, with an optional length
+    steps:
+      - sql: select substr('hello', 2);
+        result: ["ello"]
+      - sql: select substr('hello', 2, 3);
+        result: ["ell"]
+      - sql: select substring('hello', 1, 1);
+        result: ["h"]
+
+  - id: fn-replace
+    description: replace swaps every occurrence of a substring
+    steps:
+      - sql: select replace('aXbXc', 'X', '-');
+        result: ["a-b-c"]
+
+  - id: fn-concat
+    description: concat joins arguments, skipping nulls, stringifying scalars
+    steps:
+      - sql: select concat('a', 'b', 'c');
+        result: ["abc"]
+      - sql: select concat('a', null, 'b');
+        result: ["ab"]
+      - sql: select concat('n', 42);
+        result: ["n42"]
+
+  - id: fn-concat-ws
+    description: concat_ws joins with a separator, skipping nulls
+    steps:
+      - sql: select concat_ws('-', 'a', 'b', 'c');
+        result: ["a-b-c"]
+      - sql: select concat_ws(',', 'a', null, 'b');
+        result: ["a,b"]
+
+  - id: fn-repeat-reverse
+    description: repeat duplicates a string; reverse is dynamic on value
+    steps:
+      - sql: select repeat('ab', 3);
+        result: ["ababab"]
+      - sql: select reverse('abc');
+        result: ["cba"]
+      - sql: "select reverse([1, 2, 3]);"
+        result: [[3, 2, 1]]
+
+  - id: fn-pad
+    description: lpad and rpad pad to a target width with a fill string
+    steps:
+      - sql: select lpad('5', 3, '0');
+        result: ["005"]
+      - sql: select rpad('5', 3, '0');
+        result: ["500"]
+      - sql: select lpad('x', 3);
+        result: ["  x"]
+
+  - id: fn-oversized-string
+    description: repeat / lpad reject pathological sizes instead of exhausting memory
+    steps:
+      - sql: select repeat('x', 99999999999);
+        error: runtime
+      - sql: select lpad('x', 99999999999);
+        error: runtime
+
+  - id: fn-strpos
+    description: strpos / instr return a 1-based index, 0 if absent
+    steps:
+      - sql: select strpos('hello', 'l');
+        result: [3]
+      - sql: select instr('hello', 'l');
+        result: [3]
+      - sql: select strpos('hello', 'z');
+        result: [0]
+
+  - id: fn-affix
+    description: starts_with, ends_with, contains (dynamic on value)
+    steps:
+      - sql: select starts_with('hello', 'he');
+        result: [true]
+      - sql: select ends_with('hello', 'lo');
+        result: [true]
+      - sql: select contains('hello', 'ell');
+        result: [true]
+      - sql: "select contains([1, 2, 3], 2);"
+        result: [true]
+
+  #----------------------------------------------------------------------------
+  # Array
+  #----------------------------------------------------------------------------
+  - id: fn-array-length-contains-position
+    description: array_length, array_contains, array_position
+    steps:
+      - sql: "select array_length([1, 2, 3]);"
+        result: [3]
+      - sql: "select array_contains([1, 2, 3], 2);"
+        result: [true]
+      - sql: "select array_position([10, 20, 30], 20);"
+        result: [2]
+      - sql: "select array_position([10, 20], 99);"
+        result: [0]
+
+  - id: fn-array-build
+    description: array_append, array_prepend, array_concat
+    steps:
+      - sql: "select array_append([1, 2], 3);"
+        result: [[1, 2, 3]]
+      - sql: "select array_prepend(0, [1, 2]);"
+        result: [[0, 1, 2]]
+      - sql: "select array_concat([1, 2], [3, 4]);"
+        result: [[1, 2, 3, 4]]
+
+  - id: fn-array-transform
+    description: array_reverse, array_distinct, array_slice, array_to_string
+    steps:
+      - sql: "select array_reverse([1, 2, 3]);"
+        result: [[3, 2, 1]]
+      - sql: "select array_distinct([1, 2, 2, 3, 1]);"
+        result: [[1, 2, 3]]
+      - sql: "select array_slice([1, 2, 3, 4, 5], 2, 4);"
+        result: [[2, 3, 4]]
+      - sql: "select array_to_string([1, 2, 3], '-');"
+        result: ["1-2-3"]
+
+  #----------------------------------------------------------------------------
+  # Object
+  #----------------------------------------------------------------------------
+  - id: fn-object
+    description: object_keys, object_values, object_has_key
+    steps:
+      - sql: "select object_keys({a: 1, b: 2});"
+        result: [["a", "b"]]
+      - sql: "select object_values({a: 1, b: 2});"
+        result: [[1, 2]]
+      - sql: "select object_has_key({a: 1}, 'a');"
+        result: [true]
+      - sql: "select object_has_key({a: 1}, 'z');"
+        result: [false]
+
+  #----------------------------------------------------------------------------
+  # Null propagation (strict functions)
+  #----------------------------------------------------------------------------
+  - id: fn-null-propagation
+    description: a null argument to a strict function yields null
+    steps:
+      - sql: select abs(null);
+        result: [null]
+      - sql: select upper(null);
+        result: [null]
+      - sql: select length(null);
+        result: [null]
+      - sql: select round(null, 2);
+        result: [null]
+      - sql: select array_length(null);
+        result: [null]
+
+  #----------------------------------------------------------------------------
+  # Errors
+  #----------------------------------------------------------------------------
+  - id: fn-arity-error
+    description: wrong argument count is a static error
+    steps:
+      - sql: select abs(1, 2);
+        error: static
+      - sql: select upper();
+        error: static
+
+  - id: fn-unknown
+    description: an undefined function name is a static error
+    steps:
+      - sql: select bogus(1);
+        error: static
+
+  - id: fn-type-error
+    description: a wrong-typed argument is a runtime error
+    steps:
+      - sql: select abs('x');
+        error: runtime
+      - sql: select upper(42);
+        error: runtime

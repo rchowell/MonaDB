@@ -1,7 +1,7 @@
 = Identifiers
 
 .Example
-[source,rql]
+[source,sql]
 ----
 -- todo
 ----

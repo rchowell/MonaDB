@@ -14,6 +14,9 @@ importers:
       '@tailwindcss/cli':
         specifier: 4.1.0
         version: 4.1.0
+      js-yaml:
+        specifier: 4.1.0
+        version: 4.1.0
       tailwindcss:
         specifier: 4.1.0
         version: 4.1.0
@@ -189,6 +192,9 @@ packages:
     resolution: {integrity: sha512-A33oyZKpPFH08d7xkl13Dc8OTsbPhsuls0z9gUCxIHvn8c1BsUACddQxL6HwaeJR1fSYyXZUw8bdWcD8bVawpQ==}
     engines: {node: '>= 10'}
 
+  argparse@2.0.1:
+    resolution: {integrity: sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q==}
+
   detect-libc@2.1.2:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
     engines: {node: '>=8'}
@@ -210,6 +216,10 @@ packages:
 
   jiti@2.7.0:
     resolution: {integrity: sha512-AC/7JofJvZGrrneWNaEnJeOLUx+JlGt7tNa0wZiRPT4MY1wmfKjt2+6O2p2uz2+skll8OZZmJMNqeke7kKbNgQ==}
+    hasBin: true
+
+  js-yaml@4.1.0:
+    resolution: {integrity: sha512-wpxZs9NoxZaJESJGIZTyDEaYpl0FKSA+FB9aJiyemKhMwkxQg63h4T1KJgUGHpTqPDNRcmmYLugrRjJlBtWvRA==}
     hasBin: true
 
   lightningcss-darwin-arm64@1.29.2:
@@ -427,6 +437,8 @@ snapshots:
       '@tailwindcss/oxide-win32-arm64-msvc': 4.1.0
       '@tailwindcss/oxide-win32-x64-msvc': 4.1.0
 
+  argparse@2.0.1: {}
+
   detect-libc@2.1.2: {}
 
   enhanced-resolve@5.23.0:
@@ -443,6 +455,10 @@ snapshots:
       is-extglob: 2.1.1
 
   jiti@2.7.0: {}
+
+  js-yaml@4.1.0:
+    dependencies:
+      argparse: 2.0.1
 
   lightningcss-darwin-arm64@1.29.2:
     optional: true

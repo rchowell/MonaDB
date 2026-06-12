@@ -3,7 +3,7 @@
 An *object constructor* is zero or more pairs of member names and associated values, enclosed in curly braces (`{}`).
 
 .Example
-[source,rql]
+[source,sql]
 ----
 {
   a: 1 + 2,

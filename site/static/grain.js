@@ -3,9 +3,9 @@
 (function () {
   'use strict';
 
-  var PAGE = '#EEEBE0';   // Bone
+  var PAGE = '#F2F2F2';   // Bone
   var INK = '#1C1A14';    // Ink
-  var ACCENT = '#4A5245'; // Sage
+  var ACCENT = '#F2DF2A'; // Marker
 
   /* ── Canvas helpers ───────────────────────────────────── */
   function ctxFor(canvas, w, h) {
@@ -151,6 +151,34 @@
     select(start < 0 ? 0 : start);
   }
 
+  /* ── Copy page markdown ───────────────────────────────── */
+  function stripFrontMatter(text) {
+    if (text.slice(0, 3) !== '+++') return text;
+    var end = text.indexOf('+++', 3);
+    if (end === -1) return text;
+    return text.slice(end + 3).replace(/^\s+/, '');
+  }
+
+  function initCopyMarkdown() {
+    var btn = document.querySelector('[data-copy-markdown]');
+    var src = document.getElementById('page-markdown');
+    if (!btn || !src) return;
+    var label = btn.querySelector('[data-copy-md-label]');
+    var original = label ? label.textContent : '';
+    var resetTimer;
+    btn.addEventListener('click', function () {
+      var raw;
+      try { raw = JSON.parse(src.textContent); } catch (e) { return; }
+      var text = stripFrontMatter(raw);
+      try { if (navigator.clipboard) navigator.clipboard.writeText(text); } catch (e) {}
+      if (label) {
+        label.textContent = 'copied ✓';
+        clearTimeout(resetTimer);
+        resetTimer = setTimeout(function () { label.textContent = original; }, 1600);
+      }
+    });
+  }
+
   /* ── Copy-to-clipboard ────────────────────────────────── */
   function initCopy(el) {
     var text = el.dataset.copy;
@@ -167,10 +195,141 @@
     });
   }
 
+  /* ── Prose code highlighting ────────────────────────── */
+  var KEYWORDS = {
+    and: 1, as: 1, asc: 1, by: 1, cast: 1, copy: 1, create: 1, default: 1,
+    delete: 1, desc: 1, drop: 1, false: 1, fetch: 1, from: 1, group: 1,
+    insert: 1, into: 1, limit: 1, not: 1, null: 1, or: 1, order: 1, read: 1,
+    select: 1, set: 1, step: 1, table: 1, true: 1, update: 1, where: 1, with: 1
+  };
+
+  function appendTok(parent, text, cls) {
+    if (!text) return;
+    var span = document.createElement('span');
+    span.className = cls;
+    span.textContent = text;
+    parent.appendChild(span);
+  }
+
+  function isIdentStart(ch) {
+    return /[A-Za-z_$`]/.test(ch);
+  }
+
+  function isIdentPart(ch) {
+    return /[A-Za-z0-9_$`]/.test(ch);
+  }
+
+  function tokenizeLine(line) {
+    var tokens = [];
+    var i = 0;
+    while (i < line.length) {
+      var ch = line[i];
+      var rest = line.slice(i);
+
+      if (rest.slice(0, 2) === '--') {
+        tokens.push([line.slice(i), COM]);
+        break;
+      }
+
+      if (ch === '"' || ch === "'") {
+        var j = i + 1;
+        while (j < line.length) {
+          if (line[j] === '\\' && j + 1 < line.length) { j += 2; continue; }
+          if (line[j] === ch) { j++; break; }
+          j++;
+        }
+        tokens.push([line.slice(i, j), LIT]);
+        i = j;
+        continue;
+      }
+
+      if (/[0-9]/.test(ch) || (ch === '.' && i + 1 < line.length && /[0-9]/.test(line[i + 1]))) {
+        var k = i + (/[0-9]/.test(ch) ? 1 : 2);
+        while (k < line.length && /[0-9.]/.test(line[k])) k++;
+        tokens.push([line.slice(i, k), LIT]);
+        i = k;
+        continue;
+      }
+
+      if (isIdentStart(ch)) {
+        var m = i + 1;
+        while (m < line.length && isIdentPart(line[m])) m++;
+        var word = line.slice(i, m);
+        var key = word.replace(/^`|`$/g, '').toLowerCase();
+        tokens.push([word, KEYWORDS[key] ? KW : TXT]);
+        i = m;
+        continue;
+      }
+
+      tokens.push([ch, TXT]);
+      i++;
+    }
+    return tokens;
+  }
+
+  function highlightCodeBlock(code) {
+    if (code.dataset.highlighted) return;
+    if (code.closest('[data-code]')) return;
+
+    var text = code.textContent.replace(/\n$/, '');
+    var lines = text.split('\n');
+    code.textContent = '';
+    code.dataset.highlighted = 'true';
+
+    lines.forEach(function (line, li) {
+      tokenizeLine(line).forEach(function (tok) {
+        if (tok[1] === KW) appendTok(code, tok[0], KW);
+        else code.appendChild(document.createTextNode(tok[0]));
+      });
+      if (li < lines.length - 1) code.appendChild(document.createTextNode('\n'));
+    });
+  }
+
+  function highlightProseCode() {
+    document.querySelectorAll('.lang-content pre > code, .prose-page pre > code').forEach(highlightCodeBlock);
+  }
+
+  /* ── Prose font selector ──────────────────────────────── */
+  var PROSE_FONTS = ['courier', 'newsreader', 'spectral', 'eb-garamond', 'playfair', 'cormorant', 'libre-baskerville'];
+  var PROSE_FONT_KEY = 'monadb-prose-font';
+  var PROSE_FONT_DEFAULT = 'courier';
+
+  function applyProseFont(id) {
+    document.documentElement.dataset.proseFont = id;
+    try { localStorage.setItem(PROSE_FONT_KEY, id); } catch (e) {}
+  }
+
+  function initProseFont() {
+    var select = document.querySelector('[data-prose-font-select]');
+    if (!select) return;
+    var saved;
+    try { saved = localStorage.getItem(PROSE_FONT_KEY); } catch (e) {}
+    var id = PROSE_FONTS.indexOf(saved) >= 0 ? saved : PROSE_FONT_DEFAULT;
+    select.value = id;
+    applyProseFont(id);
+    select.addEventListener('change', function () {
+      if (PROSE_FONTS.indexOf(select.value) >= 0) applyProseFont(select.value);
+    });
+  }
+
+  function wrapTables() {
+    document.querySelectorAll('.lang-content table, .prose-page table').forEach(function (table) {
+      if (table.parentElement && table.parentElement.classList.contains('table-wrap')) return;
+      var wrap = document.createElement('div');
+      wrap.className = 'table-wrap';
+      table.parentNode.insertBefore(wrap, table);
+      wrap.appendChild(table);
+    });
+  }
+
   /* ── Boot ─────────────────────────────────────────────── */
   function init() {
+    wrapTables();
     document.querySelectorAll('[data-console]').forEach(initConsole);
     document.querySelectorAll('[data-copy]').forEach(initCopy);
+    initCopyMarkdown();
+    highlightProseCode();
+    initProseFont();
     drawAll();
     // Redraw the wordmark once Playfair has actually loaded.
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(drawAll);

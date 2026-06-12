@@ -1,6 +1,6 @@
 +++
 title = "Syntax"
-description = "Identifiers, reserved words, literals, comments, and semicolons."
+description = "Identifiers, reserved words, literals, and comments."
 weight = 3
 +++
 
@@ -8,41 +8,33 @@ weight = 3
 
 ## Identifiers
 
-An identifier is any UTF-8 name that is not a reserved word. Identifiers are case-sensitive. A name that collides with a reserved word may be quoted with backticks.
+An identifier is a name matching `[a-zA-Z_][a-zA-Z0-9_]*` that is not a reserved word. Identifiers are case-sensitive. Keywords must be written in lowercase. Quoted identifiers are not supported.
 
 ```
 points          -- valid
 myTable         -- valid
-`select`        -- quoted reserved word, valid
+select          -- reserved; cannot be used as a bare identifier
 ```
-
-## Reserved words
-
-The following words are reserved and may not appear as bare identifiers:
-
-`and` `as` `asc` `by` `copy` `create` `default` `delete` `desc` `drop` `false` `fetch` `from` `group` `insert` `into` `limit` `not` `null` `or` `order` `select` `set` `step` `table` `true` `update` `where` `with`
 
 ## Literals
 
-**Numbers** are decimal integers or floating-point values.
-
 ```
-42      3.14      -1
+42              -- integer
+3.14            -- float
+-1              -- negative number
+'hello'         -- single-quoted string
+"hello"         -- double-quoted string
+'it''s fine'    -- embedded single quote
+"say ""hi"""    -- embedded double quote
+'\n'            -- two-character string, not a newline
+true            -- boolean
+false           -- boolean
+null            -- null
+{ x: 1, y: 2 }  -- object
+{ ...t, z: 3 }  -- object with spread
+[1, 2, 3]       -- array
+[1, 2, ]        -- array with trailing comma
 ```
-
-**Strings** are single-quoted. Escape sequences: `\'` `\\` `\n` `\t`.
-
-```
-'hello'      'it\'s fine'
-```
-
-**Booleans**: `true` and `false`.
-
-**Null**: `null`.
-
-**Objects**: `{ key: value, ... }`. Keys are bare identifiers. A trailing comma is permitted.
-
-**Arrays**: `[value, ...]`. A trailing comma is permitted.
 
 ## Comments
 
@@ -52,6 +44,37 @@ Single-line comments begin with `--` and run to end of line. Block comments are 
 select x from t;   -- this is a comment
 ```
 
-## Semicolons
+## Reserved Words
 
-Statements are separated by semicolons. A trailing semicolon after the last statement is optional in the REPL and required in multi-statement programs.
+The following words are reserved and may not appear as bare identifiers:
+
+| Keyword | Role |
+|---------|------|
+| `and` | Logical conjunction |
+| `as` | Source alias in `from` |
+| `asc` | Ascending sort order |
+| `between` | Range predicate |
+| `by` | `order by` clause |
+| `clear` | `clear` statement |
+| `create` | `create table` statement |
+| `delete` | `delete` statement |
+| `desc` | Descending sort order |
+| `drop` | `drop table` statement |
+| `false` | Boolean literal |
+| `from` | `from` clause |
+| `in` | Membership predicate |
+| `insert` | `insert` statement |
+| `into` | `insert into` target |
+| `int` | Integer key-column type |
+| `is` | Null and truth tests |
+| `limit` | `limit` clause |
+| `not` | Logical negation |
+| `null` | Null literal |
+| `or` | Logical disjunction |
+| `order` | `order by` clause |
+| `select` | `select` clause |
+| `string` | String key-column type |
+| `table` | `create table` / `drop table` |
+| `true` | Boolean literal |
+| `unknown` | `is unknown` test |
+| `where` | `where` clause |

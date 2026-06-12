@@ -17,7 +17,7 @@ These path expressions are particularly useful in the _from clause_ to iterate o
 . If you want to escape the single-value coercion, prefix with $ for strict JSONPath.
 
 .Example
-[source,rql]
+[source,sql]
 ----
 -- let T be some table
 

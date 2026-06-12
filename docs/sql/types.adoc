@@ -14,14 +14,14 @@
 
 _This section will describe how tables schemas are stored and modified._
 
-Schemas are stored in a table called _catalog_ defined by the following RQL (SQL-ish).
+Schemas are stored in a table called _catalog_ defined by the following SQL.
 
 [source,sql]
 ----
 CREATE TABLE catalog (
     kind string,    /* TABLE, VIEW, INDEX, etc. */
     name string,    /* Object name */
-    rql string,     /* Object schema */
+    sql string,     /* Object schema */
     ptr number,     /* Pointer to root table page */
 )
 ----

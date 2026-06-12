@@ -3,7 +3,7 @@
 An insert statement begins with the familiar SQL-style `INSERT INTO <table>` followed by a values list. The values list is a comma-separated list surrounded by parentheses.
 
 .Example
-[source,rql]
+[source,sql]
 ----
 insert into points ({ x: 1, y: 2 });
 
