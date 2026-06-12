@@ -6,7 +6,12 @@
     "dev": "tailwindcss -i input.css -o static/style.css --watch"
   },
   "devDependencies": {
-    "@tailwindcss/cli": "^4.1.0",
-    "tailwindcss": "^4.1.0"
+    "@tailwindcss/cli": "4.1.0",
+    "tailwindcss": "4.1.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "enhanced-resolve": "5.23.0"
+    }
   }
 }
