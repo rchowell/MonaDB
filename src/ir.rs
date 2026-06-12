@@ -200,6 +200,12 @@ pub enum Expr {
     Obj(Obj),
     Array(Vec<Expr>),
     Var(Var),
+    /// Raw multi-element subscript `base[a, b, ...]` (>= 2 args) straight from
+    /// the parser; the binder lowers it (table receiver → `Get`, value → error).
+    Subscript(Subscript),
+    /// A bound keyed-table point lookup (`table[key, ...]`). The binder builds
+    /// this once a subscript's base resolves to a catalog table with a full key.
+    Get(Get),
 }
 
 pub type Obj = Vec<Member>;
@@ -232,6 +238,24 @@ pub struct Jpk {
 pub struct Jpe {
     pub inp: ExprRef,
     pub exp: ExprRef,
+}
+
+/// The raw parser node for a multi-element subscript `base[args...]`. The base
+/// kind is unknown at parse time; the binder decides table-get vs value access.
+#[derive(Debug)]
+pub struct Subscript {
+    pub base: ExprRef,
+    pub args: Vec<Expr>,
+}
+
+/// A bound keyed-table point lookup. `args` are the literal key values in key
+/// column order; the compiler encodes them into the composite key (Task 3).
+#[derive(Debug)]
+pub struct Get {
+    pub csr: u32,
+    pub oid: u32,
+    pub keys: Vec<Key>,
+    pub args: Vec<Value>,
 }
 
 //------------------------------
@@ -489,6 +513,19 @@ pub fn expr_jpe(inp: Expr, exp: Expr) -> Expr {
     Expr::Jpe(Jpe {
         inp: Box::new(inp),
         exp: Box::new(exp),
+    })
+}
+
+/// Builds a multi-element subscript `base[first, rest...]`. The grammar guards
+/// arity >= 2 (a single index stays the `Jpe` path-navigation production).
+#[inline]
+pub fn expr_subscript(base: Expr, first: Expr, rest: Vec<Expr>) -> Expr {
+    let mut args = Vec::with_capacity(rest.len() + 1);
+    args.push(first);
+    args.extend(rest);
+    Expr::Subscript(Subscript {
+        base: Box::new(base),
+        args,
     })
 }
 

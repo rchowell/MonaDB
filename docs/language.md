@@ -281,7 +281,15 @@ t.items[0::2]      -- every other element
 3. `.*` and `[*]` produce an array of all values: object member values or array elements.
 4. Slices apply to arrays only; `start` defaults to 0, `end` to the array length, `step` to 1.
 5. Negative indices count from the end.
-6. Recursive descent (`..`), filter selectors (`?<expr>`), and multi-selectors (`[a, b]`) are not in v1 (Appendix A).
+6. Recursive descent (`..`), filter selectors (`?<expr>`), and multi-selectors (`[a, b]`) **on a value/path receiver** are not in v1 (Appendix A). A multi-element subscript on a **table receiver** is a composite-key tuple, not a path multi-selector — see *Keyed table access* below.
+
+**Keyed table access (`get`).** A subscript whose **base** is a bare identifier that does **not** resolve to a `from`/scope binding and **does** name a catalog table is a **key lookup** against that table, not value path-navigation (a binding of the same name shadows the table; the parser emits a uniform subscript node and the binder lowers it). The subscript is a key tuple matched positionally to the table's declared key columns (§5.1):
+
+- arity **==** the key-column count (a **full** key) yields the one stored row (an object), or `null` on a miss — e.g. `t[1]`, `c['x', 7]`.
+- arity **<** the **leading** key columns (a **partial** key) yields the **sub-sequence** of matching rows, in key order (empty on no match) — e.g. `c['x']`. *(Planned; see Appendix A — not yet implemented.)*
+- arity **==** 0, arity **>** the key-column count, or a **keyless** table is a **static** error; a literal key whose type mismatches its column (e.g. `t["a"]` on an `int` key) is a **`schema`** error.
+
+v1 restricts keys to **literals** (`t[1]`, `c['x', 7]`); runtime-expression keys (`t[x.id]`) are a follow-up.
 
 **Syntax.**
 ```mckeeman
@@ -730,7 +738,7 @@ Clauses execute in this order regardless of source order: `from` → `with` → 
 
 ### 5.1 create table
 
-**Description.** `create table` declares a table. The schema may be omitted (schema-less, accepts any object), declared inline, or declared open. Table options specify the partition key and sort key for the underlying storage.
+**Description.** `create table` declares a table. The schema may be omitted (schema-less, accepts any object), declared inline, or declared open. In v1, the **declared columns, in declaration order, form the table's composite key** (key columns are restricted to `int` and `string`); the `{key}` / `{hash, sort}` options shown below are **planned** (Appendix A) and not yet implemented.
 
 **Examples.**
 ```sql
@@ -751,13 +759,16 @@ create table points ({
     ...
 });
 
--- with partition/sort keys
+-- composite key: declared columns, in order, ARE the key
+create table c ({ a: string, b: number });   -- key is (a, b)
+
+-- with partition/sort keys  (PLANNED — not implemented in v1, Appendix A)
 create table events (
     { user_id: string, ts: number, payload: object, ... },
     { hash: user_id, sort: ts }
 );
 
--- single-column primary key
+-- single-column primary key  (PLANNED — not implemented in v1, Appendix A)
 create table users ({ id: string, name: string }, { key: id });
 ```
 
@@ -765,10 +776,9 @@ create table users ({ id: string, name: string }, { key: id });
 1. Without a schema, the table accepts any JSON object.
 2. With a closed schema (no trailing `...`), inserts with extra keys are a static error.
 3. Fields are non-null by default; declare `T | null` to permit `null`.
-4. Table options are an object with at most three keys: `key`, `hash`, `sort`. `key` is shorthand for a single-column primary key; `hash` and `sort` together define a composite (partition, sort) key.
-5. `key` and (`hash` + `sort`) are mutually exclusive.
-6. If no key option is provided, the table has an implicit auto-assigned row identifier.
-7. Creating a table that already exists is a static error.
+4. In v1, the **declared columns, in declaration order, are the table's composite key**; key columns must be `int` or `string`. A subscript on the table name (§3.3, *Keyed table access*) looks up rows by this key.
+5. The `{key}` / `{hash, sort}` table-options syntax shown above is **planned** (Appendix A) and not implemented in v1; there is no implicit auto-assigned row identifier.
+6. Creating a table that already exists is a static error.
 
 **Syntax.**
 ```mckeeman
@@ -876,7 +886,7 @@ delete_stmt
 
 ## 7. Storage Model (informative)
 
-This section is non-normative. MonaDB is implemented on LMDB; see [resources/lmdb.adoc](resources/lmdb.adoc) for the full design. Each table maps to one primary B+ tree keyed by the `(hash, sort)` composite if specified, or by `key` if specified, or by an implicit row identifier otherwise. Sort-order-preserving byte encoding of keys is the responsibility of the storage layer; the language is unaware of the encoding.
+This section is non-normative. MonaDB is implemented on LMDB; see [resources/lmdb.adoc](resources/lmdb.adoc) for the full design. Each table maps to one primary B+ tree keyed by the table's composite key — in v1, its declared columns in declaration order (§5.1). Sort-order-preserving byte encoding of keys is the responsibility of the storage layer; the language is unaware of the encoding. Because the encoding is order-preserving, a **leading** subset of the key columns is a correct byte-prefix, which is what makes partial-key access (§3.3) a range scan.
 
 Storage limits (key length, value length, transaction concurrency) are properties of the storage layer and are not surfaced as language constructs. A query that exceeds a storage limit produces a runtime error of category `storage`.
 
@@ -894,7 +904,10 @@ Each item below is a deliberate omission. Add only with explicit language-design
 | User-defined functions                        | The built-in catalog (§3.6) is the entire function surface for v1. |
 | JSONPath filter selectors `?<expr>`           | Filter inside paths duplicates `where`; pick one.                 |
 | Recursive descent `..` in paths               | Power-tool; can be added later without breaking changes.          |
-| Multi-selectors `[a, b]` in paths             | Same rationale.                                                   |
+| Multi-selectors `[a, b]` in **value/path** expressions | Same rationale. Table key-tuples `t[a, b]` are separate (§3.3, *Keyed table access*) and supported. |
+| Partial-key prefix access `t[partial]` → sub-sequence | Semantics specified (§3.3); implementation deferred to a follow-up pass. |
+| `{key}` / `{hash, sort}` table options        | v1 uses declared columns in order as the key (§5.1); options syntax planned. |
+| Runtime-expression keys `t[x.id]`             | v1 keyed access takes **literal** keys only; expression keys are a follow-up. |
 | Single-record `T@<id>` syntax                 | Pure sugar over `where ... = <id>`; can be added later.           |
 | `inner` / `left` / `outer` join keywords      | Lateral cross + `where` covers all join shapes.                   |
 | Window functions, CTEs                        | `with` is reserved for binding rewrite, not CTEs.                 |

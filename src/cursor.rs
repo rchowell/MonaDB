@@ -24,6 +24,11 @@ impl Cursor {
         Self::default()
     }
 
+    /// Returns true if this cursor is already open on a btree.
+    pub fn is_open(&self) -> bool {
+        matches!(&self.source, Some(Source::Btree { .. }))
+    }
+
     /// Opens this cursor on the given btree (a table source, not yet scanned).
     pub fn open(&mut self, btree: BTree) {
         self.source = Some(Source::Btree { btree, scan: None });
@@ -107,7 +112,6 @@ impl Cursor {
     }
 
     /// Returns the value at the given key or null.
-    #[allow(dead_code)]
     pub fn get(&self, txn: &Transaction, key: &[u8]) -> Result<Value> {
         match self.btree().get(txn.as_ro(), key)? {
             Some(bytes) => Value::decode(bytes),
@@ -548,6 +552,16 @@ mod tests {
         let (k, v) = cursor.last(&txn).unwrap().unwrap();
         assert_eq!(k, b"c");
         assert_eq!(v, b"3");
+    }
+
+    #[test]
+    fn is_open_reflects_cursor_state() {
+        let (_dir, storage) = fixture(&[(b"a", b"1")]);
+        let (_txn, btree) = open_read(&storage);
+        let mut cursor = Cursor::new();
+        assert!(!cursor.is_open(), "new cursor should not be open");
+        cursor.open(btree);
+        assert!(cursor.is_open(), "cursor should be open after open()");
     }
 
     #[test]

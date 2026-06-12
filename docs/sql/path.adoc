@@ -1,5 +1,7 @@
 = Path
 
+NOTE: Draft. The normative spec is `docs/language.md` §3.3. A subscript on a bare *table* name is keyed table access (`get`), not path navigation — see *Keyed table access* in §3.3.
+
 Paths in _rho_ follow JSONPath with two modifications,
 
 . If the nodelist contains a single value, that value is returned.

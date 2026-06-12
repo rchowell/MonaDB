@@ -3,8 +3,9 @@ use serde_json::json;
 use crate::catalog::CATALOG_OID;
 use crate::error::Error;
 use crate::ir::{
-    Call, Clear, Constructor, Create, Delete, Drop, Expr, Insert, Jpe, Jpi, Jpk, Limit, Member, Obj, Key, Type, Var, Select, Source, Statement, ToSql
+    Call, Clear, Constructor, Create, Delete, Drop, Expr, Get, Insert, Jpe, Jpi, Jpk, Limit, Member, Obj, Key, Type, Var, Select, Source, Statement, ToSql
 };
+use crate::schema;
 use crate::transaction::TransactionMode;
 use crate::value::Value;
 use crate::vm::{Program, Vop};
@@ -449,7 +450,27 @@ impl Compiler {
                 self.cc_expr_var(&var);
                 Ok(())
             },
+            // Binding already lowered a full-key table subscript to this node;
+            // we encode the literal key and emit the point lookup.
+            Expr::Get(get) => self.cc_expr_get(&get),
+            // A multi-element subscript that survived binding is a value
+            // multi-selector — deferred (path-receiver multi-selectors are not v1).
+            Expr::Subscript(_) => {
+                unsupported!("multi-element subscript on a value is not supported")
+            }
         }
+    }
+
+    /// Keyed-table point lookup `table[key, ...]`. Literal keys are encoded at
+    /// COMPILE time (v1: literal keys only); a type mismatch surfaces here as an
+    /// `Error::Schema` (e.g. `t["a"]` on an int key). The surrounding `select`
+    /// has already emitted `Transaction(Read)`, so the cursor ops run under it.
+    fn cc_expr_get(&mut self, get: &Get) -> Result<()> {
+        let key = schema::encode_key_tuple(&get.args, &get.keys)?;
+        self.emit_open(get.csr as usize, get.oid);
+        self.emit_push(Value::Bytes(key.into()));
+        self.emit_get(get.csr as usize);
+        Ok(())
     }
 
     #[allow(clippy::len_zero)]
@@ -688,6 +709,10 @@ impl Compiler {
     fn emit_open(&mut self, csr: usize, tbl: u32) {
         self.use_cursor(csr);
         self.code.push(Vop::Open { csr, tbl });
+    }
+
+    fn emit_get(&mut self, csr: usize) {
+        self.code.push(Vop::Get { csr });
     }
 
     fn emit_scan(&mut self, csr: usize, jmp: usize) {

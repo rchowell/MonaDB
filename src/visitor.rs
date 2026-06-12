@@ -320,7 +320,8 @@ pub mod visit {
             Expr::Jpi(jpi) => v.visit_jpi(jpi),
             Expr::Jpk(jpk) => v.visit_jpk(jpk),
             Expr::Jpe(jpe) => v.visit_jpe(jpe),
-            Expr::Lit(_) | Expr::Var(_) => {}
+            // A bound `Get` holds literal key Values, not Expr children.
+            Expr::Lit(_) | Expr::Var(_) | Expr::Get(_) => {}
             Expr::Obj(members) => {
                 for m in members {
                     v.visit_member(m);
@@ -328,6 +329,12 @@ pub mod visit {
             }
             Expr::Array(items) => {
                 for e in items {
+                    v.visit_expr(e);
+                }
+            }
+            Expr::Subscript(sub) => {
+                v.visit_expr(&sub.base);
+                for e in &sub.args {
                     v.visit_expr(e);
                 }
             }
@@ -620,7 +627,8 @@ pub mod visit_mut {
             Expr::Jpi(jpi) => v.visit_jpi_mut(jpi),
             Expr::Jpk(jpk) => v.visit_jpk_mut(jpk),
             Expr::Jpe(jpe) => v.visit_jpe_mut(jpe),
-            Expr::Lit(_) | Expr::Var(_) => {}
+            // A bound `Get` holds literal key Values, not Expr children.
+            Expr::Lit(_) | Expr::Var(_) | Expr::Get(_) => {}
             Expr::Obj(members) => {
                 for m in members {
                     v.visit_member_mut(m);
@@ -628,6 +636,12 @@ pub mod visit_mut {
             }
             Expr::Array(items) => {
                 for e in items {
+                    v.visit_expr_mut(e);
+                }
+            }
+            Expr::Subscript(sub) => {
+                v.visit_expr_mut(&mut sub.base);
+                for e in &mut sub.args {
                     v.visit_expr_mut(e);
                 }
             }
@@ -902,6 +916,12 @@ pub mod fold {
             }
             Expr::Array(items) => Expr::Array(items.into_iter().map(|e| f.fold_expr(e)).collect()),
             Expr::Var(name) => Expr::Var(name),
+            Expr::Subscript(sub) => Expr::Subscript(Subscript {
+                base: Box::new(f.fold_expr(*sub.base)),
+                args: sub.args.into_iter().map(|e| f.fold_expr(e)).collect(),
+            }),
+            // A bound Get carries only literal key Values; fold is identity.
+            Expr::Get(get) => Expr::Get(get),
         }
     }
 

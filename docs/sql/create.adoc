@@ -1,5 +1,7 @@
 = Create Table Statement
 
+NOTE: Draft. The normative spec is `docs/language.md` §5.1. In v1 the declared columns, in order, are the table's composite key (int/string); `{key}`/`{hash,sort}` options are planned, not implemented.
+
 == DRAFT
 
 .TODOs

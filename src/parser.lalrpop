@@ -227,7 +227,7 @@ Selectors: Vec<ir::Selector> = List<Selector>;
 Selector: ir::Selector = {
     "string"        => ir::selector_name(<>),
     "*"             => ir::selector_wildcard(),
-    <n:"number">    => ir::selector_index(<>),
+    <n:"number">    => ir::selector_index(n.parse::<usize>().unwrap_or(0)),
 };
 
 //------------------------------
@@ -248,8 +248,9 @@ Expr: ir::Expr = {
     Atom                        => <>,
 
     #[precedence(level="1")]    #[assoc(side="left")]
-    <Expr> "[" <Expr> "]"       => ir::expr_jpe(<>),
-    <Expr> "." <"ident">        => ir::expr_jpk(<>),
+    <Expr> "[" <Expr> "]"                               => ir::expr_jpe(<>),
+    <base:Expr> "[" <first:Expr> "," <rest:List<Expr>> "]" => ir::expr_subscript(base, first, rest),
+    <Expr> "." <"ident">                                => ir::expr_jpk(<>),
 
     #[precedence(level="2")]    #[assoc(side="left")]
     <Expr> "*" <Expr>           => ir::expr_binary("*", <>),

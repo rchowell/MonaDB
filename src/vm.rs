@@ -70,6 +70,10 @@ pub enum Vop {
     NewBtree,
     /// Opens the table at the given table oid and binds to cursors[csr].
     Open { csr: usize, tbl: u32 },
+    /// Point lookup: pop an encoded key, fetch the row from cursor (csr)'s
+    /// btree, and push the decoded row value (or null on a miss). The cursor
+    /// must already be `Open`.
+    Get { csr: usize },
     /// Create a new object on the stack.
     Obj,
     /// Assign a value to an object member.
@@ -475,9 +479,17 @@ impl VM {
                 // Cursor Instructions
                 //
                 Vop::Open { csr, tbl } => {
-                    let txn = self.txn.as_ref().expect("Open before Transaction");
-                    let btree = self.storage.open_btree(txn, *tbl)?;
-                    self.cursors[*csr].open(btree);
+                    if !self.cursors[*csr].is_open() {
+                        let txn = self.txn.as_ref().expect("Open before Transaction");
+                        let btree = self.storage.open_btree(txn, *tbl)?;
+                        self.cursors[*csr].open(btree);
+                    }
+                }
+                Vop::Get { csr } => {
+                    let key = pop_key(self.pop())?;
+                    let txn = self.txn.as_ref().expect("Get before Transaction");
+                    let val = self.cursors[*csr].get(txn, &key)?;
+                    self.push(val);
                 }
                 Vop::Scan { csr, jmp } => {
                     let txn = self.txn.as_ref().expect("Scan before Transaction");

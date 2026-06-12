@@ -1,11 +1,13 @@
 suite: get
-spec_ref: "§4.8"
+spec_ref: "§3.3"
 description: >
   Key-index point lookup. A keyed table behaves like a big dict: `table[key]`
   resolves the receiver to a table (not a value) and does an order-preserving
   btree point lookup, returning the stored row — or null when the key is absent
   (Redis GET → nil). It is an ordinary expression, so it composes and rides the
-  bare `select <expr>` form. v1 is single-column-keyed tables with a literal key.
+  bare `select <expr>` form. v1 covers single-column AND composite full-key
+  literal lookups; partial-key (leading-prefix) sub-sequence access is specified
+  but deferred to a later pass and is not yet covered here.
 
 setup:
   - create table t (id int);
@@ -101,13 +103,42 @@ tests:
         error: static
 
   - id: get-composite-arity
-    description: a single key against a composite-keyed table is a static error
+    description: a key tuple longer than the key-column count is a static error
     steps:
       - sql: |
           create table c (a int, b int);
       - sql: |
-          select c[1];
+          select c[1, 2, 3];
         error: static
+
+  - id: get-composite-full-key
+    description: a full composite key returns the one matching row
+    steps:
+      - sql: |
+          create table c (a string, b int);
+      - sql: |
+          insert into c ({a: "x", b: 7, v: "hit"});
+      - sql: |
+          select c["x", 7];
+        result:
+          - {a: "x", b: 7, v: "hit"}
+
+  # Partial-key (leading-prefix → sub-sequence) cases are deferred to the
+  # partial-key pass and are intentionally not present yet. An arity less than
+  # the key-column count is a PARTIAL key (a deferred sub-sequence lookup), not
+  # an error, under the reconciled key model.
+
+  - id: get-composite-miss
+    description: a full composite key with no matching row yields null
+    steps:
+      - sql: |
+          create table c (a string, b int);
+      - sql: |
+          insert into c ({a: "x", b: 7});
+      - sql: |
+          select c["x", 8];
+        result:
+          - null
 
   - id: get-unknown-table
     description: indexing a name that is neither a binding nor a table is unbound

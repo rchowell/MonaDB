@@ -1,7 +1,8 @@
 use crate::catalog::Catalog;
 use crate::error::{Error, Result};
-use crate::ir::{Clear, Drop, Expr, From, Insert, Source, Statement, TableDefinition};
+use crate::ir::{Clear, Drop, Expr, From, Get, Insert, Source, Statement, TableDefinition};
 use crate::transaction::Transaction;
+use crate::value::Value;
 use crate::visitor::visit_mut::{VisitMut, visit_expr_mut, visit_insert_mut};
 
 /// The binder assigns cursor slots and resolves variable references.
@@ -11,9 +12,9 @@ pub struct Binder<'txn> {
     /// Catalog for table lookups, gets us the table 'oid'.
     catalog: Catalog,
     scope: Scope,
-    //
+    /// The next cursor index
     next_cursor: u32,
-    // Collected errors
+    /// Collected errors encountered during binding
     errors: Vec<Error>,
 }
 
@@ -106,6 +107,13 @@ impl VisitMut for Binder<'_> {
     }
 
     fn visit_expr_mut(&mut self, i: &mut Expr) {
+        // A subscript whose base is a bare name that resolves to a catalog
+        // table (and is NOT shadowed by a binding) is a keyed table lookup.
+        // Try that lowering first; if it doesn't apply, fall through so the
+        // base resolves (or errors) as ordinary value path-navigation.
+        if self.try_lower_get(i) {
+            return;
+        }
         if let Expr::Var(var) = i
             && var.bind.is_none()
         {
@@ -116,6 +124,155 @@ impl VisitMut for Binder<'_> {
             }
         } else {
             visit_expr_mut(self, i);
+        }
+    }
+}
+
+impl Binder<'_> {
+    /// If `i` is a subscript (`base[exp]` or `base[a, b, ...]`) whose base is a
+    /// bare unbound name that names a catalog table, lower it to a keyed-table
+    /// access (`Expr::Get`) or record a classification error. Returns `true`
+    /// when the subscript was handled here, `false` to fall through to ordinary
+    /// value path-navigation binding (a binding shadows the table; a non-table
+    /// name resolves-or-errors as a variable as before).
+    fn try_lower_get(&mut self, i: &mut Expr) -> bool {
+        // Extract (name, arity) without consuming the node — all validation runs
+        // before ownership is taken so *i is never left as a spurious Null on
+        // an error path.
+        let Some((name, arity)) = Self::subscript_parts(i) else {
+            return false;
+        };
+        // A binding shadows the table: resolve scope first, catalog second.
+        if self.scope.resolve(&name).is_some() {
+            return false;
+        }
+        // Quiet existence check — a non-table name falls through to the normal
+        // unresolved-variable path (no extra error pushed here).
+        let Some(def) = self.catalog.get_table(self.txn, &name).ok() else {
+            return false;
+        };
+
+        let n = def.keys.len();
+
+        // Keyless table, or a key tuple longer than the key → static error.
+        if n == 0 {
+            self.errors.push(Error::BindError(format!(
+                "table '{name}' has no key columns to index"
+            )));
+            return true;
+        }
+        if arity > n {
+            self.errors.push(Error::BindError(format!(
+                "key tuple of {arity} exceeds {n} key column(s) of table '{name}'"
+            )));
+            return true;
+        }
+        // A leading prefix (0 < arity < n) is a deferred sub-sequence lookup.
+        if arity < n {
+            self.errors.push(Error::Unsupported(
+                "partial-key prefix access is not yet implemented".to_string(),
+            ));
+            return true;
+        }
+
+        // Full key (arity == n). v1 accepts literal keys only. Check before
+        // taking ownership so that non-literal args are visited for their own
+        // BindErrors (e.g. an unresolved variable inside t[ghost]).
+        let all_literal = Self::args_all_literal(i);
+        if !all_literal {
+            self.visit_subscript_args(i);
+            self.errors.push(Error::Unsupported(
+                "keyed access requires literal keys".to_string(),
+            ));
+            return true;
+        }
+
+        // All validations passed — NOW take ownership of the node.
+        let args = Self::take_args(i);
+
+        let Some(oid) = def.oid else {
+            self.errors
+                .push(Error::InternalError(format!("table '{name}' has no oid")));
+            return true;
+        };
+        let values: Vec<Value> = args
+            .into_iter()
+            .map(|a| {
+                let Expr::Lit(v) = a else { unreachable!() };
+                v
+            })
+            .collect();
+        let csr = self.next_cursor();
+        *i = Expr::Get(Get {
+            csr,
+            oid,
+            keys: def.keys,
+            args: values,
+        });
+        true
+    }
+
+    /// Extracts `(base_name, arity)` from a subscript-shaped `Expr` without
+    /// consuming it. Returns `None` if the expression is not a subscript whose
+    /// base is a bare unbound variable.
+    fn subscript_parts(i: &Expr) -> Option<(String, usize)> {
+        match i {
+            Expr::Jpe(jpe) => {
+                let name = Self::table_base_name(&jpe.inp)?;
+                Some((name, 1))
+            }
+            Expr::Subscript(sub) => {
+                let name = Self::table_base_name(&sub.base)?;
+                Some((name, sub.args.len()))
+            }
+            _ => None,
+        }
+    }
+
+    /// Returns true iff every key argument in the subscript is a literal.
+    fn args_all_literal(i: &Expr) -> bool {
+        match i {
+            Expr::Jpe(jpe) => matches!(*jpe.exp, Expr::Lit(_)),
+            Expr::Subscript(sub) => sub.args.iter().all(|a| matches!(a, Expr::Lit(_))),
+            _ => true,
+        }
+    }
+
+    /// Visits each key argument through the normal expression-binding path so
+    /// that unresolved variables and other bind errors are collected.
+    fn visit_subscript_args(&mut self, i: &mut Expr) {
+        match i {
+            Expr::Jpe(jpe) => self.visit_expr_mut(&mut jpe.exp),
+            Expr::Subscript(sub) => {
+                for arg in &mut sub.args {
+                    self.visit_expr_mut(arg);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Consumes the subscript node and returns its argument expressions.
+    /// Must only be called after all validation passes — replaces `*i` with a
+    /// placeholder only on the success path.
+    fn take_args(i: &mut Expr) -> Vec<Expr> {
+        match std::mem::replace(i, Expr::Lit(Value::Null)) {
+            Expr::Jpe(jpe) => vec![*jpe.exp],
+            Expr::Subscript(sub) => sub.args,
+            other => {
+                *i = other;
+                vec![]
+            }
+        }
+    }
+
+    /// Returns the name of a subscript base iff it is a bare unbound variable
+    /// (`Expr::Var` with no binding yet). Any nested base (`Jpk`, `Jpe`, …)
+    /// returns `None`, keeping it on the value path-navigation track.
+    fn table_base_name(base: &Expr) -> Option<String> {
+        match base {
+            Expr::Var(var) if var.bind.is_none() => Some(var.name.clone()),
+            _ => None,
         }
     }
 }
@@ -372,5 +529,136 @@ mod test {
         let mut rows = db.query("select u.id from items as u;", false).unwrap();
         let row = rows.next().unwrap();
         assert!(row.is_some());
+    }
+
+    //------------------------------
+    // Keyed table subscript (get)
+    //------------------------------
+
+    /// Pull the single projected expression out of a bound `select <expr>;`.
+    fn projected_expr(stmt: Statement) -> Expr {
+        let Statement::Select(sel) = stmt else {
+            panic!("expected Select")
+        };
+        let Constructor::Expr(expr) = sel.select else {
+            panic!("expected a single projected expression")
+        };
+        expr
+    }
+
+    #[test]
+    fn test_bind_get_int_key() {
+        let mut db = MonaDB::memory().unwrap();
+        db.execute("create table t (id int);").unwrap();
+        let mut stmt = MonaDB::parse("select t[1];").unwrap();
+        db.bind(&mut stmt).unwrap();
+        let Expr::Get(get) = projected_expr(stmt) else {
+            panic!("expected Get, not Jpe — a bare table subscript is a key lookup")
+        };
+        assert_eq!(get.keys.len(), 1);
+        assert_eq!(get.args.len(), 1);
+        assert!(get.oid > 0, "oid should be derived from the table definition");
+    }
+
+    #[test]
+    fn test_bind_get_wrong_type_still_binds() {
+        // A type mismatch (string key against an int key column) is NOT a bind
+        // error — it is deferred to the compiler's encoder (a schema error).
+        let mut db = MonaDB::memory().unwrap();
+        db.execute("create table t (id int);").unwrap();
+        let mut stmt = MonaDB::parse("select t[\"a\"];").unwrap();
+        db.bind(&mut stmt).unwrap();
+        let Expr::Get(get) = projected_expr(stmt) else {
+            panic!("expected Get even for a type-mismatched literal key")
+        };
+        assert_eq!(get.keys.len(), 1);
+        assert_eq!(get.args.len(), 1);
+    }
+
+    #[test]
+    fn test_bind_get_composite_key() {
+        let mut db = MonaDB::memory().unwrap();
+        db.execute("create table c (a string, b int);").unwrap();
+        let mut stmt = MonaDB::parse("select c[\"x\", 7];").unwrap();
+        db.bind(&mut stmt).unwrap();
+        let Expr::Get(get) = projected_expr(stmt) else {
+            panic!("expected Get for a composite full-key subscript")
+        };
+        assert_eq!(get.keys.len(), 2);
+        assert_eq!(get.args.len(), 2);
+    }
+
+    #[test]
+    fn test_bind_get_arity_too_long_errors() {
+        let mut db = MonaDB::memory().unwrap();
+        db.execute("create table c (a int, b int);").unwrap();
+        let mut stmt = MonaDB::parse("select c[1, 2, 3];").unwrap();
+        assert!(matches!(db.bind(&mut stmt), Err(Error::BindError(_))));
+    }
+
+    #[test]
+    fn test_bind_get_keyless_errors() {
+        let mut db = MonaDB::memory().unwrap();
+        db.execute("create table k;").unwrap();
+        let mut stmt = MonaDB::parse("select k[1];").unwrap();
+        assert!(matches!(db.bind(&mut stmt), Err(Error::BindError(_))));
+    }
+
+    #[test]
+    fn test_bind_get_partial_key_unsupported() {
+        // A leading prefix (0 < arity < key count) is deferred, not built.
+        let mut db = MonaDB::memory().unwrap();
+        db.execute("create table c (a int, b int);").unwrap();
+        let mut stmt = MonaDB::parse("select c[1];").unwrap();
+        assert!(matches!(db.bind(&mut stmt), Err(Error::Unsupported(_))));
+    }
+
+    #[test]
+    fn test_bind_get_unknown_name_errors() {
+        let db = db_fixture();
+        // `ghost` is neither a binding nor a table → falls through to the
+        // existing unresolved-variable bind error.
+        let mut stmt = MonaDB::parse("select ghost[1];").unwrap();
+        assert!(matches!(db.bind(&mut stmt), Err(Error::BindError(_))));
+    }
+
+    #[test]
+    fn test_bind_subscript_binding_shadows_table_stays_jpe() {
+        // `t` resolves to the FROM binding, which shadows the table `t`, so
+        // `t[1]` stays value path-navigation (Jpe), not a key lookup (Get).
+        let mut db = MonaDB::memory().unwrap();
+        db.execute("create table t (id int);").unwrap();
+        let mut stmt = MonaDB::parse("select t[1] from t as t;").unwrap();
+        db.bind(&mut stmt).unwrap();
+        let Expr::Jpe(jpe) = projected_expr(stmt) else {
+            panic!("expected Jpe — a bound name shadows the table")
+        };
+        let Expr::Var(var) = jpe.inp.as_ref() else {
+            panic!("expected Var base")
+        };
+        assert_eq!(var.bind, Some(0));
+    }
+
+    #[test]
+    fn test_bind_get_nonliteral_unresolved_arg_reports_bind_error() {
+        // t[ghost] — base is a table, arg is an unresolved variable.
+        // The binder must visit the arg and push a BindError for `ghost`
+        // (not just Unsupported for "requires literal key").
+        let mut db = MonaDB::memory().unwrap();
+        db.execute("create table t (id int);").unwrap();
+        let mut stmt = MonaDB::parse("select t[ghost];").unwrap();
+        assert!(
+            matches!(db.bind(&mut stmt), Err(Error::BindError(_))),
+            "unresolved arg inside a table subscript should produce BindError"
+        );
+    }
+
+    #[test]
+    fn test_bind_value_index_stays_jpe() {
+        // An index into a literal array value is ordinary path-navigation.
+        let db = db_fixture();
+        let mut stmt = MonaDB::parse("select [1, 2, 3][0];").unwrap();
+        db.bind(&mut stmt).unwrap();
+        assert!(matches!(projected_expr(stmt), Expr::Jpe(_)));
     }
 }
