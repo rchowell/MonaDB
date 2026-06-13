@@ -1571,7 +1571,7 @@ pivot p.price at p.sym from empty_t as p;
 
 ```json
 [
-  {  }
+  {}
 ]
 ```
 
@@ -1990,7 +1990,7 @@ select * from T where T.x = null;
 
 ```json
 [
-  {  }
+  {}
 ]
 ```
 

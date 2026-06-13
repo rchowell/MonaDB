@@ -234,15 +234,16 @@ html[data-prose-font="libre-baskerville"] { --font-prose: "Libre Baskerville", B
   }
   .prose-layout.has-content-nav { grid-template-columns: 1fr var(--sidebar-right); }
   .prose-page { padding: 56px 32px 72px; min-width: 0; }
-  .prose-page h1 { font-family: var(--font-display); font-size: clamp(34px, 4.6vw, 50px); font-weight: 900; line-height: 1.03; margin-bottom: 24px; padding-bottom: 16px; border-bottom: var(--heavy); }
+  .prose-page h1 { font-family: var(--font-display); font-size: clamp(34px, 4.6vw, 50px); font-weight: 900; line-height: 1.03; margin-bottom: 24px; padding-bottom: 16px; border-bottom: var(--heavy); scroll-margin-top: calc(var(--header-h) + 24px); }
   .prose-page h2 {
     font-family: var(--font-display); font-size: 26px; font-weight: 700; line-height: 1.1;
     margin-top: 44px; margin-bottom: 14px;
     display: inline-block; border-bottom: none; padding-bottom: 4px;
     box-decoration-break: clone; -webkit-box-decoration-break: clone;
     background: linear-gradient(180deg, transparent 58%, var(--color-accent) 58%);
+    scroll-margin-top: calc(var(--header-h) + 24px);
   }
-  .prose-page h3 { font-family: var(--font-display); font-size: 18px; font-weight: 700; margin-top: 28px; margin-bottom: 8px; }
+  .prose-page h3 { font-family: var(--font-display); font-size: 18px; font-weight: 700; margin-top: 28px; margin-bottom: 8px; scroll-margin-top: calc(var(--header-h) + 24px); }
   .prose-page p { font-family: var(--font-prose); font-size: 16px; color: var(--color-shadow); line-height: 1.7; margin-bottom: 16px; text-align: justify; }
   .prose-page ul, .prose-page ol { color: var(--color-shadow); padding-left: 1.5rem; margin-bottom: 16px; }
   .prose-page li { font-family: var(--font-prose); font-size: 16px; margin-bottom: 6px; }
@@ -335,6 +336,7 @@ html[data-prose-font="libre-baskerville"] { --font-prose: "Libre Baskerville", B
     height: calc(100vh - var(--header-h));
     overflow-y: auto;
     align-self: start;
+    background: color-mix(in srgb, var(--color-shadow) 4%, var(--color-page));
   }
   .sidebar-head { padding: 4px 24px 6px; }
   .sidebar-heading {
@@ -371,13 +373,14 @@ html[data-prose-font="libre-baskerville"] { --font-prose: "Libre Baskerville", B
   }
   .sidebar-nav--nested li { padding-left: 36px; }
   .lang-content { padding: 56px 32px 72px; min-width: 0; }
-  .lang-content h1 { font-family: var(--font-display); font-size: clamp(34px, 4.6vw, 48px); font-weight: 900; line-height: 1.03; margin-bottom: 24px; padding-bottom: 16px; border-bottom: var(--heavy); }
+  .lang-content h1 { font-family: var(--font-display); font-size: clamp(34px, 4.6vw, 48px); font-weight: 900; line-height: 1.03; margin-bottom: 24px; padding-bottom: 16px; border-bottom: var(--heavy); scroll-margin-top: calc(var(--header-h) + 24px); }
   .lang-content h2 {
     font-family: var(--font-display); font-size: 24px; font-weight: 700; line-height: 1.1;
     margin-top: 40px; margin-bottom: 12px;
     display: inline-block; border-bottom: none; padding-bottom: 4px;
     box-decoration-break: clone; -webkit-box-decoration-break: clone;
     background: linear-gradient(180deg, transparent 58%, var(--color-accent) 58%);
+    scroll-margin-top: calc(var(--header-h) + 24px);
   }
   .lang-content.lang-reference h2 {
     display: block;
@@ -393,7 +396,7 @@ html[data-prose-font="libre-baskerville"] { --font-prose: "Libre Baskerville", B
     -webkit-box-decoration-break: clone;
     background: linear-gradient(180deg, transparent 58%, var(--color-accent) 58%);
   }
-  .lang-content h3 { font-family: var(--font-display); font-size: 17px; font-weight: 700; margin-top: 26px; margin-bottom: 8px; }
+  .lang-content h3 { font-family: var(--font-display); font-size: 17px; font-weight: 700; margin-top: 26px; margin-bottom: 8px; scroll-margin-top: calc(var(--header-h) + 24px); }
   .lang-content.lang-reference h3 { margin-top: 32px; }
   .lang-content.examples-content .example {
     margin-top: 36px;
@@ -494,8 +497,21 @@ html[data-prose-font="libre-baskerville"] { --font-prose: "Libre Baskerville", B
     overflow-y: auto;
     padding: 40px 16px 40px 20px;
   }
+  .content-nav-title {
+    font-family: var(--font-body);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: none;
+    color: var(--color-ink);
+    margin-bottom: 16px;
+    padding: 0;
+  }
   .content-nav-list { list-style: none; }
   .content-nav-list .content-nav-list { padding-left: 12px; margin-top: 2px; }
+  .content-nav-item {
+    border-left: 2px solid var(--color-ghost);
+  }
   .content-nav-item a {
     display: block;
     font-family: var(--font-label);
@@ -503,12 +519,11 @@ html[data-prose-font="libre-baskerville"] { --font-prose: "Libre Baskerville", B
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--color-mist);
-    padding: 6px 0;
-    border-left: 3px solid transparent;
-    padding-left: 10px;
+    padding: 6px 0 6px 10px;
     text-decoration: none;
   }
   .content-nav-item a:hover { color: var(--color-ink); text-decoration: none; }
+  .content-nav-item a.active { color: var(--color-ink); }
   .content-nav-item--level-3 a { font-size: 9px; padding-left: 16px; }
   .content-nav-panel { text-align: left; }
 

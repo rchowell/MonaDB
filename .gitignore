@@ -36,3 +36,6 @@ site/public/
 
 # node
 site/node_modules/
+
+# private LLM context documents
+.context/

@@ -13,7 +13,9 @@ use crate::ir::{
 };
 use crate::transaction::Transaction;
 use crate::value::Value;
-use crate::visitor::visit_mut::{VisitMut, visit_constructor_mut, visit_expr_mut, visit_insert_mut};
+use crate::visitor::visit_mut::{
+    VisitMut, visit_constructor_mut, visit_expr_mut, visit_insert_mut,
+};
 
 /// The binder assigns cursor slots and resolves variable references.
 pub struct Binder<'txn> {
@@ -75,6 +77,17 @@ impl<'txn> Binder<'txn> {
 }
 
 impl VisitMut for Binder<'_> {
+    /// Binds a HAVING predicate with aggregates enabled — it is the post-group
+    /// analog of the projection (both run after grouping, both may use
+    /// aggregates), so it shares the projection's `allow_agg` scoping. The
+    /// default walk binds from/where/group/order/limit with the flag off.
+    fn visit_having_mut(&mut self, i: &mut Expr) {
+        let saved = self.allow_agg;
+        self.allow_agg = true;
+        self.visit_expr_mut(i);
+        self.allow_agg = saved;
+    }
+
     /// Binds a SELECT's projection with aggregates enabled. A `Constructor` only
     /// ever appears as a SELECT projection, and the default `visit_select_mut`
     /// walks it last (after from/where/order/limit), so toggling `allow_agg`

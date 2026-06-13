@@ -78,22 +78,31 @@ pub struct Key {
 // DQL
 //------------------------------
 
-/// A SELECT query: its from-sources, residual filter, order, limit, and
-/// projection. Clauses run in spec order — from → where → order → limit → select.
+/// A SELECT query: its from-sources, residual filter, grouping, group filter,
+/// order, limit, and projection. Clauses run in spec order —
+/// from → where → group → having → order → limit → select.
 #[derive(Debug)]
 pub struct Select {
     pub from: Vec<From>,
     // pub with: Option<Expr>,
     pub where_: Option<Where>,
-    // group
-    // having
+    pub group: Option<GroupBy>,
+    pub having: Option<Where>,
     pub order: Option<OrderBy>,
     pub limit: Option<Limit>,
     pub select: Constructor,
 }
 
-/// The projection form of a SELECT.
+/// A GROUP BY clause: its grouping key expressions, most significant first. The
+/// post-where stream is sorted by these (then streamed) so each distinct key
+/// forms one output row.
 #[derive(Debug)]
+pub struct GroupBy {
+    pub keys: Vec<Expr>,
+}
+
+/// The projection form of a SELECT.
+#[derive(Debug, Clone)]
 pub enum Constructor {
     /// Identity `.` — project the binding tuple as an object.
     None,
@@ -110,7 +119,7 @@ pub enum Constructor {
 }
 
 /// The two expressions of a `pivot value at name` projection.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Pivot {
     /// The attribute value contributed by each binding tuple.
     pub value: ExprRef,
@@ -188,7 +197,7 @@ pub enum Scope {
 }
 
 /// Variable references are either to tables or a field at a cursor.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Var {
     /// The reference name we get from parsing.
     pub name: String,
@@ -273,7 +282,7 @@ pub enum Selector {
 pub type ExprRef = Box<Expr>;
 
 /// An expression node — the value-producing core of the IR.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     /// A builtin operator/function call.
     Call(Call),
@@ -302,8 +311,11 @@ pub enum Expr {
     Agg(Agg),
 }
 
-/// The five supported aggregate functions. Mirrors SQLite's aggregate set
-/// (`count`/`sum`/`min`/`max`/`avg`); the VM's `Agg*` opcodes branch on it.
+/// The supported aggregate functions. The first five mirror SQLite's aggregate
+/// set (`count`/`sum`/`min`/`max`/`avg`); the VM's `Agg*` opcodes branch on it.
+/// `First` is compiler-internal (not user-callable): it keeps the first value
+/// folded into the accumulator, used by GROUP BY to carry each group's
+/// representative row across the group boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AggKind {
     Count,
@@ -311,13 +323,14 @@ pub enum AggKind {
     Min,
     Max,
     Avg,
+    First,
 }
 
 /// A bound aggregate term: its kind, its argument (`None` is `count(*)`), and the
 /// accumulator slot. The binder lowers an aggregate `Call` to this and the
 /// compiler fills `slot` from its `alloc_agg` allocator (like cursor/counter
 /// slots), so binding stays free of VM-layout concerns.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Agg {
     pub kind: AggKind,
     pub arg: Option<ExprRef>,
@@ -328,35 +341,35 @@ pub struct Agg {
 pub type Obj = Vec<Member>;
 
 /// A builtin call: an operator/function name and its argument expressions.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Call {
     pub name: String,
     pub args: Vec<Expr>,
 }
 
 /// One object-constructor member: a `k: v` assignment or a `...spread`.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Member {
     Assign(String, Expr),
     Spread(Expr),
 }
 
 /// A path index `input[idx]`.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Jpi {
     pub inp: ExprRef,
     pub idx: usize,
 }
 
 /// A path key `input.key`.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Jpk {
     pub inp: ExprRef,
     pub key: String,
 }
 
 /// A computed path step `input[exp]`.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Jpe {
     pub inp: ExprRef,
     pub exp: ExprRef,
@@ -364,7 +377,7 @@ pub struct Jpe {
 
 /// The raw parser node for a multi-element subscript `base[args...]`. The base
 /// kind is unknown at parse time; the binder decides table-get vs value access.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Subscript {
     pub base: ExprRef,
     pub args: Vec<Expr>,
@@ -372,12 +385,22 @@ pub struct Subscript {
 
 /// A bound keyed-table point lookup. `args` are the literal key values in key
 /// column order; the compiler encodes them into the composite key (Task 3).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Get {
     pub csr: u32,
     pub oid: u32,
     pub keys: Vec<Key>,
     pub args: Vec<Value>,
+}
+
+/// Equality ignores the binder-assigned cursor slot (`csr`), which is allocated
+/// fresh per occurrence: two subscripts of the same table and key are equal
+/// regardless of where each was lowered. This keeps GROUP BY key matching (which
+/// compares `Expr`s structurally) working for keyed-subscript group keys.
+impl PartialEq for Get {
+    fn eq(&self, other: &Self) -> bool {
+        self.oid == other.oid && self.keys == other.keys && self.args == other.args
+    }
 }
 
 //------------------------------
@@ -449,31 +472,39 @@ pub fn select_value(select: Constructor) -> Select {
     Select {
         from: vec![],
         where_: None,
+        group: None,
+        having: None,
         order: None,
         limit: None,
         select,
     }
 }
 
-/// Builds a SELECT, attaching a projection to a parsed from/where/order/limit block.
+/// Builds a SELECT, attaching a projection to a parsed from/where/group/having/
+/// order/limit block.
 #[inline]
 pub fn select(select: Constructor, block: Select) -> Select {
     Select {
         from: block.from,
         where_: block.where_,
+        group: block.group,
+        having: block.having,
         order: block.order,
         limit: block.limit,
         select,
     }
 }
 
-/// Builds a `pivot value at name <block>` query: the from/where/order/limit
-/// block keeps its clauses, the projection becomes a [`Constructor::Pivot`].
+/// Builds a `pivot value at name <block>` query: the from/where/group/having/
+/// order/limit block keeps its clauses, the projection becomes a
+/// [`Constructor::Pivot`].
 #[inline]
 pub fn pivot(value: Expr, name: Expr, block: Select) -> Select {
     Select {
         from: block.from,
         where_: block.where_,
+        group: block.group,
+        having: block.having,
         order: block.order,
         limit: block.limit,
         select: Constructor::Pivot(Pivot {
@@ -483,21 +514,32 @@ pub fn pivot(value: Expr, name: Expr, block: Select) -> Select {
     }
 }
 
-/// Builds the from/where/order/limit block; the projection is filled in later.
+/// Builds the from/where/group/having/order/limit block; the projection is
+/// filled in later.
 #[inline]
 pub fn select_block(
     from: Vec<From>,
     where_: Option<Where>,
+    group: Option<GroupBy>,
+    having: Option<Where>,
     order: Option<OrderBy>,
     limit: Option<Limit>,
 ) -> Select {
     Select {
         from,
         where_,
+        group,
+        having,
         order,
         limit,
         select: Constructor::None,
     }
+}
+
+/// Builds a GROUP BY from its key expressions.
+#[inline]
+pub fn group_by(keys: Vec<Expr>) -> GroupBy {
+    GroupBy { keys }
 }
 
 /// Builds an ORDER BY from its keys.

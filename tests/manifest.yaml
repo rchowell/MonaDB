@@ -42,3 +42,6 @@ suites:
   - file: suites/18-pivot.yaml
     title: pivot clause
     spec_ref: "§4.1"
+  - file: suites/19-group.yaml
+    title: group by clause
+    spec_ref: "§4.5"

@@ -114,6 +114,29 @@ tests:
           select price from unpivot {b: 2, a: 1, c: 3} as price at sym order by sym;
         result: [1, 2, 3]
 
+  - id: unpivot-aggregate
+    description: an aggregate folds over the unpivoted value binding
+    steps:
+      - sql: |
+          select sum(price) from unpivot {a: 10, b: 20, c: 30} as price;
+        result: [60]
+
+  - id: unpivot-aggregate-count
+    description: count over an unpivot source counts one row per pair
+    steps:
+      - sql: |
+          select count(price) from unpivot {a: 1, b: 2, c: 3} as price;
+        result: [3]
+
+  - id: unpivot-group-by
+    description: group by over an unpivot source groups its value binding
+    steps:
+      - sql: |
+          select { v: price, n: count(*) } from unpivot {a: 5, b: 5, c: 9} as price group by price;
+        result:
+          - {v: 5, n: 2}
+          - {v: 9, n: 1}
+
   - id: unpivot-requires-value-alias
     description: the unpivot value binding requires an alias
     steps:

@@ -144,6 +144,17 @@ pub enum Vop {
     /// Non-mutating, so it is idempotent: avg divides sum by count, the rest read
     /// the accumulator straight out.
     AggFinal { slot: usize, kind: AggKind },
+    /// Detect a GROUP BY group boundary against the previous key at `slot`:
+    ///
+    ///   stack:  … key_bytes  ─▶  …
+    ///
+    /// Pops the current row's encoded group key. If `aggs[slot]` is null (the
+    /// first row) or equals the key (same group), record it and jump to `jmp`
+    /// (the step block — no flush). Otherwise it is a new group: record the new
+    /// key and fall through to the flush block, which finalizes the group that
+    /// just ended. The previous key lives in the aggregate bank like every other
+    /// per-group cell, so nested grouping just allocates more slots.
+    GroupBreak { slot: usize, jmp: usize },
     /// Set a counter to a value.
     CntSet(usize, u64),
     /// If the counter is greater than 0, decrement it and jump to p1.
@@ -441,6 +452,19 @@ impl VM {
                     let out = agg_final(&self.aggs[*slot], *kind);
                     self.push(out);
                 }
+                Vop::GroupBreak { slot, jmp } => {
+                    let cur = self.pop();
+                    let is_first = self.aggs[*slot].is_null();
+                    let is_break = !is_first && self.aggs[*slot] != cur;
+                    if is_first || is_break {
+                        // First row or a new group: record its key.
+                        self.aggs[*slot] = cur;
+                    }
+                    if !is_break {
+                        // First row or same group: skip the flush, go to the step.
+                        self.pc = *jmp;
+                    }
+                }
                 Vop::Pop => {
                     let _ = self.pop();
                 }
@@ -717,7 +741,7 @@ fn sort_key(elem: &Value) -> &[u8] {
 fn agg_init(kind: AggKind) -> Value {
     match kind {
         AggKind::Count => Value::Int(0),
-        AggKind::Sum | AggKind::Min | AggKind::Max => Value::Null,
+        AggKind::Sum | AggKind::Min | AggKind::Max | AggKind::First => Value::Null,
         AggKind::Avg => {
             let mut acc = Value::array();
             acc.push(Value::Float(0.0));
@@ -741,6 +765,9 @@ fn agg_step(cell: Value, kind: AggKind, v: Value) -> Result<Value> {
         AggKind::Min => extremum(cell, v, Ordering::Less, "min"),
         AggKind::Max => extremum(cell, v, Ordering::Greater, "max"),
         AggKind::Avg => avg_step(cell, v),
+        // Keep the first folded value; within a group every key is equal, so
+        // this captures the group's representative (used by GROUP BY).
+        AggKind::First => Ok(if cell.is_null() { v } else { cell }),
     }
 }
 
@@ -749,7 +776,9 @@ fn agg_step(cell: Value, kind: AggKind, v: Value) -> Result<Value> {
 /// straight out; avg divides the running sum by the count (null on no rows).
 fn agg_final(cell: &Value, kind: AggKind) -> Value {
     match kind {
-        AggKind::Count | AggKind::Sum | AggKind::Min | AggKind::Max => cell.clone(),
+        AggKind::Count | AggKind::Sum | AggKind::Min | AggKind::Max | AggKind::First => {
+            cell.clone()
+        }
         AggKind::Avg => {
             let (sum, count) = avg_parts(cell);
             if count == 0 {
@@ -959,6 +988,21 @@ mod agg_tests {
     #[test]
     fn sum_over_no_rows_is_null() {
         assert!(matches!(run(AggKind::Sum, &[]), Value::Null));
+    }
+
+    #[test]
+    fn first_keeps_the_earliest_value() {
+        // First holds the first folded value — a GROUP BY group's representative.
+        let out = run(
+            AggKind::First,
+            &[Value::Int(10), Value::Int(20), Value::Int(30)],
+        );
+        assert!(matches!(out, Value::Int(10)), "got {out:?}");
+    }
+
+    #[test]
+    fn first_over_no_rows_is_null() {
+        assert!(matches!(run(AggKind::First, &[]), Value::Null));
     }
 
     #[test]

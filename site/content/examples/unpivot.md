@@ -1,7 +1,7 @@
 +++
 title = "Unpivot"
 description = "UNPIVOT ranges over the attribute-value pairs of a tuple, binding the value with AS and the attribute name with AT."
-weight = 15
+weight = 17
 +++
 
 # Unpivot

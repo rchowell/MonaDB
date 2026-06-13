@@ -54,6 +54,8 @@ extern {
         "delete"    => Token::Delete,
         "desc"      => Token::Desc,
         "drop"      => Token::Drop,
+        "group"     => Token::Group,
+        "having"    => Token::Having,
         "in"        => Token::In,
         "is"        => Token::Is,
         "limit"     => Token::Limit,
@@ -144,10 +146,14 @@ SelectItem: ir::Member = <Expr> "as" <"ident"> => ir::select_item(<>);
 SelectBlock: ir::Select =
     <From>
     <Where?>
+    <GroupBy?>
+    <Having?>
     <OrderBy?>
     <Limit?> => ir::select_block(<>);
 
 From: Vec<ir::From> = "from" <List<FromItem>>;
+
+GroupBy: ir::GroupBy = "group" "by" <List<Expr>> => ir::group_by(<>);
 
 OrderBy: ir::OrderBy = "order" "by" <List<OrderItem>> => ir::order_by(<>);
 
@@ -164,6 +170,8 @@ FromItem: ir::From = {
 };
 
 Where: ir::Where = "where" <Expr>;
+
+Having: ir::Where = "having" <Expr>;
 
 Limit: ir::Limit = {
     "limit" <n:"number">                       => ir::limit_take(n.parse().unwrap_or(0)),

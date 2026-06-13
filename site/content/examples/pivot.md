@@ -1,7 +1,7 @@
 +++
 title = "Pivot"
 description = "PIVOT folds a binding stream into a single tuple, contributing one attribute per row — the value at the AT name."
-weight = 16
+weight = 19
 +++
 
 # Pivot
@@ -80,7 +80,7 @@ pivot p.price at p.sym from empty_t as p;
 
 ```json
 [
-  {  }
+  {}
 ]
 ```
 

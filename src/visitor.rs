@@ -192,6 +192,14 @@ pub mod visit {
         if let Some(w) = &i.where_ {
             v.visit_expr(w);
         }
+        if let Some(g) = &i.group {
+            for k in &g.keys {
+                v.visit_expr(k);
+            }
+        }
+        if let Some(h) = &i.having {
+            v.visit_expr(h);
+        }
         if let Some(o) = &i.order {
             for k in &o.keys {
                 v.visit_expr(&k.expr);
@@ -442,6 +450,13 @@ pub mod visit_mut {
             visit_constructor_mut(self, i);
         }
 
+        /// Walks a HAVING predicate. A distinct hook (like `visit_constructor_mut`
+        /// for the projection) so a pass can scope aggregate handling to it; the
+        /// default just walks the expression.
+        fn visit_having_mut(&mut self, i: &mut Expr) {
+            self.visit_expr_mut(i);
+        }
+
         fn visit_member_mut(&mut self, i: &mut Member) {
             visit_member_mut(self, i);
         }
@@ -549,6 +564,14 @@ pub mod visit_mut {
         }
         if let Some(w) = &mut i.where_ {
             v.visit_expr_mut(w);
+        }
+        if let Some(g) = &mut i.group {
+            for k in &mut g.keys {
+                v.visit_expr_mut(k);
+            }
+        }
+        if let Some(h) = &mut i.having {
+            v.visit_having_mut(h);
         }
         if let Some(o) = &mut i.order {
             for k in &mut o.keys {
@@ -839,6 +862,10 @@ pub mod fold {
         Select {
             from: i.from.into_iter().map(|x| f.fold_from(x)).collect(),
             where_: i.where_.map(|w| f.fold_expr(w)),
+            group: i.group.map(|g| GroupBy {
+                keys: g.keys.into_iter().map(|k| f.fold_expr(k)).collect(),
+            }),
+            having: i.having.map(|h| f.fold_expr(h)),
             order: i.order.map(|o| OrderBy {
                 keys: o
                     .keys

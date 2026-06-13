@@ -192,6 +192,26 @@ select sum(t.x) from T as t;
 
 <div class="example">
 
+### Overflow Errors
+
+A float sum that overflows to non-finite is a runtime error, not a silent null.
+
+<p class="example-label">SQL</p>
+
+```sql
+create table T;
+
+insert into T ({x: 1e308}, {x: 1e308});
+
+select sum(t.x) from T as t;
+```
+
+Expected error: `runtime`
+
+</div>
+
+<div class="example">
+
 ### Min Of Integers
 
 Min of integers.

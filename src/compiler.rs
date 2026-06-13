@@ -269,17 +269,25 @@ impl Compiler {
     fn cc_select(&mut self, select: Select) -> Result<()> {
         self.ensure_txn(TransactionMode::Read);
 
-        // An aggregate projection collapses the stream to one row; that path
-        // accumulates instead of yielding per row, so it lives in cc_aggregate.
-        if has_aggregate(&select.select) {
-            return self.cc_aggregate(select);
+        // GROUP BY sorts the post-where stream by the grouping key, then streams
+        // it, resetting the accumulators at each group boundary. Checked first so
+        // a grouped query reaches cc_group's own projection rules.
+        if select.group.is_some() {
+            return self.cc_group(select);
         }
 
         // PIVOT folds the whole stream into one tuple instead of projecting per
         // row, so it has its own accumulate-then-yield path in cc_pivot. Checked
-        // before ORDER BY so `pivot … order by` reaches cc_pivot's clean reject.
+        // before the aggregate path so `pivot … having` reaches cc_pivot's reject.
         if let Constructor::Pivot(_) = &select.select {
             return self.cc_pivot(select);
+        }
+
+        // An aggregate projection (or a HAVING) collapses the stream to one row;
+        // that path accumulates instead of yielding per row, so it lives in
+        // cc_aggregate (which treats the whole input as a single group).
+        if has_aggregate(&select.select) || select.having.is_some() {
+            return self.cc_aggregate(select);
         }
 
         // ORDER BY can't stream: it materializes the post-where stream, sorts
@@ -404,6 +412,8 @@ impl Compiler {
         let Select {
             from,
             where_,
+            group,
+            having,
             order,
             limit,
             select: constructor,
@@ -411,8 +421,8 @@ impl Compiler {
         let Constructor::Pivot(pivot) = constructor else {
             unreachable!("cc_pivot requires a pivot constructor");
         };
-        if order.is_some() || limit.is_some() {
-            unsupported!("pivot does not support order by or limit");
+        if order.is_some() || limit.is_some() || group.is_some() || having.is_some() {
+            unsupported!("pivot does not support group by, having, order by, or limit");
         }
         if from.is_empty() {
             unsupported!("pivot requires a from clause");
@@ -600,6 +610,7 @@ impl Compiler {
             order,
             limit,
             select: constructor,
+            ..
         } = select;
         let order = order.expect("cc_order requires an order clause");
         let dirs: Vec<bool> = order.keys.iter().map(|k| k.desc).collect();
@@ -749,6 +760,7 @@ impl Compiler {
         let Select {
             from,
             where_,
+            mut having,
             limit,
             select: mut constructor,
             ..
@@ -758,31 +770,29 @@ impl Compiler {
             unsupported!("aggregate requires a from clause");
         }
 
-        // Collect the aggregate terms from the projection: each gets an
-        // accumulator slot (written back into its `Expr::Agg`), and any bare
+        // Collect the aggregate terms from the projection and HAVING: each gets
+        // an accumulator slot (written back into its `Expr::Agg`), and any bare
         // column reference mixed in is rejected (undefined without GROUP BY).
         let mut collector = AggCollect {
             compiler: self,
+            groups: &[],
             terms: vec![],
             bare: false,
         };
         collector.visit_constructor_mut(&mut constructor);
+        if let Some(h) = &mut having {
+            collector.visit_expr_mut(h);
+        }
         if collector.bare {
             unsupported!("non-aggregate reference mixed with aggregates");
         }
-        let mut terms = collector.terms;
+        let terms = collector.terms;
 
-        // (alias, cursor) bindings in item order, for the from loop.
-        let bindings: Vec<(String, usize)> = from
-            .iter()
-            .map(|f| {
-                (
-                    f.var.clone(),
-                    f.csr.expect("from item should be bound") as usize,
-                )
-            })
-            .collect();
-        let n = bindings.len();
+        // Loop cursors / bindings handle table/value/unpivot sources uniformly.
+        let loop_csr = Self::loop_cursors(&from);
+        let bindings = Self::from_bindings(&from);
+        let seeds = Self::unpivot_seeds(&from);
+        let n = from.len();
 
         // Reset the accumulators and init the limit counters before the loop.
         for t in &terms {
@@ -790,50 +800,29 @@ impl Compiler {
         }
         let (cnt_skip, cnt_take) = self.emit_limit_counters(limit.as_ref());
 
-        // Open table sources once before the loop; value sources need no open.
-        for f in &from {
-            if let Source::Table(_) = &f.src {
-                let csr = f.csr.expect("from item should be bound") as usize;
-                let oid = f.oid.expect("bind pass must set oid for Table");
-                self.emit_open(csr, oid);
-            }
-        }
+        // Open table sources once before the loop; value/unpivot need no open.
+        self.open_tables(&from);
 
         // Begin one iteration per source, outer to inner (mirrors cc_select).
         let mut entry = vec![0usize; n];
         let mut begin = vec![0usize; n];
         for (i, f) in from.into_iter().enumerate() {
-            let csr = f.csr.expect("from item should be bound") as usize;
-            match f.src {
-                Source::Table(_) => {
-                    self.emit_scan(csr, 0);
-                    entry[i] = self.pc();
-                }
-                Source::Value(expr) => {
-                    entry[i] = self.pc() + 1;
-                    self.cc_expr(*expr)?;
-                    self.emit_iter(csr, 0);
-                }
-                Source::Unpivot(u) => {
-                    entry[i] = self.pc() + 1;
-                    self.cc_expr(*u.expr)?;
-                    self.emit_entries();
-                    self.emit_iter(csr, 0);
-                }
-            }
+            entry[i] = self.cc_source_begin(loop_csr[i], f)?;
             begin[i] = self.pc();
         }
 
-        // Body: residual filter, then fold each aggregate's argument.
+        // Body: seed unpivot bindings, residual filter, then fold each aggregate
+        // (consuming the terms — their last use).
         let body = self.code.len();
+        self.cc_seed(&seeds);
         let mut where_fail = None;
         if let Some(where_) = where_ {
             self.cc_expr(where_)?;
             self.emit_if_not(0);
             where_fail = Some(self.pc());
         }
-        for t in &mut terms {
-            match t.arg.take() {
+        for t in terms {
+            match t.arg {
                 // count(*): push a non-null constant so AggStep counts the row.
                 None => self.emit_push(Value::bool(true)),
                 Some(arg) => self.cc_expr(arg)?,
@@ -845,7 +834,7 @@ impl Compiler {
         let mut next_pc = vec![0usize; n];
         for i in (0..n).rev() {
             let resume = if i + 1 < n { entry[i + 1] } else { body };
-            self.emit_next(bindings[i].1, resume);
+            self.emit_next(loop_csr[i], resume);
             next_pc[i] = self.pc();
         }
 
@@ -864,20 +853,321 @@ impl Compiler {
             self.patch(pc, inner)?;
         }
 
-        // Finalize: apply the limit to the single output row, then project + yield.
-        let (offset, limit_pc) = self.emit_limit_checks(cnt_skip, cnt_take);
-        self.cc_select_constructor(constructor, &bindings)?;
-        self.emit_yield();
-
-        // A spent skip or exhausted take drops the one row -> exit (no output).
+        // Finalize: HAVING (whole input as one group), the limit, then project.
+        // A failed HAVING, spent skip, or exhausted take drops the one row.
+        let (cont, stop) = self.cc_emit_group_yield(
+            &constructor,
+            having.as_ref(),
+            &bindings,
+            (cnt_skip, cnt_take),
+        )?;
         let exit = self.pc() + 1;
-        if let Some(pc) = offset {
-            self.patch(pc, exit)?;
-        }
-        if let Some(pc) = limit_pc {
+        for pc in cont.into_iter().chain(stop) {
             self.patch(pc, exit)?;
         }
         Ok(())
+    }
+
+    /// Compiles a GROUP BY query: a two-pass sort (like `cc_order`) then a
+    /// streaming pass that resets the accumulators at each group boundary
+    /// (SQLite's sorter-based GROUP BY).
+    ///
+    /// Phase 1 scans the from/where stream and collects `[group_key_bytes,
+    /// payload]` elements; phase 2 sorts them so each group is contiguous; phase
+    /// 3 streams them through one shared accumulator bank, folding each row and
+    /// flushing a finished group when the key changes (`GroupBreak`) and once
+    /// more at the end. All group state lives in the agg bank: a transition slot
+    /// holds the current key, a `First` slot the group's representative row (so
+    /// the projection's group-key columns survive the boundary), and one slot
+    /// per aggregate term. An empty input yields zero rows.
+    ///
+    ///   addr  instruction                comment
+    ///   ----  -----------                -------
+    ///   ...   AggInit prevkey/repr/aggs; CntSet limits
+    ///         Arr; <scan builds [key, payload]>; Sort       phases 1-2
+    ///         Iter{jmp:DONE}             empty input -> DONE (zero groups)
+    ///   LOOP: LoadVal; Jpi 0
+    ///         GroupBreak{jmp:STEP}       first/same -> STEP ; new group -> flush
+    ///         [output prev group]; AggInit repr/aggs        reset
+    ///   STEP: reseed; AggStep repr; fold aggs; Next{jmp:LOOP}
+    ///         [output last group]
+    ///   DONE: (Halt, appended by `compile`)
+    #[allow(clippy::too_many_lines)]
+    fn cc_group(&mut self, select: Select) -> Result<()> {
+        self.ensure_txn(TransactionMode::Read);
+        if select.order.is_some() {
+            unsupported!("order by of a grouped query is not supported");
+        }
+        let Select {
+            from,
+            where_,
+            group,
+            mut having,
+            limit,
+            select: mut constructor,
+            ..
+        } = select;
+        let group = group.expect("cc_group requires a group clause");
+        if from.is_empty() {
+            unsupported!("group by requires a from clause");
+        }
+        // A grouped query must project explicit keys/aggregates: `*`/`.` (the
+        // whole binding tuple) and `pivot` have no defined value per group.
+        if matches!(
+            constructor,
+            Constructor::None | Constructor::Star | Constructor::Pivot(_)
+        ) {
+            unsupported!("select * / select . is not supported with group by");
+        }
+
+        let group_keys = group.keys;
+
+        // Group state slots in the agg bank: the transition key and the `First`
+        // representative row.
+        let prevkey_slot = self.alloc_agg();
+        let repr_slot = self.alloc_agg();
+
+        // Pull the aggregate terms out of the projection and HAVING; reject a
+        // referenced column that is neither a group key nor inside an aggregate.
+        let mut collector = AggCollect {
+            compiler: self,
+            groups: &group_keys,
+            terms: vec![],
+            bare: false,
+        };
+        collector.visit_constructor_mut(&mut constructor);
+        if let Some(h) = &mut having {
+            collector.visit_expr_mut(h);
+        }
+        if collector.bare {
+            unsupported!("a grouped projection may only reference group keys and aggregates");
+        }
+        let terms = collector.terms;
+
+        // Loop cursors / bindings handle table/value/unpivot sources uniformly.
+        let loop_csr = Self::loop_cursors(&from);
+        let bindings = Self::from_bindings(&from);
+        let seeds = Self::unpivot_seeds(&from);
+        let n = from.len();
+
+        // Register from-cursors, then the phase-3 payload (sorted scan) and
+        // representative-row cursors so they can't collide.
+        for &csr in &loop_csr {
+            self.use_cursor(csr);
+        }
+        for (_, csr) in &bindings {
+            self.use_cursor(*csr);
+        }
+        let payload_csr = self.alloc_cursor();
+        let repr_csr = self.alloc_cursor();
+
+        // Reset the bank and init the limit counters before the loop.
+        self.emit_agg_init(prevkey_slot, AggKind::First);
+        self.emit_group_reset(repr_slot, &terms);
+        let (cnt_skip, cnt_take) = self.emit_limit_counters(limit.as_ref());
+
+        // ---- Phase 1: collect [group_key_bytes, payload] (mirrors cc_order) ----
+        self.emit_arr();
+        self.open_tables(&from);
+
+        let mut entry = vec![0usize; n];
+        let mut begin = vec![0usize; n];
+        for (i, f) in from.into_iter().enumerate() {
+            entry[i] = self.cc_source_begin(loop_csr[i], f)?;
+            begin[i] = self.pc();
+        }
+
+        let body = self.code.len();
+        self.cc_seed(&seeds);
+        let mut where_fail = None;
+        if let Some(where_) = where_ {
+            self.cc_expr(where_)?;
+            self.emit_if_not(0);
+            where_fail = Some(self.pc());
+        }
+
+        // Build the tagged element [group_key_bytes, payload]. Group order is
+        // ascending; direction is irrelevant to grouping, only to output order.
+        let dirs = vec![false; group_keys.len()];
+        self.emit_arr();
+        for k in group_keys {
+            self.cc_expr(k)?;
+        }
+        self.emit_order_key(dirs);
+        self.emit_arr_push();
+        self.cc_select_constructor(Constructor::None, &bindings)?;
+        self.emit_arr_push();
+        self.emit_arr_push();
+
+        let mut next_pc = vec![0usize; n];
+        for i in (0..n).rev() {
+            let resume = if i + 1 < n { entry[i + 1] } else { body };
+            self.emit_next(loop_csr[i], resume);
+            next_pc[i] = self.pc();
+        }
+
+        // Patch the phase-1 exhaust edges, then close the read iterators and sort.
+        let sort_pc = self.pc() + 1;
+        self.patch(begin[0], sort_pc)?;
+        for i in 1..n {
+            self.patch(begin[i], next_pc[i - 1])?;
+        }
+        let inner = next_pc[n - 1];
+        if let Some(pc) = where_fail {
+            self.patch(pc, inner)?;
+        }
+        for &csr in &loop_csr {
+            self.emit_close(csr);
+        }
+        self.emit_sort();
+
+        // ---- Phase 3: grouped stream ----
+        self.emit_iter(payload_csr, 0);
+        let iter_pc = self.pc();
+        let loop_top = self.code.len();
+
+        // Compare the current element's key (element[0]) to the group's key.
+        self.emit_load(payload_csr);
+        self.emit_jpi(0);
+        self.emit_group_break(prevkey_slot, 0);
+        let break_pc = self.pc();
+
+        // Flush the group that just ended (reached only when GroupBreak detects a
+        // new group and falls through).
+        let (cont1, stop1) = self.cc_group_output(
+            &constructor,
+            having.as_ref(),
+            repr_csr,
+            repr_slot,
+            &bindings,
+            (cnt_skip, cnt_take),
+        )?;
+        // Reset the representative row and accumulators for the new group; the
+        // transition slot already holds its key.
+        let reset_pc = self.code.len();
+        self.emit_group_reset(repr_slot, &terms);
+
+        // Step block: fold the current row into the group.
+        let step_pc = self.code.len();
+        for (alias, csr) in &bindings {
+            self.emit_load(payload_csr);
+            self.emit_jpi(1);
+            self.emit_jpk(alias.clone());
+            self.emit_set_val(*csr);
+        }
+        // Keep the group's representative row (the first one folded).
+        self.emit_load(payload_csr);
+        self.emit_jpi(1);
+        self.emit_agg_step(repr_slot, AggKind::First);
+        // Fold each aggregate's argument (consuming the terms — their last use).
+        for t in terms {
+            match t.arg {
+                None => self.emit_push(Value::bool(true)),
+                Some(arg) => self.cc_expr(arg)?,
+            }
+            self.emit_agg_step(t.slot, t.kind);
+        }
+        self.emit_next(payload_csr, loop_top);
+
+        // Flush the final group after the scan exhausts.
+        let (cont2, stop2) = self.cc_group_output(
+            &constructor,
+            having.as_ref(),
+            repr_csr,
+            repr_slot,
+            &bindings,
+            (cnt_skip, cnt_take),
+        )?;
+        let done = self.pc() + 1;
+
+        // Patch the control edges now that every target is known.
+        self.patch(iter_pc, done)?; // empty collector -> DONE
+        self.patch(break_pc, step_pc)?; // first row / same group -> STEP
+        // A failed HAVING or spent skip drops the group's row: in the break
+        // flush it still resets and steps the new row; in the final flush it ends.
+        for pc in cont1 {
+            self.patch(pc, reset_pc)?;
+        }
+        for pc in cont2 {
+            self.patch(pc, done)?;
+        }
+        // An exhausted take ends the whole stream.
+        for pc in stop1.into_iter().chain(stop2) {
+            self.patch(pc, done)?;
+        }
+        Ok(())
+    }
+
+    /// Emits a HAVING guard: evaluate the predicate and, when it is false, jump
+    /// to a caller-patched drop-group target. Returns the `IfNot` patch site (or
+    /// `None` when there is no HAVING). Shared by the grouped and ungrouped
+    /// aggregate finalize paths.
+    fn cc_having_guard(&mut self, having: Option<&Expr>) -> Result<Option<usize>> {
+        let Some(h) = having else {
+            return Ok(None);
+        };
+        self.cc_expr(h.clone())?;
+        self.emit_if_not(0);
+        Ok(Some(self.pc()))
+    }
+
+    /// Emits one group's output: re-seed the bindings from the group's
+    /// representative row, apply HAVING and the limit, then project and yield.
+    /// Returns the jump sites to back-patch — `cont` (HAVING failed or skip not
+    /// spent: drop this group's row but keep going) and `stop` (take exhausted:
+    /// end the stream). Called at each flush site (group boundary and end), so it
+    /// clones the projection/HAVING it emits.
+    fn cc_group_output(
+        &mut self,
+        constructor: &Constructor,
+        having: Option<&Expr>,
+        repr_csr: usize,
+        repr_slot: usize,
+        bindings: &[(String, usize)],
+        limit: (Option<usize>, Option<usize>),
+    ) -> Result<(Vec<usize>, Vec<usize>)> {
+        // Re-seed each binding from the group's representative row so the
+        // projection and HAVING read its group-key columns via the same LoadVal
+        // as a live scan; aggregates read the accumulator bank.
+        self.emit_agg_final(repr_slot, AggKind::First);
+        self.emit_set_val(repr_csr);
+        for (alias, csr) in bindings {
+            self.emit_load(repr_csr);
+            self.emit_jpk(alias.clone());
+            self.emit_set_val(*csr);
+        }
+        // HAVING + limit + project + yield, shared with the ungrouped path.
+        self.cc_emit_group_yield(constructor, having, bindings, limit)
+    }
+
+    /// Emits the tail of a finalize block: a HAVING guard, the limit guards, then
+    /// the projection and Yield. Returns the jump sites to back-patch — `cont`
+    /// (HAVING failed or skip not yet spent: drop this row, keep going) and `stop`
+    /// (take exhausted: end output). Shared by `cc_aggregate` (the whole input as
+    /// one group) and `cc_group_output` (one row per group). HAVING runs before
+    /// the limit, so a dropped group does not consume it.
+    fn cc_emit_group_yield(
+        &mut self,
+        constructor: &Constructor,
+        having: Option<&Expr>,
+        bindings: &[(String, usize)],
+        limit: (Option<usize>, Option<usize>),
+    ) -> Result<(Vec<usize>, Vec<usize>)> {
+        let mut cont = vec![];
+        let mut stop = vec![];
+        if let Some(pc) = self.cc_having_guard(having)? {
+            cont.push(pc);
+        }
+        let (offset, limit_pc) = self.emit_limit_checks(limit.0, limit.1);
+        if let Some(pc) = offset {
+            cont.push(pc);
+        }
+        if let Some(pc) = limit_pc {
+            stop.push(pc);
+        }
+        self.cc_select_constructor(constructor.clone(), bindings)?;
+        self.emit_yield();
+        Ok((cont, stop))
     }
 
     /// Allocates and initializes the skip/take counters for a `limit`, returning
@@ -980,7 +1270,8 @@ impl Compiler {
             | Vop::If(jmp)
             | Vop::IfNot(jmp)
             | Vop::CntIfPos(_, jmp)
-            | Vop::CntIfZero(_, jmp) => *jmp = dst,
+            | Vop::CntIfZero(_, jmp)
+            | Vop::GroupBreak { slot: _, jmp } => *jmp = dst,
             _ => unsupported!("cannot patch instruction at pc[{}]", src),
         }
         Ok(())
@@ -1320,6 +1611,21 @@ impl Compiler {
         self.code.push(Vop::AggFinal { slot, kind });
     }
 
+    fn emit_group_break(&mut self, slot: usize, jmp: usize) {
+        self.code.push(Vop::GroupBreak { slot, jmp });
+    }
+
+    /// Resets the per-group accumulators — the representative-row slot and each
+    /// aggregate term — to their identities. Emitted before the loop and again at
+    /// every group boundary (the transition-key slot is not reset; it carries the
+    /// new group's key).
+    fn emit_group_reset(&mut self, repr_slot: usize, terms: &[AggTerm]) {
+        self.emit_agg_init(repr_slot, AggKind::First);
+        for t in terms {
+            self.emit_agg_init(t.slot, t.kind);
+        }
+    }
+
     fn emit_set_val(&mut self, csr: usize) {
         self.use_cursor(csr);
         self.code.push(Vop::SetVal { csr });
@@ -1391,31 +1697,55 @@ fn has_aggregate(constructor: &Constructor) -> bool {
     scan.0
 }
 
-/// A `VisitMut` over a projection that pulls out each aggregate term — assigning
-/// its accumulator slot and taking its argument — and flags a bare from-binding
-/// reference (a per-row value, undefined in an aggregate query). Reusing the
-/// visitor keeps it in lockstep with [`has_aggregate`] and every other `Expr`
-/// walk, so a new `Expr` variant is handled in one place.
-struct AggCollect<'c> {
+/// A `VisitMut` over a projection (and HAVING) that pulls out each aggregate
+/// term — assigning its accumulator slot and taking its argument — and flags a
+/// bare from-binding reference (a per-row value, undefined in an aggregate
+/// query). Under GROUP BY, `groups` holds the grouping key expressions: a
+/// subexpression equal to a group key is accepted and left as-is (it reads the
+/// group's representative row at finalize time), so it neither needs an
+/// accumulator nor trips the bare flag. With an empty `groups` (ungrouped
+/// aggregation) any column reference is bare. Reusing the visitor keeps it in
+/// lockstep with [`has_aggregate`] and every other `Expr` walk.
+struct AggCollect<'c, 'g> {
     compiler: &'c mut Compiler,
+    groups: &'g [Expr],
     terms: Vec<AggTerm>,
     bare: bool,
 }
 
-impl VisitMut for AggCollect<'_> {
+impl VisitMut for AggCollect<'_, '_> {
     fn visit_expr_mut(&mut self, e: &mut Expr) {
+        // A whole subexpression that is a group key projects as-is — don't
+        // recurse (its inner from-bindings are part of the key, not bare). The
+        // match is structural `Expr` equality, which ignores binder-assigned
+        // slots (`Get.csr`, `Var` resolves to a shared per-alias cursor) but not
+        // source structure, so it relies on the binder not normalizing
+        // expressions; revisit if expression rewriting is ever added.
+        if self.groups.contains(&*e) {
+            return;
+        }
         match e {
             Expr::Agg(agg) => {
-                let slot = self.compiler.alloc_agg();
-                agg.slot = Some(slot);
-                // The argument folds in the loop body, not the projection, so it
-                // is taken (and never recursed into — a from-binding inside an
-                // aggregate is fine).
-                self.terms.push(AggTerm {
-                    slot,
-                    kind: agg.kind,
-                    arg: agg.arg.take().map(|a| *a),
+                // Reuse an identical aggregate's slot (same kind + argument) so
+                // e.g. count(*) in both the projection and HAVING folds once.
+                let existing = self
+                    .terms
+                    .iter()
+                    .find(|t| t.kind == agg.kind && t.arg.as_ref() == agg.arg.as_deref())
+                    .map(|t| t.slot);
+                let slot = existing.unwrap_or_else(|| {
+                    let slot = self.compiler.alloc_agg();
+                    // The argument folds in the loop body, not the projection, so
+                    // it is taken (and never recursed into — a from-binding inside
+                    // an aggregate is fine).
+                    self.terms.push(AggTerm {
+                        slot,
+                        kind: agg.kind,
+                        arg: agg.arg.take().map(|a| *a),
+                    });
+                    slot
                 });
+                agg.slot = Some(slot);
             }
             // A from-binding reference has no per-row value at finalize time.
             Expr::Var(_) => self.bare = true,
