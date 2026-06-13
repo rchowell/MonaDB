@@ -1,0 +1,268 @@
+suite: aggregate
+spec_ref: "§4.5"
+description: >
+  Ungrouped aggregation — count/min/max/sum/avg over the whole from/where
+  stream, always collapsing to exactly one result row (even over an empty
+  table). No GROUP BY / HAVING / ORDER BY of aggregates.
+
+setup:
+  - create table T;
+
+tests:
+
+  #----------------------------------------------------------------------------
+  # count
+  #----------------------------------------------------------------------------
+
+  - id: count-star-multi
+    description: count(*) counts every row
+    steps:
+      - sql: |
+          insert into T ({x: 1}, {x: 2}, {x: 3});
+      - sql: select count(*) from T as t;
+        result: [3]
+
+  - id: count-expr-skips-null
+    description: count(expr) counts only rows where expr is non-null
+    steps:
+      - sql: |
+          insert into T ({x: 1}, {x: 2}, {x: null});
+      - sql: select count(t.x) from T as t;
+        result: [2]
+
+  - id: count-star-counts-null-rows
+    description: count(*) includes rows with a null column, unlike count(expr)
+    steps:
+      - sql: |
+          insert into T ({x: 1}, {x: null});
+      - sql: select count(*) from T as t;
+        result: [2]
+
+  #----------------------------------------------------------------------------
+  # sum
+  #----------------------------------------------------------------------------
+
+  - id: sum-ints
+    description: sum of integers
+    steps:
+      - sql: |
+          insert into T ({x: 1}, {x: 2}, {x: 3});
+      - sql: select sum(t.x) from T as t;
+        result: [6]
+
+  - id: sum-floats
+    description: sum of floats (and mixed int/float) is a float
+    steps:
+      - sql: |
+          insert into T ({x: 1.5}, {x: 2}, {x: 0.25});
+      - sql: select sum(t.x) from T as t;
+        result: [3.75]
+
+  - id: sum-skips-null
+    description: sum skips null inputs
+    steps:
+      - sql: |
+          insert into T ({x: 10}, {x: null}, {x: 5});
+      - sql: select sum(t.x) from T as t;
+        result: [15]
+
+  - id: sum-int-overflow-promotes-to-float
+    description: an integer sum that overflows i64 promotes to a float (sqlite-faithful)
+    steps:
+      - sql: |
+          insert into T ({x: 9223372036854775807}, {x: 9223372036854775807});
+      - sql: select sum(t.x) from T as t;
+        result: [1.8446744073709552e19]
+
+  - id: sum-float-overflow-errors
+    description: a float sum that overflows to non-finite is a runtime error, not a silent null
+    steps:
+      - sql: |
+          insert into T ({x: 1e308}, {x: 1e308});
+      - sql: select sum(t.x) from T as t;
+        error: runtime
+
+  #----------------------------------------------------------------------------
+  # min / max
+  #----------------------------------------------------------------------------
+
+  - id: min-ints
+    description: min of integers
+    steps:
+      - sql: |
+          insert into T ({x: 3}, {x: 1}, {x: 2});
+      - sql: select min(t.x) from T as t;
+        result: [1]
+
+  - id: max-ints
+    description: max of integers
+    steps:
+      - sql: |
+          insert into T ({x: 3}, {x: 1}, {x: 2});
+      - sql: select max(t.x) from T as t;
+        result: [3]
+
+  - id: min-strings
+    description: min of strings is lexicographic
+    steps:
+      - sql: |
+          insert into T ({s: "banana"}, {s: "apple"}, {s: "cherry"});
+      - sql: select min(t.s) from T as t;
+        result: ["apple"]
+
+  - id: max-strings
+    description: max of strings is lexicographic
+    steps:
+      - sql: |
+          insert into T ({s: "banana"}, {s: "apple"}, {s: "cherry"});
+      - sql: select max(t.s) from T as t;
+        result: ["cherry"]
+
+  - id: minmax-skip-null
+    description: min/max skip null inputs
+    steps:
+      - sql: |
+          insert into T ({x: 2}, {x: null}, {x: 5});
+      - sql: select min(t.x) from T as t;
+        result: [2]
+
+  #----------------------------------------------------------------------------
+  # avg
+  #----------------------------------------------------------------------------
+
+  - id: avg-returns-float
+    description: avg returns a float mean
+    steps:
+      - sql: |
+          insert into T ({x: 1}, {x: 2});
+      - sql: select avg(t.x) from T as t;
+        result: [1.5]
+
+  - id: avg-skips-null
+    description: avg divides the sum by the non-null count only
+    steps:
+      - sql: |
+          insert into T ({x: 2}, {x: null}, {x: 4});
+      - sql: select avg(t.x) from T as t;
+        result: [3]
+
+  #----------------------------------------------------------------------------
+  # one row over an empty / all-null input
+  #----------------------------------------------------------------------------
+
+  - id: empty-count-zero
+    description: count(*) over an empty table is 0 (one row)
+    steps:
+      - sql: select count(*) from T as t;
+        result: [0]
+
+  - id: empty-sum-null
+    description: sum over an empty table is null (one row)
+    steps:
+      - sql: select sum(t.x) from T as t;
+        result: [null]
+
+  - id: empty-min-null
+    description: min over an empty table is null (one row)
+    steps:
+      - sql: select min(t.x) from T as t;
+        result: [null]
+
+  - id: empty-max-null
+    description: max over an empty table is null (one row)
+    steps:
+      - sql: select max(t.x) from T as t;
+        result: [null]
+
+  - id: empty-avg-null
+    description: avg over an empty table is null (one row)
+    steps:
+      - sql: select avg(t.x) from T as t;
+        result: [null]
+
+  - id: all-null-column
+    description: aggregates over an all-null column — count(expr) 0, others null
+    steps:
+      - sql: |
+          insert into T ({x: null}, {x: null});
+      - sql: select count(t.x) from T as t;
+        result: [0]
+      - sql: select sum(t.x) from T as t;
+        result: [null]
+      - sql: select max(t.x) from T as t;
+        result: [null]
+      - sql: select avg(t.x) from T as t;
+        result: [null]
+
+  #----------------------------------------------------------------------------
+  # composition: where, multiple aggregates, expressions over aggregates
+  #----------------------------------------------------------------------------
+
+  - id: aggregate-after-where
+    description: aggregation runs over the post-where stream
+    steps:
+      - sql: |
+          insert into T ({x: 1}, {x: 2}, {x: 3});
+      - sql: select count(*) from T as t where t.x > 1;
+        result: [2]
+
+  - id: multiple-aggregates
+    description: several aggregates project into one object row
+    steps:
+      - sql: |
+          insert into T ({x: 1}, {x: 2}, {x: 3});
+      - sql: 'select { c: count(*), s: sum(t.x), m: max(t.x) } from T as t;'
+        result:
+          - {c: 3, s: 6, m: 3}
+
+  - id: expression-over-aggregate
+    description: arithmetic over an aggregate is allowed (the agg is folded, then combined)
+    steps:
+      - sql: |
+          insert into T ({x: 1}, {x: 2}, {x: 3});
+      - sql: select sum(t.x) + 1 from T as t;
+        result: [7]
+
+  - id: aggregate-limit-one
+    description: limit applies to the single aggregate row
+    steps:
+      - sql: |
+          insert into T ({x: 1}, {x: 2});
+      - sql: select count(*) from T as t limit 0;
+        result: []
+
+  #----------------------------------------------------------------------------
+  # errors
+  #----------------------------------------------------------------------------
+
+  - id: aggregate-in-where-rejected
+    description: an aggregate in WHERE is a static (bind) error
+    steps:
+      - sql: select count(*) from T as t where count(*) > 0;
+        error: static
+
+  - id: nested-aggregate-rejected
+    description: an aggregate nested inside another is a static (bind) error
+    steps:
+      - sql: select sum(count(t.x)) from T as t;
+        error: static
+
+  - id: aggregate-star-non-count-rejected
+    description: only count accepts the star form; sum(*) is a static error
+    steps:
+      - sql: select sum(*) from T as t;
+        error: static
+
+  - id: mixed-aggregate-and-bare-column-rejected
+    description: a bare column reference alongside an aggregate is unsupported (no GROUP BY)
+    steps:
+      - sql: 'select { c: count(*), x: t.x } from T as t;'
+        error: static
+
+  - id: min-mixed-types-runtime
+    description: min over incomparable types (int vs string) is a runtime error
+    steps:
+      - sql: |
+          insert into T ({v: 1}, {v: "a"});
+      - sql: select min(t.v) from T as t;
+        error: runtime

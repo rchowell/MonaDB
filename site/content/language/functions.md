@@ -16,7 +16,7 @@ concat('a', 'b', 'c')
 
 Most scalar functions are _strict_: a `null` argument yields a `null` result without invoking the function. The null-aware exceptions handle nulls themselves — `typeof`, `coalesce`, `nullif`, `ifnull`/`nvl`, `iif`, `concat`, and `concat_ws`.
 
-Aggregate functions, named arguments, and `read()` are not implemented.
+Aggregate functions (`count`, `sum`, `min`, `max`, `avg`) are supported in the `select` projection as ungrouped aggregation — the whole input reduces to one row. Named arguments, grouped aggregation (the `group` clause), and `read()` are not implemented.
 
 Built-in scalar functions grouped by domain. Each returns a single value per row.
 

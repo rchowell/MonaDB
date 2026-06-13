@@ -1,7 +1,7 @@
 +++
 title = "Casts"
 description = "Type conversions — the scalar type names are callable as conversion functions: int(x), float(x), string(x), bool(x), number(x). They desugar to per-type builtins, so null propagates (a null cast is null), bad conversions are runtime errors, and a non-scalar target name (object, array, any) is a syntax error. Float→int truncates toward zero; string→number parsing is lenient (trims whitespace, accepts float syntax for int targets). Note: MonaDB has no unary minus, so negatives are written as literals."
-weight = 15
+weight = 16
 +++
 
 # Casts

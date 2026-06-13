@@ -7,10 +7,13 @@
 
 use crate::catalog::Catalog;
 use crate::error::{Error, Result};
-use crate::ir::{Clear, Drop, Expr, From, Get, Insert, Source, Statement, TableDefinition};
+use crate::ir::{
+    Agg, AggKind, Call, Clear, Constructor, Drop, Expr, From, Get, Insert, Source, Statement,
+    TableDefinition,
+};
 use crate::transaction::Transaction;
 use crate::value::Value;
-use crate::visitor::visit_mut::{VisitMut, visit_expr_mut, visit_insert_mut};
+use crate::visitor::visit_mut::{VisitMut, visit_constructor_mut, visit_expr_mut, visit_insert_mut};
 
 /// The binder assigns cursor slots and resolves variable references.
 pub struct Binder<'txn> {
@@ -21,6 +24,10 @@ pub struct Binder<'txn> {
     scope: Scope,
     /// The next cursor index
     next_cursor: u32,
+    /// Whether an aggregate call is allowed at the current position. Mirrors
+    /// SQLite's `NC_AllowAgg`: true only while binding a SELECT's projection, so
+    /// an aggregate in WHERE/ORDER/FROM (or nested in another aggregate) errors.
+    allow_agg: bool,
     /// Collected errors encountered during binding
     errors: Vec<Error>,
 }
@@ -33,6 +40,7 @@ impl<'txn> Binder<'txn> {
             catalog,
             scope: Scope::new(),
             next_cursor: 0,
+            allow_agg: false,
             errors: vec![],
         }
     }
@@ -67,6 +75,19 @@ impl<'txn> Binder<'txn> {
 }
 
 impl VisitMut for Binder<'_> {
+    /// Binds a SELECT's projection with aggregates enabled. A `Constructor` only
+    /// ever appears as a SELECT projection, and the default `visit_select_mut`
+    /// walks it last (after from/where/order/limit), so toggling `allow_agg`
+    /// here scopes aggregates to the projection — an aggregate elsewhere, bound
+    /// with the flag off, is a bind error. (Save/restore keeps a nested
+    /// projection, should one ever exist, from clobbering the outer flag.)
+    fn visit_constructor_mut(&mut self, i: &mut Constructor) {
+        let saved = self.allow_agg;
+        self.allow_agg = true;
+        visit_constructor_mut(self, i);
+        self.allow_agg = saved;
+    }
+
     /// Allocates a new cursor slot, resolving tables and adding bindings.
     fn visit_from_mut(&mut self, i: &mut From) {
         // Assign the next cursor index for this source
@@ -116,8 +137,54 @@ impl VisitMut for Binder<'_> {
         i.oid = self.get_table(&i.name).and_then(|d| d.oid);
     }
 
-    /// Lowers a keyed-table subscript to a `Get`, else resolves a variable.
+    /// Lowers an aggregate call to `Expr::Agg`, lowers a keyed-table subscript to
+    /// a `Get`, else resolves a variable.
     fn visit_expr_mut(&mut self, i: &mut Expr) {
+        // An aggregate call (`sum(x)`, `count(x)`, …): validate it is in a
+        // projection, then lower it to `Expr::Agg`, descending into its argument
+        // with aggregates disallowed (resolving its variables, rejecting nesting).
+        if let Expr::Call(call) = i
+            && let Some(kind) = is_aggregate(&call.name)
+        {
+            if !self.allow_agg {
+                self.errors.push(Error::BindError(format!(
+                    "aggregate '{}' is not allowed here",
+                    call.name
+                )));
+                return;
+            }
+            let Expr::Call(Call { name, mut args }) = std::mem::replace(i, Expr::Lit(Value::Null))
+            else {
+                unreachable!("just matched Expr::Call");
+            };
+            if args.len() != 1 {
+                self.errors.push(Error::BindError(format!(
+                    "aggregate '{name}' takes exactly one argument"
+                )));
+                return;
+            }
+            let mut arg = args.pop().expect("arity checked above");
+            let saved = self.allow_agg;
+            self.allow_agg = false;
+            self.visit_expr_mut(&mut arg);
+            self.allow_agg = saved;
+            *i = Expr::Agg(Agg {
+                kind,
+                arg: Some(Box::new(arg)),
+                slot: None,
+            });
+            return;
+        }
+        // The grammar lowers `count(*)` straight to an arg-less `Expr::Agg`; here
+        // we only enforce that it appears in a projection.
+        if matches!(i, Expr::Agg(_)) {
+            if !self.allow_agg {
+                self.errors.push(Error::BindError(
+                    "aggregate is not allowed here".to_string(),
+                ));
+            }
+            return;
+        }
         // A subscript whose base is a bare name that resolves to a catalog
         // table (and is NOT shadowed by a binding) is a keyed table lookup.
         // Try that lowering first; if it doesn't apply, fall through so the
@@ -282,6 +349,21 @@ impl Binder<'_> {
             _ => None,
         }
     }
+}
+
+/// Classifies a call name as an aggregate (case-insensitive), the aggregate
+/// analog of the compiler's `operator_op` / `functions::lookup`. Consulted
+/// before the scalar registry, so these names lower to `Expr::Agg`, never to a
+/// scalar `Vop::Call`. None of these collide with `functions.rs` today.
+fn is_aggregate(name: &str) -> Option<AggKind> {
+    Some(match name.to_ascii_lowercase().as_str() {
+        "count" => AggKind::Count,
+        "sum" => AggKind::Sum,
+        "min" => AggKind::Min,
+        "max" => AggKind::Max,
+        "avg" => AggKind::Avg,
+        _ => return None,
+    })
 }
 
 /// A single name binding in a scope (e.g. a cursor alias).

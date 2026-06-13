@@ -17,6 +17,7 @@ export const SUITE_TITLES = {
   keys: "Keys",
   get: "Keyed lookup",
   "order-clause": "Order by",
+  aggregate: "Aggregate",
   functions: "Functions",
   cast: "Casts",
   delete: "Delete",

@@ -343,6 +343,11 @@ pub mod visit {
                     v.visit_expr(e);
                 }
             }
+            Expr::Agg(agg) => {
+                if let Some(arg) = &agg.arg {
+                    v.visit_expr(arg);
+                }
+            }
         }
     }
 
@@ -655,6 +660,11 @@ pub mod visit_mut {
                     v.visit_expr_mut(e);
                 }
             }
+            Expr::Agg(agg) => {
+                if let Some(arg) = &mut agg.arg {
+                    v.visit_expr_mut(arg);
+                }
+            }
         }
     }
 
@@ -938,6 +948,11 @@ pub mod fold {
             }),
             // A bound Get carries only literal key Values; fold is identity.
             Expr::Get(get) => Expr::Get(get),
+            Expr::Agg(agg) => Expr::Agg(Agg {
+                kind: agg.kind,
+                arg: agg.arg.map(|a| Box::new(f.fold_expr(*a))),
+                slot: agg.slot,
+            }),
         }
     }
 

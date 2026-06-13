@@ -428,7 +428,7 @@ count(*)
 
 **Rules.**
 1. Calling an unknown function is a static error.
-2. Aggregate functions are valid only inside `group` (§4.5).
+2. Aggregate functions are valid in the `select` projection — ungrouped aggregation, which reduces the whole input to one row (§4.5). They may not appear in `where`, `order by`, or `from`, nor be nested inside another aggregate. Grouped aggregation via the `group` clause is deferred.
 
 **Syntax.**
 ```mckeeman
@@ -624,6 +624,26 @@ group_item
     expr
     expr "as" identifier
 ```
+
+**Aggregation without `group` (implemented).** An aggregate call may appear
+directly in the `select` projection with no `group` clause. The post-`where`
+input is then treated as a single group and reduced to exactly **one** output
+row — even when the input is empty.
+
+- `count(*)` counts every row; `count(expr)`, `sum`, `min`, `max`, and `avg`
+  skip `null` arguments.
+- Over an empty or all-`null` input, `count` is `0` and `sum`/`min`/`max`/`avg`
+  are `null`.
+- `sum` over integers stays an integer, promoting to `float` on 64-bit
+  overflow; `avg` is always a `float`.
+- `min`/`max` order by value (numbers, then strings); comparing incomparable
+  types (e.g. an `int` against a `string`) is a runtime error.
+- A bare binding reference (a non-aggregate column) mixed with an aggregate in
+  the same projection is unsupported without `group`.
+
+**Status.** Ungrouped aggregation (above) is implemented. The `group` clause
+itself — grouping by key and any post-group filtering — is deferred, as is
+`order by` of an aggregate query.
 
 ### 4.6 order by
 

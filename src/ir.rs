@@ -266,6 +266,31 @@ pub enum Expr {
     /// A bound keyed-table point lookup (`table[key, ...]`). The binder builds
     /// this once a subscript's base resolves to a catalog table with a full key.
     Get(Get),
+    /// An aggregate term (`count(*)`, `sum(x)`, …). The binder lowers a
+    /// recognized aggregate `Call` into this; the compiler assigns its slot.
+    Agg(Agg),
+}
+
+/// The five supported aggregate functions. Mirrors SQLite's aggregate set
+/// (`count`/`sum`/`min`/`max`/`avg`); the VM's `Agg*` opcodes branch on it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AggKind {
+    Count,
+    Sum,
+    Min,
+    Max,
+    Avg,
+}
+
+/// A bound aggregate term: its kind, its argument (`None` is `count(*)`), and the
+/// accumulator slot. The binder lowers an aggregate `Call` to this and the
+/// compiler fills `slot` from its `alloc_agg` allocator (like cursor/counter
+/// slots), so binding stays free of VM-layout concerns.
+#[derive(Debug)]
+pub struct Agg {
+    pub kind: AggKind,
+    pub arg: Option<ExprRef>,
+    pub slot: Option<usize>,
 }
 
 /// An object constructor's members.
@@ -692,6 +717,22 @@ pub fn expr_binary(sym: &str, lhs: Expr, rhs: Expr) -> Expr {
 #[inline]
 pub fn expr_call(name: String, args: Vec<Expr>) -> Expr {
     Expr::Call(Call { name, args })
+}
+
+/// Builds a star-call `name(*)`. Only `count(*)` is meaningful, so that lowers
+/// straight to an arg-less `Agg`; any other name becomes an arg-less `Call` that
+/// the binder rejects (a non-count aggregate, or an unknown function).
+#[inline]
+pub fn expr_call_star(name: String) -> Expr {
+    if name.eq_ignore_ascii_case("count") {
+        Expr::Agg(Agg {
+            kind: AggKind::Count,
+            arg: None,
+            slot: None,
+        })
+    } else {
+        Expr::Call(Call { name, args: vec![] })
+    }
 }
 
 /// Builds a constructor cast `int(expr)` as a call to the per-type conversion

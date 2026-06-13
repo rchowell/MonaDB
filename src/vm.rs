@@ -4,6 +4,7 @@
 //! stream, operating on a value stack plus fixed banks of cursors and counters.
 //! Each `Yield` pauses the loop with one result row; `Halt` commits and stops.
 
+use std::cmp::Ordering;
 use std::mem::take;
 use std::vec;
 
@@ -11,7 +12,7 @@ use crate::Result;
 use crate::cursor::Cursor;
 use crate::error::Error;
 use crate::functions;
-use crate::ir::Key;
+use crate::ir::{AggKind, Key};
 use crate::schema;
 use crate::storage::Storage;
 use crate::transaction::{Transaction, TransactionMode};
@@ -25,6 +26,8 @@ pub struct Program {
     pub cursors: usize,
     /// The number of counter slots needed
     pub counters: usize,
+    /// The number of aggregate-accumulator slots needed
+    pub aggs: usize,
     /// The program's instruction set
     pub instructions: Vec<Vop>,
 }
@@ -111,6 +114,24 @@ pub enum Vop {
     /// Sort the top-of-stack array in place by each element's `[0]` key bytes
     /// (the tag pushed by `OrderKey`). Unstable, per the spec.
     Sort,
+    /// Reset the accumulator at slot to `kind`'s identity (SQLite's
+    /// `resetAccumulator`). Runs once before the scan: count → 0, sum/min/max →
+    /// null, avg → `[sum, count]`.
+    AggInit { slot: usize, kind: AggKind },
+    /// Fold one argument into the accumulator at slot (SQLite's `xStep`):
+    ///
+    ///   stack:  … v  ─▶  …
+    ///
+    /// Pops `v` and updates `aggs[slot]`, skipping a null `v` (for `count(*)` the
+    /// compiler pushes a non-null constant, so every row still counts).
+    AggStep { slot: usize, kind: AggKind },
+    /// Push the finalized aggregate at slot (SQLite's `xFinalize`):
+    ///
+    ///   stack:  …  ─▶  … result
+    ///
+    /// Non-mutating, so it is idempotent: avg divides sum by count, the rest read
+    /// the accumulator straight out.
+    AggFinal { slot: usize, kind: AggKind },
     /// Set a counter to a value.
     CntSet(usize, u64),
     /// If the counter is greater than 0, decrement it and jump to p1.
@@ -199,6 +220,9 @@ pub struct VM {
     cursors: Vec<Cursor>,
     /// The limit counters, addressed by index.
     counters: Vec<u64>,
+    /// The aggregate accumulators, addressed by index. One `Value` cell per
+    /// aggregate term; avg's cell is a `[sum, count]` array.
+    aggs: Vec<Value>,
     /// Rows changed by mutations (inserts, updates, deletes). Reported by
     /// `Rows::finish`, so `execute` returns a real affected-row count.
     affected: u64,
@@ -220,6 +244,7 @@ impl VM {
             txn: None,
             cursors,
             counters: vec![0; program.counters],
+            aggs: vec![Value::Null; program.aggs],
             affected: 0,
         }
     }
@@ -371,6 +396,18 @@ impl VM {
                             .sort_unstable_by(|a, b| sort_key(a).cmp(sort_key(b)));
                     }
                     self.push(arr);
+                }
+                Vop::AggInit { slot, kind } => {
+                    self.aggs[*slot] = agg_init(*kind);
+                }
+                Vop::AggStep { slot, kind } => {
+                    let v = self.pop();
+                    let cell = take(&mut self.aggs[*slot]);
+                    self.aggs[*slot] = agg_step(cell, *kind, v)?;
+                }
+                Vop::AggFinal { slot, kind } => {
+                    let out = agg_final(&self.aggs[*slot], *kind);
+                    self.push(out);
                 }
                 Vop::Pop => {
                     let _ = self.pop();
@@ -642,6 +679,141 @@ fn sort_key(elem: &Value) -> &[u8] {
     }
 }
 
+/// The reset value of an aggregate accumulator (SQLite's `resetAccumulator`):
+/// count starts at zero, sum/min/max start null (the "no rows yet" sentinel),
+/// and avg starts as a `[sum, count]` pair.
+fn agg_init(kind: AggKind) -> Value {
+    match kind {
+        AggKind::Count => Value::Int(0),
+        AggKind::Sum | AggKind::Min | AggKind::Max => Value::Null,
+        AggKind::Avg => {
+            let mut acc = Value::array();
+            acc.push(Value::Float(0.0));
+            acc.push(Value::Int(0));
+            acc
+        }
+    }
+}
+
+/// Folds one (already-popped) argument into an accumulator (SQLite's `xStep`). A
+/// null argument is skipped for every kind; `count(*)` still counts because the
+/// compiler pushes a non-null constant for it.
+fn agg_step(cell: Value, kind: AggKind, v: Value) -> Result<Value> {
+    if v.is_null() {
+        return Ok(cell);
+    }
+    match kind {
+        // `cell` starts at `Int(0)` and stays an int.
+        AggKind::Count => cell.add(Value::Int(1)),
+        AggKind::Sum => sum_add(cell, v),
+        AggKind::Min => extremum(cell, v, Ordering::Less, "min"),
+        AggKind::Max => extremum(cell, v, Ordering::Greater, "max"),
+        AggKind::Avg => avg_step(cell, v),
+    }
+}
+
+/// Produces the finalized aggregate value (SQLite's `xFinalize`). Non-mutating,
+/// so calling it more than once is harmless: count/sum/min/max read the cell
+/// straight out; avg divides the running sum by the count (null on no rows).
+fn agg_final(cell: &Value, kind: AggKind) -> Value {
+    match kind {
+        AggKind::Count | AggKind::Sum | AggKind::Min | AggKind::Max => cell.clone(),
+        AggKind::Avg => {
+            let (sum, count) = avg_parts(cell);
+            if count == 0 {
+                Value::Null
+            } else {
+                Value::Float(sum / count as f64)
+            }
+        }
+    }
+}
+
+/// Adds a non-null numeric `v` into a running sum. `Int + Int` stays an `Int`,
+/// but **promotes to `Float` on i64 overflow** (SQLite-faithful) and once either
+/// side is a float; a non-number `v` is a runtime type error.
+#[allow(clippy::cast_precision_loss)]
+fn sum_add(cell: Value, v: Value) -> Result<Value> {
+    if !v.is_number() {
+        return Err(Error::InternalError(format!(
+            "sum() requires numbers, got {v}"
+        )));
+    }
+    if cell.is_null() {
+        return Ok(v); // first non-null value seeds the sum
+    }
+    if let (Value::Int(a), Value::Int(b)) = (&cell, &v) {
+        // The promotion `(a + b) as f64` is bounded by 2·i64::MAX, always finite.
+        return Ok(a
+            .checked_add(*b)
+            .map_or_else(|| Value::Float(*a as f64 + *b as f64), Value::Int));
+    }
+    // Either operand is a float; both are numbers, so `as_f64` is total here.
+    // Reject a non-finite total: `Value::Float` forbids NaN/∞ (a JSON number
+    // can't encode them — they'd silently serialize to `null`).
+    let sum = cell.as_f64().unwrap_or(0.0) + v.as_f64().unwrap_or(0.0);
+    if !sum.is_finite() {
+        return Err(Error::InternalError(
+            "sum() overflowed to a non-finite value".into(),
+        ));
+    }
+    Ok(Value::Float(sum))
+}
+
+/// Keeps whichever of `cell`/`v` compares `want` (min keeps the lesser, max the
+/// greater). Incomparable operands (e.g. int vs string) are a runtime error —
+/// `Value`'s ordering defines no cross-type collation.
+fn extremum(cell: Value, v: Value, want: Ordering, name: &str) -> Result<Value> {
+    if cell.is_null() {
+        return Ok(v); // first non-null value
+    }
+    match v.partial_cmp(&cell) {
+        Some(ord) if ord == want => Ok(v),
+        Some(_) => Ok(cell),
+        None => Err(Error::InternalError(format!(
+            "{name}() arguments are not comparable"
+        ))),
+    }
+}
+
+/// Folds a non-null numeric `v` into an avg accumulator `[sum, count]`,
+/// accumulating the sum in `f64`; a non-number `v` is a runtime type error.
+fn avg_step(cell: Value, v: Value) -> Result<Value> {
+    let Some(x) = v.as_f64() else {
+        return Err(Error::InternalError(format!(
+            "avg() requires numbers, got {v}"
+        )));
+    };
+    let (sum, count) = avg_parts(&cell);
+    // Reject a non-finite running sum, as `sum_add` does (the no-NaN/∞ invariant).
+    let sum = sum + x;
+    if !sum.is_finite() {
+        return Err(Error::InternalError(
+            "avg() overflowed to a non-finite value".into(),
+        ));
+    }
+    let mut acc = Value::array();
+    acc.push(Value::Float(sum));
+    acc.push(Value::Int(count + 1));
+    Ok(acc)
+}
+
+/// Reads an avg accumulator's `[sum, count]` pair, defaulting a malformed cell
+/// to `(0.0, 0)`.
+fn avg_parts(cell: &Value) -> (f64, i64) {
+    match cell {
+        Value::Array(items) => {
+            let sum = items.first().and_then(Value::as_f64).unwrap_or(0.0);
+            let count = match items.get(1) {
+                Some(Value::Int(c)) => *c,
+                _ => 0,
+            };
+            (sum, count)
+        }
+        _ => (0.0, 0),
+    }
+}
+
 /// Take an encoded key off the stack. `LoadKey`/`NewKey` already push encoded
 /// key bytes, so move them out rather than re-cloning them through `encode()`.
 fn pop_key(val: Value) -> Result<Vec<u8>> {
@@ -699,5 +871,93 @@ impl Rows {
             n += 1;
         }
         Ok(n + self.vm.affected)
+    }
+}
+
+#[cfg(test)]
+mod agg_tests {
+    //! Direct tests of the aggregate fold/finalize helpers. These pin the
+    //! Int-vs-Float result type, which the conformance harness can't see (it
+    //! compares JSON numbers by `f64`, so `Int(6)` and `Float(6.0)` look equal).
+
+    use super::{AggKind, agg_final, agg_init, agg_step};
+    use crate::value::Value;
+
+    /// Folds a sequence of values into a fresh accumulator and finalizes it.
+    fn run(kind: AggKind, vals: &[Value]) -> Value {
+        let mut cell = agg_init(kind);
+        for v in vals {
+            cell = agg_step(cell, kind, v.clone()).expect("step");
+        }
+        agg_final(&cell, kind)
+    }
+
+    #[test]
+    fn count_counts_nonnull_steps() {
+        // count(expr): a null step is skipped, a non-null one increments.
+        let out = run(
+            AggKind::Count,
+            &[Value::Int(7), Value::Null, Value::Int(9)],
+        );
+        assert!(matches!(out, Value::Int(2)));
+    }
+
+    #[test]
+    fn sum_of_ints_stays_int() {
+        let out = run(AggKind::Sum, &[Value::Int(1), Value::Int(2), Value::Int(3)]);
+        assert!(matches!(out, Value::Int(6)), "got {out:?}");
+    }
+
+    #[test]
+    fn sum_with_a_float_promotes() {
+        let out = run(AggKind::Sum, &[Value::Int(1), Value::Float(0.5)]);
+        match out {
+            Value::Float(f) => assert_eq!(f, 1.5),
+            other => panic!("expected Float, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn sum_int_overflow_promotes_to_float() {
+        // i64::MAX + i64::MAX overflows, so the running sum promotes to f64.
+        let out = run(AggKind::Sum, &[Value::Int(i64::MAX), Value::Int(i64::MAX)]);
+        assert!(matches!(out, Value::Float(_)), "got {out:?}");
+    }
+
+    #[test]
+    fn sum_over_no_rows_is_null() {
+        assert!(matches!(run(AggKind::Sum, &[]), Value::Null));
+    }
+
+    #[test]
+    fn sum_non_finite_overflow_errors() {
+        // Summing past f64::MAX must error, not store a forbidden Float(inf).
+        let mut cell = agg_init(AggKind::Sum);
+        cell = agg_step(cell, AggKind::Sum, Value::Float(1e308)).expect("first");
+        assert!(agg_step(cell, AggKind::Sum, Value::Float(1e308)).is_err());
+    }
+
+    #[test]
+    fn min_and_max_pick_extremes() {
+        let vals = [Value::Int(3), Value::Int(1), Value::Int(2)];
+        assert!(matches!(run(AggKind::Min, &vals), Value::Int(1)));
+        assert!(matches!(run(AggKind::Max, &vals), Value::Int(3)));
+    }
+
+    #[test]
+    fn min_incomparable_types_errors() {
+        let mut cell = agg_init(AggKind::Min);
+        cell = agg_step(cell, AggKind::Min, Value::Int(1)).expect("first");
+        let err = agg_step(cell, AggKind::Min, Value::from("a".to_string()));
+        assert!(err.is_err(), "comparing int and string should error");
+    }
+
+    #[test]
+    fn avg_is_float_mean_and_null_when_empty() {
+        match run(AggKind::Avg, &[Value::Int(1), Value::Int(2)]) {
+            Value::Float(f) => assert_eq!(f, 1.5),
+            other => panic!("expected Float, got {other:?}"),
+        }
+        assert!(matches!(run(AggKind::Avg, &[]), Value::Null));
     }
 }

@@ -11,12 +11,14 @@ use crate::catalog::CATALOG_OID;
 use crate::error::Error;
 use crate::functions;
 use crate::ir::{
-    Call, Clear, Constructor, Create, Delete, Drop, Expr, Get, Insert, Jpe, Jpi, Jpk, Key, Limit,
-    Member, Obj, Select, Source, Statement, ToSql, Type, Var,
+    AggKind, Call, Clear, Constructor, Create, Delete, Drop, Expr, Get, Insert, Jpe, Jpi, Jpk, Key,
+    Limit, Member, Obj, Select, Source, Statement, ToSql, Type, Var,
 };
 use crate::schema;
 use crate::transaction::TransactionMode;
 use crate::value::Value;
+use crate::visitor::visit::{self, Visit};
+use crate::visitor::visit_mut::{self, VisitMut};
 use crate::vm::{Program, Vop};
 use std::vec;
 
@@ -35,6 +37,8 @@ pub struct Compiler {
     cursor_slots: usize,
     /// Number of counter slots required (one per allocated counter).
     counter_slots: usize,
+    /// Number of aggregate-accumulator slots required (one per aggregate term).
+    agg_slots: usize,
     /// The transaction mode this program requires
     txm: Option<TransactionMode>,
 }
@@ -47,6 +51,7 @@ impl Compiler {
             code: vec![],
             cursor_slots: 0,
             counter_slots: 0,
+            agg_slots: 0,
             txm: None,
         }
     }
@@ -96,6 +101,7 @@ impl Compiler {
         Ok(Program {
             cursors: self.cursor_slots,
             counters: self.counter_slots,
+            aggs: self.agg_slots,
             instructions: self.code,
         })
     }
@@ -262,6 +268,12 @@ impl Compiler {
     /// path. An `ORDER BY` can't stream, so it detours to [`Self::cc_order`].
     fn cc_select(&mut self, select: Select) -> Result<()> {
         self.ensure_txn(TransactionMode::Read);
+
+        // An aggregate projection collapses the stream to one row; that path
+        // accumulates instead of yielding per row, so it lives in cc_aggregate.
+        if has_aggregate(&select.select) {
+            return self.cc_aggregate(select);
+        }
 
         // ORDER BY can't stream: it materializes the post-where stream, sorts
         // it, then projects. That two-phase path lives in cc_order.
@@ -544,6 +556,159 @@ impl Compiler {
         Ok(())
     }
 
+    /// Compiles an ungrouped aggregate query (`count`/`sum`/`min`/`max`/`avg`).
+    ///
+    /// It scans the same `from`/`where` nested loop as `cc_select`, but the loop
+    /// body folds each row into accumulators (`AggStep`) instead of yielding, and
+    /// the outermost source's exhaust edge lands on the finalize block — so an
+    /// empty input still finalizes and yields exactly one row (SQLite's
+    /// `OP_Rewind → AggFinal`). The finalize block applies the limit to that one
+    /// row, projects (each `Expr::Agg` → `AggFinal`), and yields.
+    ///
+    ///   addr  instruction              comment
+    ///   ----  -----------              -------
+    ///   ...   AggInit{0,..}            reset each accumulator
+    ///         [CntSet…]                init limit counters (if any)
+    ///         Open / Scan{jmp:FIN}     empty source -> FIN (not past it)
+    ///           [where IfNot -> Next]
+    ///           [arg]; AggStep{0,..}   fold each aggregate
+    ///         Next -> body
+    ///   FIN:  [limit checks]           slice the single row
+    ///         [AggFinal…] / project
+    ///         Yield
+    #[allow(clippy::too_many_lines)]
+    fn cc_aggregate(&mut self, select: Select) -> Result<()> {
+        if select.order.is_some() {
+            unsupported!("order by of an aggregate query is not supported");
+        }
+        let Select {
+            from,
+            where_,
+            limit,
+            select: mut constructor,
+            ..
+        } = select;
+
+        if from.is_empty() {
+            unsupported!("aggregate requires a from clause");
+        }
+
+        // Collect the aggregate terms from the projection: each gets an
+        // accumulator slot (written back into its `Expr::Agg`), and any bare
+        // column reference mixed in is rejected (undefined without GROUP BY).
+        let mut collector = AggCollect {
+            compiler: self,
+            terms: vec![],
+            bare: false,
+        };
+        collector.visit_constructor_mut(&mut constructor);
+        if collector.bare {
+            unsupported!("non-aggregate reference mixed with aggregates");
+        }
+        let mut terms = collector.terms;
+
+        // (alias, cursor) bindings in item order, for the from loop.
+        let bindings: Vec<(String, usize)> = from
+            .iter()
+            .map(|f| {
+                (
+                    f.var.clone(),
+                    f.csr.expect("from item should be bound") as usize,
+                )
+            })
+            .collect();
+        let n = bindings.len();
+
+        // Reset the accumulators and init the limit counters before the loop.
+        for t in &terms {
+            self.emit_agg_init(t.slot, t.kind);
+        }
+        let (cnt_skip, cnt_take) = self.emit_limit_counters(limit.as_ref());
+
+        // Open table sources once before the loop; value sources need no open.
+        for f in &from {
+            if let Source::Table(_) = &f.src {
+                let csr = f.csr.expect("from item should be bound") as usize;
+                let oid = f.oid.expect("bind pass must set oid for Table");
+                self.emit_open(csr, oid);
+            }
+        }
+
+        // Begin one iteration per source, outer to inner (mirrors cc_select).
+        let mut entry = vec![0usize; n];
+        let mut begin = vec![0usize; n];
+        for (i, f) in from.into_iter().enumerate() {
+            let csr = f.csr.expect("from item should be bound") as usize;
+            match f.src {
+                Source::Table(_) => {
+                    self.emit_scan(csr, 0);
+                    entry[i] = self.pc();
+                }
+                Source::Value(expr) => {
+                    entry[i] = self.pc() + 1;
+                    self.cc_expr(*expr)?;
+                    self.emit_iter(csr, 0);
+                }
+            }
+            begin[i] = self.pc();
+        }
+
+        // Body: residual filter, then fold each aggregate's argument.
+        let body = self.code.len();
+        let mut where_fail = None;
+        if let Some(where_) = where_ {
+            self.cc_expr(where_)?;
+            self.emit_if_not(0);
+            where_fail = Some(self.pc());
+        }
+        for t in &mut terms {
+            match t.arg.take() {
+                // count(*): push a non-null constant so AggStep counts the row.
+                None => self.emit_push(Value::bool(true)),
+                Some(arg) => self.cc_expr(arg)?,
+            }
+            self.emit_agg_step(t.slot, t.kind);
+        }
+
+        // Close the loops inner to outer (mirrors cc_select).
+        let mut next_pc = vec![0usize; n];
+        for i in (0..n).rev() {
+            let resume = if i + 1 < n { entry[i + 1] } else { body };
+            self.emit_next(bindings[i].1, resume);
+            next_pc[i] = self.pc();
+        }
+
+        // The finalize block begins right after the Next instructions.
+        let fin = self.pc() + 1;
+
+        // Patch the exhaust edges: the outermost source exhausting falls into the
+        // finalize block (so empty input still yields one row); an inner source
+        // exhausting advances its enclosing one.
+        self.patch(begin[0], fin)?;
+        for i in 1..n {
+            self.patch(begin[i], next_pc[i - 1])?;
+        }
+        let inner = next_pc[n - 1];
+        if let Some(pc) = where_fail {
+            self.patch(pc, inner)?;
+        }
+
+        // Finalize: apply the limit to the single output row, then project + yield.
+        let (offset, limit_pc) = self.emit_limit_checks(cnt_skip, cnt_take);
+        self.cc_select_constructor(constructor, &bindings)?;
+        self.emit_yield();
+
+        // A spent skip or exhausted take drops the one row -> exit (no output).
+        let exit = self.pc() + 1;
+        if let Some(pc) = offset {
+            self.patch(pc, exit)?;
+        }
+        if let Some(pc) = limit_pc {
+            self.patch(pc, exit)?;
+        }
+        Ok(())
+    }
+
     /// Allocates and initializes the skip/take counters for a `limit`, returning
     /// their slots. `Limit N..M` is half-open `[N, M)`: skip N rows, then take
     /// `M - N` (saturating, so `M <= N` yields nothing). The `CntSet`s emit at
@@ -676,6 +841,13 @@ impl Compiler {
             // Binding already lowered a full-key table subscript to this node;
             // we encode the literal key and emit the point lookup.
             Expr::Get(get) => self.cc_expr_get(&get),
+            // cc_aggregate assigned this term's slot; emit its finalized value.
+            // (Reaching here outside cc_aggregate is a compiler invariant break.)
+            Expr::Agg(agg) => {
+                let slot = agg.slot.expect("aggregate slot assigned by cc_aggregate");
+                self.emit_agg_final(slot, agg.kind);
+                Ok(())
+            }
             // A multi-element subscript that survived binding is a value
             // multi-selector — deferred (path-receiver multi-selectors are not v1).
             Expr::Subscript(_) => {
@@ -824,6 +996,13 @@ impl Compiler {
         cnt
     }
 
+    /// Allocates and returns the next aggregate-accumulator slot.
+    fn alloc_agg(&mut self) -> usize {
+        let slot = self.agg_slots;
+        self.agg_slots += 1;
+        slot
+    }
+
     //------------------------------
     // INSTRUCTIONS
     //------------------------------
@@ -947,6 +1126,18 @@ impl Compiler {
         self.code.push(Vop::Sort);
     }
 
+    fn emit_agg_init(&mut self, slot: usize, kind: AggKind) {
+        self.code.push(Vop::AggInit { slot, kind });
+    }
+
+    fn emit_agg_step(&mut self, slot: usize, kind: AggKind) {
+        self.code.push(Vop::AggStep { slot, kind });
+    }
+
+    fn emit_agg_final(&mut self, slot: usize, kind: AggKind) {
+        self.code.push(Vop::AggFinal { slot, kind });
+    }
+
     fn emit_set_val(&mut self, csr: usize) {
         self.use_cursor(csr);
         self.code.push(Vop::SetVal { csr });
@@ -985,6 +1176,69 @@ impl Compiler {
 
     fn emit_transaction(&mut self, txn: TransactionMode) {
         self.code.push(Vop::Transaction { txm: txn });
+    }
+}
+
+/// One aggregate term collected from a projection: its accumulator slot, kind,
+/// and (taken) argument expression — `None` for `count(*)`.
+struct AggTerm {
+    slot: usize,
+    kind: AggKind,
+    arg: Option<Expr>,
+}
+
+/// A `Visit` that trips the first time it reaches an aggregate term.
+#[derive(Default)]
+struct AggScan(bool);
+
+impl<'ast> Visit<'ast> for AggScan {
+    fn visit_expr(&mut self, e: &'ast Expr) {
+        if matches!(e, Expr::Agg(_)) {
+            self.0 = true;
+        }
+        visit::visit_expr(self, e);
+    }
+}
+
+/// Whether a projection contains any aggregate term. Drives the `cc_select`
+/// dispatch to `cc_aggregate`. Reuses the visitor so it can never disagree with
+/// [`AggCollect`] about which expressions hold an aggregate.
+fn has_aggregate(constructor: &Constructor) -> bool {
+    let mut scan = AggScan::default();
+    scan.visit_constructor(constructor);
+    scan.0
+}
+
+/// A `VisitMut` over a projection that pulls out each aggregate term — assigning
+/// its accumulator slot and taking its argument — and flags a bare from-binding
+/// reference (a per-row value, undefined in an aggregate query). Reusing the
+/// visitor keeps it in lockstep with [`has_aggregate`] and every other `Expr`
+/// walk, so a new `Expr` variant is handled in one place.
+struct AggCollect<'c> {
+    compiler: &'c mut Compiler,
+    terms: Vec<AggTerm>,
+    bare: bool,
+}
+
+impl VisitMut for AggCollect<'_> {
+    fn visit_expr_mut(&mut self, e: &mut Expr) {
+        match e {
+            Expr::Agg(agg) => {
+                let slot = self.compiler.alloc_agg();
+                agg.slot = Some(slot);
+                // The argument folds in the loop body, not the projection, so it
+                // is taken (and never recursed into — a from-binding inside an
+                // aggregate is fine).
+                self.terms.push(AggTerm {
+                    slot,
+                    kind: agg.kind,
+                    arg: agg.arg.take().map(|a| *a),
+                });
+            }
+            // A from-binding reference has no per-row value at finalize time.
+            Expr::Var(_) => self.bare = true,
+            other => visit_mut::visit_expr_mut(self, other),
+        }
     }
 }
 
@@ -1128,6 +1382,87 @@ mod tests {
             }
         ));
         assert!(matches!(code[27], Vop::Jump { jmp: 1 }));
+    }
+
+    #[test]
+    fn count_star_bytecode_shape() {
+        let (_dir, storage, catalog) = fixture();
+        let program = compile_sql(&storage, &catalog, "select count(*) from catalog;");
+        // One scan cursor and one accumulator slot.
+        assert_eq!(program.cursors, 1);
+        assert_eq!(program.aggs, 1);
+        let code = program.instructions;
+        assert_eq!(code.len(), 12);
+        assert!(matches!(code[0], Vop::Init { jmp: 10 }));
+        assert!(matches!(
+            code[1],
+            Vop::AggInit {
+                slot: 0,
+                kind: AggKind::Count
+            }
+        ));
+        assert!(matches!(code[2], Vop::Open { csr: 0, tbl: 0 }));
+        // The load-bearing invariant: an empty table jumps to the FINALIZE block
+        // (so one row still comes out), NOT past the Yield.
+        assert!(matches!(code[3], Vop::Scan { csr: 0, jmp: 7 }));
+        assert!(matches!(code[4], Vop::Push { .. })); // count(*) non-null constant
+        assert!(matches!(
+            code[5],
+            Vop::AggStep {
+                slot: 0,
+                kind: AggKind::Count
+            }
+        ));
+        assert!(matches!(code[6], Vop::Next { csr: 0, jmp: 4 }));
+        assert!(matches!(
+            code[7],
+            Vop::AggFinal {
+                slot: 0,
+                kind: AggKind::Count
+            }
+        ));
+        assert!(matches!(code[8], Vop::Yield));
+        assert!(matches!(code[9], Vop::Halt));
+        // Prove the scan's exhaust target really is the finalize block.
+        let Vop::Scan { jmp, .. } = code[3] else {
+            panic!("expected Scan")
+        };
+        assert!(matches!(code[jmp], Vop::AggFinal { .. }));
+    }
+
+    #[test]
+    fn sum_expr_bytecode_shape() {
+        let (_dir, storage, catalog) = fixture();
+        let program = compile_sql(&storage, &catalog, "select sum(catalog.name) from catalog;");
+        assert_eq!(program.aggs, 1);
+        let code = program.instructions;
+        assert!(matches!(
+            code[1],
+            Vop::AggInit {
+                slot: 0,
+                kind: AggKind::Sum
+            }
+        ));
+        assert!(matches!(code[3], Vop::Scan { csr: 0, jmp: 8 }));
+        // The body compiles the argument (catalog.name), then folds it.
+        assert!(matches!(code[4], Vop::LoadVal { csr: 0 }));
+        assert!(matches!(code[5], Vop::Jpk(_)));
+        assert!(matches!(
+            code[6],
+            Vop::AggStep {
+                slot: 0,
+                kind: AggKind::Sum
+            }
+        ));
+        assert!(matches!(code[7], Vop::Next { csr: 0, jmp: 4 }));
+        assert!(matches!(
+            code[8],
+            Vop::AggFinal {
+                slot: 0,
+                kind: AggKind::Sum
+            }
+        ));
+        assert!(matches!(code[9], Vop::Yield));
     }
 
     #[test]

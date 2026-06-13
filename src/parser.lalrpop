@@ -256,6 +256,7 @@ Selector: ir::Selector = {
 Atom: ir::Expr = {
     "ident"                         => ir::expr_var(<>),
     <"ident"> "(" <List<Expr>> ")"  => ir::expr_call(<>),
+    <"ident"> "(" "*" ")"           => ir::expr_call_star(<>),
     <t:TScalar> "(" <e:Expr> ")"    => ir::expr_cast(e, &t),
     Value                           => ir::expr_lit(<>),
     "{" <Members> "}"               => ir::expr_obj(<>),

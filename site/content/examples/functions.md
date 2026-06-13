@@ -1,7 +1,7 @@
 +++
 title = "Functions"
 description = "Builtin scalar functions — the standard library. Each case evaluates a function via a bare `select <expr>` (no from), which yields the result value directly as a single row. Covers happy paths, dynamic-on-value dispatch, null propagation, the null-aware exceptions, and the static/runtime errors. Note: MonaDB has no unary minus, so negatives are written `0 - n`."
-weight = 14
+weight = 15
 +++
 
 # Functions
