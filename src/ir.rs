@@ -103,13 +103,44 @@ pub enum Constructor {
     Expr(Expr),
     /// An explicit `{ k: v, ... }` member list.
     List(Vec<Member>),
+    /// `pivot value at name` — fold the whole binding stream into one object,
+    /// contributing the member `name: value` for each tuple (the dual of
+    /// [`Source::Unpivot`]). The query yields exactly one object.
+    Pivot(Pivot),
 }
 
-/// A from-clause source: a named table, or an evaluated value to iterate.
+/// The two expressions of a `pivot value at name` projection.
+#[derive(Debug)]
+pub struct Pivot {
+    /// The attribute value contributed by each binding tuple.
+    pub value: ExprRef,
+    /// The attribute name contributed by each binding tuple (must be a string).
+    pub name: ExprRef,
+}
+
+/// A from-clause source: a named table, an evaluated value to iterate, or an
+/// `unpivot` over the attribute-value pairs of a tuple.
 #[derive(Debug)]
 pub enum Source {
     Table(String),
     Value(Box<Expr>),
+    Unpivot(Unpivot),
+}
+
+/// An `unpivot expr as value at name` source. It ranges over the attribute-value
+/// pairs of the tuple `expr` evaluates to: each pair binds its value under the
+/// enclosing [`From::var`] (the `as` alias) and, optionally, its attribute name
+/// under [`Unpivot::att`] (the `at` alias). A non-object `expr` yields no rows.
+#[derive(Debug)]
+pub struct Unpivot {
+    /// The tuple whose attribute-value pairs are iterated.
+    pub expr: ExprRef,
+    /// The cursor binding the pair's value (the `as` alias), set by the binder.
+    pub val_csr: Option<u32>,
+    /// The optional `at` alias binding the pair's attribute name.
+    pub att: Option<String>,
+    /// The cursor binding the attribute name, set by the binder when `att` is set.
+    pub att_csr: Option<u32>,
 }
 
 /// One from-item: a source bound to an alias, plus binder-assigned slots.
@@ -411,6 +442,22 @@ pub fn select(select: Constructor, block: Select) -> Select {
     }
 }
 
+/// Builds a `pivot value at name <block>` query: the from/where/order/limit
+/// block keeps its clauses, the projection becomes a [`Constructor::Pivot`].
+#[inline]
+pub fn pivot(value: Expr, name: Expr, block: Select) -> Select {
+    Select {
+        from: block.from,
+        where_: block.where_,
+        order: block.order,
+        limit: block.limit,
+        select: Constructor::Pivot(Pivot {
+            value: Box::new(value),
+            name: Box::new(name),
+        }),
+    }
+}
+
 /// Builds the from/where/order/limit block; the projection is filled in later.
 #[inline]
 pub fn select_block(
@@ -467,6 +514,24 @@ pub fn from_item(src: Expr, alias: Option<String>) -> From {
             csr: None,
             oid: None,
         },
+    }
+}
+
+/// Builds an `unpivot expr [as value] [at name]` from-item. The `as` alias
+/// becomes the value binding ([`From::var`]); the `at` alias, if present, binds
+/// the attribute name.
+#[inline]
+pub fn unpivot_item(expr: Expr, alias: Option<String>, att: Option<String>) -> From {
+    From {
+        var: alias.unwrap_or_default(),
+        src: Source::Unpivot(Unpivot {
+            expr: Box::new(expr),
+            val_csr: None,
+            att,
+            att_csr: None,
+        }),
+        csr: None,
+        oid: None,
     }
 }
 

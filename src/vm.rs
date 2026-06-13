@@ -100,6 +100,18 @@ pub enum Vop {
     /// Merge a value into an object: spread its fields if it is an object,
     /// else set it under the given name.
     ObjMerge(String),
+    /// Dynamic-key set: the name is computed, not baked in (the dual of
+    /// [`Vop::ObjAssign`]). A non-string name is skipped, so `pivot` over a
+    /// non-string `at` value contributes nothing.
+    ///
+    ///   stack:  … obj name val  ─▶  … obj
+    ObjSet,
+    /// Expand an object into its attribute-value pairs (the dual of
+    /// [`Vop::ObjSet`], used to lower `unpivot`). A non-object yields an empty
+    /// array, so `unpivot` of a non-tuple produces no rows.
+    ///
+    ///   stack:  … obj  ─▶  … [[name, val], …]
+    Entries,
     /// Create a new array on the stack.
     Arr,
     /// Append the top value to the array beneath it.
@@ -346,6 +358,27 @@ impl VM {
                     } else {
                         obj.set(name.clone(), val);
                     }
+                }
+                Vop::ObjSet => {
+                    let val = self.pop();
+                    let name = self.pop();
+                    if let Some(key) = name.as_str() {
+                        let key = key.to_string();
+                        self.peek().set(key, val);
+                    }
+                }
+                Vop::Entries => {
+                    let val = self.pop();
+                    let mut arr = Value::array();
+                    if let Some(members) = val.members() {
+                        for (name, value) in members {
+                            let mut pair = Value::array();
+                            pair.push(Value::String(name.into()));
+                            pair.push(value);
+                            arr.push(pair);
+                        }
+                    }
+                    self.push(arr);
                 }
                 Vop::Arr => {
                     self.stack.push(Value::array());

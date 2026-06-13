@@ -217,6 +217,7 @@ pub mod visit {
         match i {
             Source::Table(_) => {}
             Source::Value(expr) => v.visit_expr(expr),
+            Source::Unpivot(u) => v.visit_expr(&u.expr),
         }
     }
 
@@ -231,6 +232,10 @@ pub mod visit {
                 for m in members {
                     v.visit_member(m);
                 }
+            }
+            Constructor::Pivot(p) => {
+                v.visit_expr(&p.value);
+                v.visit_expr(&p.name);
             }
         }
     }
@@ -559,6 +564,7 @@ pub mod visit_mut {
         match i {
             Source::Table(_) => {}
             Source::Value(expr) => v.visit_expr_mut(expr),
+            Source::Unpivot(u) => v.visit_expr_mut(&mut u.expr),
         }
     }
 
@@ -570,6 +576,10 @@ pub mod visit_mut {
                 for m in members {
                     v.visit_member_mut(m);
                 }
+            }
+            Constructor::Pivot(p) => {
+                v.visit_expr_mut(&mut p.value);
+                v.visit_expr_mut(&mut p.name);
             }
         }
     }
@@ -847,6 +857,12 @@ pub mod fold {
         match i {
             Source::Table(name) => Source::Table(name),
             Source::Value(expr) => Source::Value(Box::new(f.fold_expr(*expr))),
+            Source::Unpivot(u) => Source::Unpivot(Unpivot {
+                expr: Box::new(f.fold_expr(*u.expr)),
+                val_csr: u.val_csr,
+                att: u.att,
+                att_csr: u.att_csr,
+            }),
         }
     }
 
@@ -858,6 +874,10 @@ pub mod fold {
             Constructor::List(members) => {
                 Constructor::List(members.into_iter().map(|m| f.fold_member(m)).collect())
             }
+            Constructor::Pivot(p) => Constructor::Pivot(Pivot {
+                value: Box::new(f.fold_expr(*p.value)),
+                name: Box::new(f.fold_expr(*p.name)),
+            }),
         }
     }
 
