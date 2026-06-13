@@ -18,6 +18,8 @@ export const SUITE_TITLES = {
   get: "Keyed lookup",
   "order-clause": "Order by",
   aggregate: "Aggregate",
+  "unpivot-clause": "Unpivot",
+  "pivot-clause": "Pivot",
   functions: "Functions",
   cast: "Casts",
   delete: "Delete",

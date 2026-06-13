@@ -36,3 +36,9 @@ suites:
   - file: suites/15-order.yaml
     title: order clause
     spec_ref: "§4.6"
+  - file: suites/17-unpivot.yaml
+    title: unpivot clause
+    spec_ref: "§4.2"
+  - file: suites/18-pivot.yaml
+    title: pivot clause
+    spec_ref: "§4.1"

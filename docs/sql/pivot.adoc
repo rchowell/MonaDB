@@ -1,0 +1,30 @@
+= Pivot Clause
+
+The _Pivot Clause_ replaces `select` as the query's projection. Where `select`
+emits one value per binding tuple, `pivot` folds the whole stream into a
+*single* tuple: each tuple contributes one member, `<name>: <value>`. It is the
+dual of the Unpivot Clause.
+
+A tuple whose `at` name is not a string contributes nothing; a repeated name is
+last-wins. An empty stream still yields one empty object.
+
+.Syntax
+[source,sql]
+----
+pivot <value> at <name>
+  from <source> [, <source> …]
+  [where <expr>];
+----
+
+== Examples
+
+[source,sql]
+----
+-- rows to a single tuple
+pivot p.price at p.sym from prices as p;
+-- [{amzn: 1900, goog: 1120}]
+
+-- pivot inverts unpivot
+pivot price at sym from unpivot {a: 1, b: 2, c: 3} as price at sym;
+-- [{a: 1, b: 2, c: 3}]
+----

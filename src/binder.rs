@@ -113,6 +113,30 @@ impl VisitMut for Binder<'_> {
                 self.visit_expr_mut(expr);
                 self.scope.push(var, csr);
             }
+            Source::Unpivot(u) => {
+                // The `as` alias names the pair's value binding; without it the
+                // unpivot introduces nothing referenceable.
+                if var.is_empty() {
+                    self.errors.push(Error::BindError(
+                        "unpivot source requires a value alias".to_string(),
+                    ));
+                    return;
+                }
+                // The unpivoted expression is bound against the prior scope
+                // (lateral refs, e.g. `unpivot t` over an earlier row binding).
+                self.visit_expr_mut(&mut u.expr);
+                // `i.csr` iterates the attribute-value pairs; the value and the
+                // attribute name each get their own binding cursor, seeded from
+                // the current pair by the compiler.
+                let val_csr = self.next_cursor();
+                u.val_csr = Some(val_csr);
+                self.scope.push(var, val_csr);
+                if let Some(att) = u.att.clone() {
+                    let att_csr = self.next_cursor();
+                    u.att_csr = Some(att_csr);
+                    self.scope.push(att, att_csr);
+                }
+            }
         }
     }
 

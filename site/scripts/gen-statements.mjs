@@ -39,6 +39,24 @@ const SELECT_CLAUSES = [
       "The From clause iterates sources — table scans, array literals, and lateral unnest paths — binding each row under an alias for use in later clauses.",
   },
   {
+    title: "Unpivot",
+    file: "17-unpivot.yaml",
+    syntax: `\`\`\`
+from unpivot <expr> [as <value>] [at <name>]
+\`\`\``,
+    description:
+      "The Unpivot clause is a from-source that ranges over the attribute-value pairs of a tuple, binding each pair's value with `as` and its attribute name with `at` — the dual of Pivot.",
+  },
+  {
+    title: "Pivot",
+    file: "18-pivot.yaml",
+    syntax: `\`\`\`
+pivot <value> at <name> from <source> [where <expr>];
+\`\`\``,
+    description:
+      "The Pivot clause replaces select, folding the whole binding stream into a single tuple: each row contributes one `name: value` member — the dual of Unpivot.",
+  },
+  {
     title: "Where",
     file: "10-where.yaml",
     description:

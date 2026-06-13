@@ -46,6 +46,7 @@ extern {
         "and"       => Token::And,
         "as"        => Token::As,
         "asc"       => Token::Asc,
+        "at"        => Token::At,
         "between"   => Token::Between,
         "by"        => Token::By,
         "clear"     => Token::Clear,
@@ -62,9 +63,11 @@ extern {
         "not"       => Token::Not,
         "or"        => Token::Or,
         "order"     => Token::Order,
+        "pivot"     => Token::Pivot,
         "select"    => Token::Select,
         "table"     => Token::Table,
         "unknown"   => Token::Unknown,
+        "unpivot"   => Token::Unpivot,
         "where"     => Token::Where,
         // types
         "t_bool"    => Token::TypeBool,
@@ -125,6 +128,7 @@ Key: ir::Key = <name:"ident"> <ty:Type> => ir::table_key(name, ty);
 Select: ir::Select = {
     "select" <SelectConstructor>                => ir::select_value(<>),
     "select" <SelectConstructor> <SelectBlock>  => ir::select(<>),
+    "pivot" <Expr> "at" <Expr> <SelectBlock>    => ir::pivot(<>),
 };
 
 SelectConstructor: ir::Constructor = {
@@ -154,7 +158,10 @@ OrderDir: bool = {
     "desc"  => true,
 };
 
-FromItem: ir::From = <Expr> <("as"? <"ident">)?> => ir::from_item(<>);
+FromItem: ir::From = {
+    <Expr> <("as"? <"ident">)?>                              => ir::from_item(<>),
+    "unpivot" <Expr> <("as"? <"ident">)?> <("at" <"ident">)?> => ir::unpivot_item(<>),
+};
 
 Where: ir::Where = "where" <Expr>;
 

@@ -1,0 +1,225 @@
+suite: group
+spec_ref: "§4.6"
+description: >
+  GROUP BY — a two-pass sort then a streaming pass that resets one shared set
+  of accumulators at each group boundary. One row per group, emitted in
+  group-key order; an empty input yields zero rows (unlike ungrouped
+  aggregation). Covers WHERE pre-filtering, HAVING, LIMIT, composite and
+  expression keys, NULL grouping, and the static errors.
+
+setup:
+  - create table T;
+
+tests:
+
+  #----------------------------------------------------------------------------
+  # basic grouping
+  #----------------------------------------------------------------------------
+
+  - id: count-per-group
+    description: count(*) per group, one row per distinct key in key order
+    steps:
+      - sql: |
+          insert into T ({g: "a"}, {g: "b"}, {g: "a"}, {g: "a"}, {g: "b"});
+      - sql: 'select { g: t.g, n: count(*) } from T as t group by t.g;'
+        result:
+          - {g: "a", n: 3}
+          - {g: "b", n: 2}
+
+  - id: group-key-list-projection
+    description: the `expr as name` list projection form works under grouping
+    steps:
+      - sql: |
+          insert into T ({g: "a"}, {g: "b"}, {g: "a"});
+      - sql: select t.g as g, count(*) as n from T as t group by t.g;
+        result:
+          - {g: "a", n: 2}
+          - {g: "b", n: 1}
+
+  - id: group-keys-sorted-numeric
+    description: integer group keys come out in ascending key order
+    steps:
+      - sql: |
+          insert into T ({k: 3}, {k: 1}, {k: 2}, {k: 1}, {k: 3});
+      - sql: 'select { k: t.k, n: count(*) } from T as t group by t.k;'
+        result:
+          - {k: 1, n: 2}
+          - {k: 2, n: 1}
+          - {k: 3, n: 2}
+
+  #----------------------------------------------------------------------------
+  # aggregates per group
+  #----------------------------------------------------------------------------
+
+  - id: sum-avg-min-max-per-group
+    description: every aggregate folds independently within each group
+    steps:
+      - sql: |
+          insert into T ({g: "a", v: 10}, {g: "a", v: 20}, {g: "b", v: 5});
+      - sql: 'select { g: t.g, s: sum(t.v), a: avg(t.v), mn: min(t.v), mx: max(t.v) } from T as t group by t.g;'
+        result:
+          - {g: "a", s: 30, a: 15, mn: 10, mx: 20}
+          - {g: "b", s: 5, a: 5, mn: 5, mx: 5}
+
+  - id: count-expr-skips-null-per-group
+    description: count(expr) skips nulls inside each group
+    steps:
+      - sql: |
+          insert into T ({g: "a", v: 1}, {g: "a", v: null}, {g: "b", v: 2});
+      - sql: 'select { g: t.g, n: count(t.v) } from T as t group by t.g;'
+        result:
+          - {g: "a", n: 1}
+          - {g: "b", n: 1}
+
+  #----------------------------------------------------------------------------
+  # composite and expression keys
+  #----------------------------------------------------------------------------
+
+  - id: composite-key
+    description: grouping on two keys orders by the first then the second
+    steps:
+      - sql: |
+          insert into T ({a: 1, b: 1}, {a: 1, b: 2}, {a: 1, b: 1}, {a: 2, b: 1});
+      - sql: 'select { a: t.a, b: t.b, n: count(*) } from T as t group by t.a, t.b;'
+        result:
+          - {a: 1, b: 1, n: 2}
+          - {a: 1, b: 2, n: 1}
+          - {a: 2, b: 1, n: 1}
+
+  - id: expression-key
+    description: an arbitrary key expression groups, and the same expression projects it
+    steps:
+      - sql: |
+          insert into T ({x: 1, y: 1}, {x: 2, y: 0}, {x: 0, y: 3});
+      - sql: 'select { s: t.x + t.y, n: count(*) } from T as t group by t.x + t.y;'
+        result:
+          - {s: 2, n: 2}
+          - {s: 3, n: 1}
+
+  #----------------------------------------------------------------------------
+  # grouping with no aggregate (distinct-like)
+  #----------------------------------------------------------------------------
+
+  - id: group-without-aggregate
+    description: grouping with no aggregate behaves like DISTINCT over the key
+    steps:
+      - sql: |
+          insert into T ({c: "x"}, {c: "y"}, {c: "x"}, {c: "x"});
+      - sql: select t.c from T as t group by t.c;
+        result: ["x", "y"]
+
+  #----------------------------------------------------------------------------
+  # null grouping and empty input
+  #----------------------------------------------------------------------------
+
+  - id: null-keys-group-together
+    description: rows whose key is null form a single group, sorted last
+    steps:
+      - sql: |
+          insert into T ({g: "a", v: 1}, {g: "a", v: 2}, {v: 3});
+      - sql: 'select { g: t.g, n: count(*) } from T as t group by t.g;'
+        result:
+          - {g: "a", n: 2}
+          - {g: null, n: 1}
+
+  - id: empty-input-zero-rows
+    description: an empty input yields zero groups (contrast ungrouped count -> one row)
+    steps:
+      - sql: 'select { g: t.g, n: count(*) } from T as t group by t.g;'
+        result: []
+
+  #----------------------------------------------------------------------------
+  # where, having, limit
+  #----------------------------------------------------------------------------
+
+  - id: where-before-group
+    description: WHERE filters rows before they are grouped
+    steps:
+      - sql: |
+          insert into T ({g: "a", v: 1}, {g: "a", v: 5}, {g: "b", v: 2});
+      - sql: 'select { g: t.g, n: count(*) } from T as t where t.v > 1 group by t.g;'
+        result:
+          - {g: "a", n: 1}
+          - {g: "b", n: 1}
+
+  - id: having-on-aggregate
+    description: HAVING filters whole groups by an aggregate predicate
+    steps:
+      - sql: |
+          insert into T ({g: "a"}, {g: "a"}, {g: "b"});
+      - sql: 'select { g: t.g, n: count(*) } from T as t group by t.g having count(*) > 1;'
+        result:
+          - {g: "a", n: 2}
+
+  - id: having-on-group-key
+    description: HAVING may reference a group key (read as the group's value)
+    steps:
+      - sql: |
+          insert into T ({g: "a"}, {g: "b"});
+      - sql: select t.g from T as t group by t.g having t.g = "b";
+        result: ["b"]
+
+  - id: limit-take-groups
+    description: LIMIT takes the first N groups in key order
+    steps:
+      - sql: |
+          insert into T ({g: "a"}, {g: "b"}, {g: "c"});
+      - sql: select t.g from T as t group by t.g limit 2;
+        result: ["a", "b"]
+
+  - id: limit-slice-groups
+    description: LIMIT N..M skips then takes over the grouped stream
+    steps:
+      - sql: |
+          insert into T ({g: "a"}, {g: "b"}, {g: "c"});
+      - sql: select t.g from T as t group by t.g limit 1..3;
+        result: ["b", "c"]
+
+  - id: having-then-limit
+    description: LIMIT counts only groups that survived HAVING
+    steps:
+      - sql: |
+          insert into T ({g: "a"}, {g: "a"}, {g: "b"}, {g: "c"}, {g: "c"});
+      - sql: 'select { g: t.g, n: count(*) } from T as t group by t.g having count(*) > 1 limit 1;'
+        result:
+          - {g: "a", n: 2}
+
+  #----------------------------------------------------------------------------
+  # errors
+  #----------------------------------------------------------------------------
+
+  - id: bare-column-in-projection-rejected
+    description: a projected column that is neither grouped nor aggregated is a static error
+    steps:
+      - sql: 'select { g: t.g, v: t.v } from T as t group by t.g;'
+        error: static
+
+  - id: star-with-group-rejected
+    description: select * has no defined columns under grouping — static error
+    steps:
+      - sql: select * from T as t group by t.g;
+        error: static
+
+  - id: identity-with-group-rejected
+    description: select . (the binding tuple) is undefined under grouping — static error
+    steps:
+      - sql: select . from T as t group by t.g;
+        error: static
+
+  - id: aggregate-in-group-key-rejected
+    description: an aggregate in a GROUP BY key is a static error
+    steps:
+      - sql: select count(*) from T as t group by count(*);
+        error: static
+
+  - id: order-by-grouped-rejected
+    description: ORDER BY over a grouped query is not supported yet — static error
+    steps:
+      - sql: select t.g from T as t group by t.g order by t.g;
+        error: static
+
+  - id: bare-column-in-having-rejected
+    description: a bare non-grouped column in HAVING is a static error
+    steps:
+      - sql: select t.g from T as t group by t.g having t.v > 0;
+        error: static

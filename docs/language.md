@@ -509,6 +509,29 @@ query_body
     from_clause with_clause_opt where_clause_opt group_clause_opt order_clause_opt limit_clause_opt
 ```
 
+#### 4.1.1 pivot
+
+**Description.** `pivot value at name` replaces the `select` constructor. Where `select` emits one output per binding tuple, `pivot` folds the whole stream into a **single** tuple: each surviving tuple contributes one member `name: value`. It is the inverse of `unpivot` (§4.2).
+
+**Examples.**
+```sql
+pivot p.price at p.sym from prices as p;                      -- { amzn: 1900, goog: 1120 }
+pivot price at sym from unpivot {a: 1, b: 2} as price at sym; -- { a: 1, b: 2 }
+```
+
+**Rules.**
+1. `pivot` requires a `from` clause; the query yields exactly one object.
+2. `name` must evaluate to a string; a tuple whose `name` is not a string contributes no member.
+3. A repeated `name` is **last-wins** (consistent with object spread, §3.4).
+4. An empty stream still yields one empty object `{}`.
+5. In v1, `pivot` supports `where` but not `order by` or `limit`.
+
+**Syntax.**
+```mckeeman
+pivot_stmt
+    "pivot" expr "at" expr query_body
+```
+
 ### 4.2 from
 
 **Description.** `from` introduces bindings by iterating one or more sources. Multiple sources separated by commas form a **lateral cross product**: each subsequent source is evaluated in the context of the bindings produced by the preceding sources, and all combinations are emitted.
@@ -524,8 +547,20 @@ select * from T;                          -- alias defaults to T
 **Rules.**
 1. Each source must have an alias; if omitted, the alias is the table name.
 2. Sources are evaluated left to right; the right side may reference bindings from the left (lateral).
-3. A source is a table name, a path expression rooted at a previously bound name, or a parenthesized subquery.
+3. A source is a table name, a path expression rooted at a previously bound name, a parenthesized subquery, or an `unpivot` (below).
 4. After `from`, the binding tuple has one key per source, with the value being the current row of that source.
+
+**Unpivot.** `unpivot expr as value at name` ranges over the attribute-value pairs of the tuple `expr` evaluates to — the dual of `pivot` (§4.1.1). Where a value source iterates an array's elements, `unpivot` iterates an object's members: each pair binds its value under the `as` alias and its attribute name under the optional `at` alias. A non-object `expr` yields no rows (like any non-collection source); the value alias is required.
+
+```sql
+select sym as sym, price as price
+from unpivot {amzn: 1900, goog: 1120} as price at sym;
+-- [{sym: "amzn", price: 1900}, {sym: "goog", price: 1120}]
+
+select sym as sym, price as price
+from closing as c, unpivot c as price at sym       -- lateral: unpivot a row's columns
+where sym != 'date';
+```
 
 **Syntax.**
 ```mckeeman
@@ -539,11 +574,16 @@ from_sources
 from_source
     table_name from_alias_opt
     expr from_alias_opt
+    "unpivot" expr from_alias_opt unpivot_at_opt
     "(" select_stmt ")" from_alias_opt
 
 from_alias_opt
     ""
     "as" identifier
+
+unpivot_at_opt
+    ""
+    "at" identifier
 ```
 
 ### 4.3 with
@@ -955,3 +995,4 @@ For each, this spec adopts the listed position. Future revisions may reopen thes
 9. **Object duplicates**: explicit duplicate keys in one literal are a **static error**; spread merges are **last-wins**. (§3.4)
 10. **`null` comparison** is **strict**: `null = null` is `true`, `null = x` (x ≠ null) is `false`, ordering against `null` is `null` and treated as not-true in `where`. (§3.5, §4.4)
 11. **No `t.*` spread shorthand.** `.*` is exclusively the path wildcard (§3.3). To spread a binding, write `{ ...t }` or list members explicitly. The earlier draft in [docs/sql/select.adoc](sql/select.adoc) used `select t.* from T as t` as a synonym for `select { ...t } from T as t`; this synonym is dropped to keep `.*` unambiguous.
+12. **`pivot` / `unpivot`** are the dual tuple↔collection operators (§4.1.1, §4.2). `unpivot` of a non-object yields **no rows** (consistent with MonaDB's inner-join-like treatment of non-collection sources, rather than PartiQL's synthesized single pair), and its value alias is **required**. `pivot` skips a non-string `name`, is **last-wins** on a repeated name, and yields one empty object for an empty stream; v1 restricts it to `from` + `where`.

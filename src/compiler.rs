@@ -275,6 +275,13 @@ impl Compiler {
             return self.cc_aggregate(select);
         }
 
+        // PIVOT folds the whole stream into one tuple instead of projecting per
+        // row, so it has its own accumulate-then-yield path in cc_pivot. Checked
+        // before ORDER BY so `pivot … order by` reaches cc_pivot's clean reject.
+        if let Constructor::Pivot(_) = &select.select {
+            return self.cc_pivot(select);
+        }
+
         // ORDER BY can't stream: it materializes the post-where stream, sorts
         // it, then projects. That two-phase path lives in cc_order.
         if select.order.is_some() {
@@ -302,35 +309,28 @@ impl Compiler {
             return Ok(());
         }
 
-        // The (alias, cursor) bindings in item order; drive `*` and `.` forms.
-        let bindings: Vec<(String, usize)> = from
-            .iter()
-            .map(|f| {
-                (
-                    f.var.clone(),
-                    f.csr.expect("from item should be bound") as usize,
-                )
-            })
-            .collect();
-
-        let n = bindings.len();
+        // `loop_csr[i]` is the cursor source i advances (a table scan, a value
+        // iterator, or — for unpivot — its attribute-value pair iterator).
+        // `bindings` is the flattened projection environment: a table/value
+        // source contributes one binding; an unpivot contributes its value (and
+        // optional attribute-name) binding. `seeds` re-derives those from the
+        // current pair at the top of each body iteration.
+        let loop_csr = Self::loop_cursors(&from);
+        let bindings = Self::from_bindings(&from);
+        let seeds = Self::unpivot_seeds(&from);
+        let n = from.len();
 
         // Open table sources once before the loop; value sources need no open.
-        for f in &from {
-            if let Source::Table(_) = &f.src {
-                let csr = f.csr.expect("from item should be bound") as usize;
-                let oid = f.oid.expect("bind pass must set oid for Table");
-                self.emit_open(csr, oid);
-            }
-        }
+        self.open_tables(&from);
 
         // Begin one iteration per source, outer to inner. The sources are:
         //
         //  1. A table source begin is a Scan.
         //  2. A value source begin is an expression + Iter.
+        //  3. An unpivot source begin is an expression + Entries + Iter.
         //
-        // We enter a value source on the expression so that we evaluate
-        // it again. This is critical for correlated value sources.
+        // We enter a value/unpivot source on the expression so that we evaluate
+        // it again. This is critical for correlated sources.
         //
         //  - entry[i] is the entry target for the enclosing Next instruction.
         //  - begin[i] is the exhaust instruction to patch once `exit` is known.
@@ -338,25 +338,14 @@ impl Compiler {
         let mut entry = vec![0usize; n];
         let mut begin = vec![0usize; n];
         for (i, f) in from.into_iter().enumerate() {
-            let csr = f.csr.expect("from item should be bound") as usize;
-            match f.src {
-                Source::Table(_) => {
-                    // FROM <table>
-                    self.emit_scan(csr, 0);
-                    entry[i] = self.pc();
-                }
-                Source::Value(expr) => {
-                    // FROM <expression>
-                    entry[i] = self.pc() + 1;
-                    self.cc_expr(*expr)?;
-                    self.emit_iter(csr, 0);
-                }
-            }
+            entry[i] = self.cc_source_begin(loop_csr[i], f)?;
             begin[i] = self.pc();
         }
 
-        // Innermost body: predicate filter, then offset/limit, then projection.
+        // Innermost body: seed unpivot bindings, predicate filter, then
+        // offset/limit, then projection.
         let body = self.code.len();
+        self.cc_seed(&seeds);
         let mut where_fail = None;
         if let Some(where_) = where_ {
             self.cc_expr(where_)?;
@@ -377,7 +366,7 @@ impl Compiler {
         let mut next_pc = vec![0usize; n];
         for i in (0..n).rev() {
             let resume = if i + 1 < n { entry[i + 1] } else { body };
-            self.emit_next(bindings[i].1, resume);
+            self.emit_next(loop_csr[i], resume);
             next_pc[i] = self.pc();
         }
 
@@ -401,6 +390,199 @@ impl Compiler {
         Ok(())
     }
 
+    /// Compiles a PIVOT query: fold every surviving binding tuple's `name: value`
+    /// into one accumulator object, then yield it once.
+    ///
+    /// The accumulator lives at the bottom of the stack across the nested loop
+    /// (mirroring the ORDER BY collector). Per tuple, `ObjSet` writes the dynamic
+    /// `name: value` member; after the outermost source exhausts (or was empty)
+    /// the single object is yielded — so an empty stream produces one `{}`.
+    /// v1 supports `from` + `where`; `order by`/`limit` are rejected.
+    #[allow(clippy::too_many_lines)]
+    fn cc_pivot(&mut self, select: Select) -> Result<()> {
+        self.ensure_txn(TransactionMode::Read);
+        let Select {
+            from,
+            where_,
+            order,
+            limit,
+            select: constructor,
+        } = select;
+        let Constructor::Pivot(pivot) = constructor else {
+            unreachable!("cc_pivot requires a pivot constructor");
+        };
+        if order.is_some() || limit.is_some() {
+            unsupported!("pivot does not support order by or limit");
+        }
+        if from.is_empty() {
+            unsupported!("pivot requires a from clause");
+        }
+
+        // The accumulator object sits at the bottom of the stack for the whole
+        // loop; each tuple sets one dynamic member on it.
+        self.emit_obj();
+
+        let loop_csr = Self::loop_cursors(&from);
+        let seeds = Self::unpivot_seeds(&from);
+        let n = from.len();
+
+        self.open_tables(&from);
+
+        let mut entry = vec![0usize; n];
+        let mut begin = vec![0usize; n];
+        for (i, f) in from.into_iter().enumerate() {
+            entry[i] = self.cc_source_begin(loop_csr[i], f)?;
+            begin[i] = self.pc();
+        }
+
+        // Body: seed unpivot bindings, filter, then set obj[name] = value. The
+        // stack order ObjSet wants is `obj name value`, so push name then value.
+        let body = self.code.len();
+        self.cc_seed(&seeds);
+        let mut where_fail = None;
+        if let Some(where_) = where_ {
+            self.cc_expr(where_)?;
+            self.emit_if_not(0);
+            where_fail = Some(self.pc());
+        }
+        self.cc_expr(*pivot.name)?;
+        self.cc_expr(*pivot.value)?;
+        self.emit_obj_set();
+
+        // Close the loops inner to outer (mirrors cc_select).
+        let mut next_pc = vec![0usize; n];
+        for i in (0..n).rev() {
+            let resume = if i + 1 < n { entry[i + 1] } else { body };
+            self.emit_next(loop_csr[i], resume);
+            next_pc[i] = self.pc();
+        }
+
+        // After the outermost source exhausts (or was empty) we yield the one
+        // accumulated object. Both the initial-empty edge (begin[0]) and the
+        // exhausted edge (next[0] falling through) land on this Yield.
+        self.emit_yield();
+        let yield_pc = self.pc();
+
+        self.patch(begin[0], yield_pc)?;
+        for i in 1..n {
+            self.patch(begin[i], next_pc[i - 1])?;
+        }
+        let inner = next_pc[n - 1];
+        if let Some(pc) = where_fail {
+            self.patch(pc, inner)?;
+        }
+        Ok(())
+    }
+
+    /// The cursor each from-source advances: a table scan, a value iterator, or
+    /// (for unpivot) the attribute-value pair iterator at [`crate::ir::From::csr`].
+    fn loop_cursors(from: &[crate::ir::From]) -> Vec<usize> {
+        from.iter()
+            .map(|f| f.csr.expect("from item should be bound") as usize)
+            .collect()
+    }
+
+    /// The flattened projection environment a from clause exposes, in binding
+    /// order: one binding per table/value source; for an unpivot, its value
+    /// binding plus its optional attribute-name binding.
+    fn from_bindings(from: &[crate::ir::From]) -> Vec<(String, usize)> {
+        let mut bindings = Vec::new();
+        for f in from {
+            if let Source::Unpivot(u) = &f.src {
+                bindings.push((
+                    f.var.clone(),
+                    u.val_csr.expect("unpivot value cursor") as usize,
+                ));
+                if let Some(att) = &u.att {
+                    bindings.push((
+                        att.clone(),
+                        u.att_csr.expect("unpivot attribute cursor") as usize,
+                    ));
+                }
+            } else {
+                bindings.push((
+                    f.var.clone(),
+                    f.csr.expect("from item should be bound") as usize,
+                ));
+            }
+        }
+        bindings
+    }
+
+    /// The `(pair, value, attr)` cursor triples of the unpivot sources: the pair
+    /// iterator, the value binding, and the optional attribute-name binding.
+    fn unpivot_seeds(from: &[crate::ir::From]) -> Vec<(usize, usize, Option<usize>)> {
+        from.iter()
+            .filter_map(|f| {
+                let Source::Unpivot(u) = &f.src else {
+                    return None;
+                };
+                Some((
+                    f.csr.expect("unpivot pair cursor") as usize,
+                    u.val_csr.expect("unpivot value cursor") as usize,
+                    u.att_csr.map(|c| c as usize),
+                ))
+            })
+            .collect()
+    }
+
+    /// Opens every table source's btree once before the loop; value and unpivot
+    /// sources need no open.
+    fn open_tables(&mut self, from: &[crate::ir::From]) {
+        for f in from {
+            if let Source::Table(_) = &f.src {
+                let csr = f.csr.expect("from item should be bound") as usize;
+                let oid = f.oid.expect("bind pass must set oid for Table");
+                self.emit_open(csr, oid);
+            }
+        }
+    }
+
+    /// Emits one from-source's begin block and returns its `entry` target (where
+    /// the enclosing Next resumes). A table begins on its Scan; a value or
+    /// unpivot source begins on its expression so a correlated source
+    /// re-evaluates it. An unpivot expands the tuple to `[name, value]` pairs
+    /// with `Entries` before iterating.
+    fn cc_source_begin(&mut self, csr: usize, f: crate::ir::From) -> Result<usize> {
+        let entry = match f.src {
+            Source::Table(_) => {
+                self.emit_scan(csr, 0);
+                self.pc()
+            }
+            Source::Value(expr) => {
+                let entry = self.pc() + 1;
+                self.cc_expr(*expr)?;
+                self.emit_iter(csr, 0);
+                entry
+            }
+            Source::Unpivot(u) => {
+                let entry = self.pc() + 1;
+                self.cc_expr(*u.expr)?;
+                self.emit_entries();
+                self.emit_iter(csr, 0);
+                entry
+            }
+        };
+        Ok(entry)
+    }
+
+    /// Emits the seed run at the top of the loop body: re-derive each unpivot
+    /// source's value (and attribute-name) binding from its current `[name,
+    /// value]` pair, so the projection reads them via the same `LoadVal` as any
+    /// scanned binding.
+    fn cc_seed(&mut self, seeds: &[(usize, usize, Option<usize>)]) {
+        for &(pair, val, att) in seeds {
+            self.emit_load(pair);
+            self.emit_jpi(1);
+            self.emit_set_val(val);
+            if let Some(att) = att {
+                self.emit_load(pair);
+                self.emit_jpi(0);
+                self.emit_set_val(att);
+            }
+        }
+    }
+
     /// Compiles a query with an ORDER BY. Two phases over one materialized array:
     ///
     /// Phase 1 scans the `from`/`where` stream (the same nested-loop machinery
@@ -422,19 +604,18 @@ impl Compiler {
         let order = order.expect("cc_order requires an order clause");
         let dirs: Vec<bool> = order.keys.iter().map(|k| k.desc).collect();
 
-        // The (alias, cursor) bindings in item order; drive the payload + projection.
-        let bindings: Vec<(String, usize)> = from
-            .iter()
-            .map(|f| {
-                (
-                    f.var.clone(),
-                    f.csr.expect("from item should be bound") as usize,
-                )
-            })
-            .collect();
-        let n = bindings.len();
+        // `loop_csr` is the cursor each source advances; `bindings` is the
+        // flattened projection environment (an unpivot contributes value + name).
+        let loop_csr = Self::loop_cursors(&from);
+        let bindings = Self::from_bindings(&from);
+        let seeds = Self::unpivot_seeds(&from);
+        let n = from.len();
 
-        // Register the from-cursors, then allocate the phase-2 payload cursor.
+        // Register every from-cursor (iterators and bindings), then allocate the
+        // phase-2 payload cursor so it can't collide with them.
+        for &csr in &loop_csr {
+            self.use_cursor(csr);
+        }
         for (_, csr) in &bindings {
             self.use_cursor(*csr);
         }
@@ -443,36 +624,20 @@ impl Compiler {
         // The collector array lives at the bottom of the stack across phase 1.
         self.emit_arr();
 
-        // Open table sources once before the loop; value sources need no open.
-        for f in &from {
-            if let Source::Table(_) = &f.src {
-                let csr = f.csr.expect("from item should be bound") as usize;
-                let oid = f.oid.expect("bind pass must set oid for Table");
-                self.emit_open(csr, oid);
-            }
-        }
+        // Open table sources once before the loop; value/unpivot sources don't.
+        self.open_tables(&from);
 
         // Begin one iteration per source, outer to inner (mirrors cc_select).
         let mut entry = vec![0usize; n];
         let mut begin = vec![0usize; n];
         for (i, f) in from.into_iter().enumerate() {
-            let csr = f.csr.expect("from item should be bound") as usize;
-            match f.src {
-                Source::Table(_) => {
-                    self.emit_scan(csr, 0);
-                    entry[i] = self.pc();
-                }
-                Source::Value(expr) => {
-                    entry[i] = self.pc() + 1;
-                    self.cc_expr(*expr)?;
-                    self.emit_iter(csr, 0);
-                }
-            }
+            entry[i] = self.cc_source_begin(loop_csr[i], f)?;
             begin[i] = self.pc();
         }
 
-        // Innermost body: residual filter, then tag + collect.
+        // Innermost body: seed unpivot bindings, residual filter, then tag + collect.
         let body = self.code.len();
+        self.cc_seed(&seeds);
         let mut where_fail = None;
         if let Some(where_) = where_ {
             self.cc_expr(where_)?;
@@ -496,7 +661,7 @@ impl Compiler {
         let mut next_pc = vec![0usize; n];
         for i in (0..n).rev() {
             let resume = if i + 1 < n { entry[i + 1] } else { body };
-            self.emit_next(bindings[i].1, resume);
+            self.emit_next(loop_csr[i], resume);
             next_pc[i] = self.pc();
         }
 
@@ -513,8 +678,8 @@ impl Compiler {
         }
 
         // Phase 2: drop the read iterators, then sort the collector by key bytes.
-        for (_, csr) in &bindings {
-            self.emit_close(*csr);
+        for &csr in &loop_csr {
+            self.emit_close(csr);
         }
         self.emit_sort();
 
@@ -647,6 +812,12 @@ impl Compiler {
                 Source::Value(expr) => {
                     entry[i] = self.pc() + 1;
                     self.cc_expr(*expr)?;
+                    self.emit_iter(csr, 0);
+                }
+                Source::Unpivot(u) => {
+                    entry[i] = self.pc() + 1;
+                    self.cc_expr(*u.expr)?;
+                    self.emit_entries();
                     self.emit_iter(csr, 0);
                 }
             }
@@ -791,6 +962,9 @@ impl Compiler {
             }
             Constructor::Expr(expr) => self.cc_expr(expr)?,
             Constructor::List(members) => self.cc_expr_obj(members)?,
+            // PIVOT is a whole-stream fold, lowered by cc_pivot — it never
+            // reaches the per-tuple projection path.
+            Constructor::Pivot(_) => unreachable!("pivot is lowered by cc_pivot"),
         }
         Ok(())
     }
@@ -1108,6 +1282,14 @@ impl Compiler {
 
     fn emit_obj_merge(&mut self, name: String) {
         self.code.push(Vop::ObjMerge(name));
+    }
+
+    fn emit_obj_set(&mut self) {
+        self.code.push(Vop::ObjSet);
+    }
+
+    fn emit_entries(&mut self) {
+        self.code.push(Vop::Entries);
     }
 
     fn emit_arr(&mut self) {
@@ -1598,5 +1780,50 @@ mod tests {
             .position(|op| matches!(op, Vop::Insert { .. }))
             .expect("insert must emit Insert");
         assert!(encode < insert, "EncodeKey must precede Insert");
+    }
+
+    #[test]
+    fn unpivot_lowers_to_entries_iter_and_seed() {
+        // `unpivot E as v at a` expands the tuple with Entries, iterates the
+        // pairs, and seeds the value + attribute bindings (two SetVals) from the
+        // current `[name, value]` pair at the top of the body.
+        let (_dir, storage, catalog) = fixture();
+        let program = compile_sql(
+            &storage,
+            &catalog,
+            "select price from unpivot {a: 1, b: 2} as price at sym;",
+        );
+        let code = program.instructions;
+        let entries = code
+            .iter()
+            .position(|op| matches!(op, Vop::Entries))
+            .expect("unpivot must emit Entries");
+        let iter = code
+            .iter()
+            .position(|op| matches!(op, Vop::Iter { .. }))
+            .expect("unpivot must iterate the pair array");
+        assert!(entries < iter, "Entries must precede Iter");
+        let setvals = code
+            .iter()
+            .filter(|op| matches!(op, Vop::SetVal { .. }))
+            .count();
+        assert_eq!(setvals, 2, "value and attribute bindings are each seeded");
+    }
+
+    #[test]
+    fn pivot_folds_into_a_single_object() {
+        // `pivot v at a` opens one accumulator object before the loop, sets a
+        // dynamic member per row (ObjSet), and yields exactly once.
+        let (_dir, storage, catalog) = fixture();
+        let program = compile_sql(&storage, &catalog, "pivot c.name at c.name from catalog as c;");
+        let code = program.instructions;
+        // The accumulator is the first body instruction (after Init).
+        assert!(matches!(code[1], Vop::Obj));
+        assert!(
+            code.iter().any(|op| matches!(op, Vop::ObjSet)),
+            "pivot must set members dynamically"
+        );
+        let yields = code.iter().filter(|op| matches!(op, Vop::Yield)).count();
+        assert_eq!(yields, 1, "pivot yields exactly one object");
     }
 }
