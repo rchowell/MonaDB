@@ -1,7 +1,7 @@
 # TODO Application
 
-A tiny interactive todo list backed by [MonaDB](../../README.md) through its python
-package. It's a worked example of doing CRUD against monadb from python.
+A tiny interactive todo list backed by [MonaDB](../../README.md) through its Python
+package. It's a worked example of CRUD via the dict-like table API.
 
 ## Run
 
@@ -36,11 +36,11 @@ todo> quit
 
 ## Reference
 
-| Action    | MonaDB SQL                                               |
-| --------- | -------------------------------------------------------- |
-| (startup) | `create table todos (id int);`                           |
-| `add`     | `insert into todos ({id: N, text: '...', done: false});` |
-| `list`    | `select * from todos;`                                   |
-| `done`    | read the row, then re-`insert` it with `done` flipped    |
-| `rm`      | `delete from todos where todos.id = N;`                  |
-| `clear`   | `delete from todos;`                                     |
+| Action    | Table API                                              |
+| --------- | ------------------------------------------------------ |
+| (startup) | `todos.create(id=int)`                                 |
+| `add`     | `todos.insert({"id": N, "text": "...", "done": False})` |
+| `list`    | `for row in todos: ...`                                |
+| `done`    | `todos.get(id)` then `todos.insert(...)` with `done` flipped |
+| `rm`      | `todos.delete(id=N)`                                   |
+| `clear`   | `con.execute("delete from todos;")`                    |

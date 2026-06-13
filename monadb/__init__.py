@@ -1,16 +1,22 @@
-"""MonaDB — a minimal, DuckDB-style Python interface.
+"""MonaDB — an embedded, dict-like SQL engine with a Python API.
 
-The compiled extension (`monadb._monadb`) provides the `connect()` constructor,
-the `Connection` cursor class, and the `Error` exception. This module re-exports
-them and adds DuckDB-style module-level convenience functions that operate on a
-lazily-created default in-memory connection.
+Open a database with :func:`connect` (``None`` / ``":memory:"`` for in-memory,
+or a filesystem path). Each connection is a DuckDB-style SQL cursor
+(``execute``/``sql`` + ``fetch*``) and a namespace of dict-like table handles
+(``con["table"]``).
+
+The compiled extension (``monadb._monadb``) is the in-process engine; the
+high-level façade is pure Python layered over it.
 """
 
-from ._monadb import Connection, Error, connect
+from ._monadb import Error
+from .connection import Connection
+from .table import Table
 
 __all__ = [
     "connect",
     "Connection",
+    "Table",
     "Error",
     "execute",
     "sql",
@@ -19,37 +25,42 @@ __all__ = [
     "fetchall",
 ]
 
-_default: "Connection | None" = None
+
+def connect(database: "str | None" = None, read_only: bool = False) -> Connection:
+    return Connection(database, read_only)
 
 
-def _default_connection() -> "Connection":
+_conn: "Connection | None" = None
+
+
+def _connection() -> Connection:
     """The shared default in-memory connection, created on first use."""
-    global _default
-    if _default is None:
-        _default = connect()
-    return _default
+    global _conn
+    if _conn is None:
+        _conn = connect()
+    return _conn
 
 
-def execute(query: str, parameters=None) -> "Connection":
+def execute(query: str, parameters=None) -> Connection:
     """Run ``query`` on the default connection; returns the connection (cursor)."""
-    return _default_connection().execute(query, parameters)
+    return _connection().execute(query, parameters)
 
 
-def sql(query: str, parameters=None) -> "Connection":
+def sql(query: str, parameters=None) -> Connection:
     """Alias of :func:`execute` on the default connection."""
-    return _default_connection().sql(query, parameters)
+    return _connection().sql(query, parameters)
 
 
 def fetchone():
     """Fetch the next row from the default connection's last result."""
-    return _default_connection().fetchone()
+    return _connection().fetchone()
 
 
 def fetchmany(size: int = 1):
     """Fetch up to ``size`` rows from the default connection's last result."""
-    return _default_connection().fetchmany(size)
+    return _connection().fetchmany(size)
 
 
 def fetchall():
     """Fetch all remaining rows from the default connection's last result."""
-    return _default_connection().fetchall()
+    return _connection().fetchall()

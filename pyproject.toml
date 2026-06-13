@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "monadb"
 version = "0.1.0"
-description = "Python bindings for MonaDB — a DuckDB-style cursor interface."
+description = "MonaDB — an embedded, dict-like SQL engine with a Python API."
 requires-python = ">=3.9"
 readme = "README.md"
 

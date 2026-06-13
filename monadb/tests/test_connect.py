@@ -41,3 +41,17 @@ def test_context_manager_closes_connection():
 def test_read_only_not_supported():
     with pytest.raises(NotImplementedError):
         monadb.connect(read_only=True)
+
+
+def test_module_level_execute_and_sql():
+    monadb.execute("create table mt;")
+    monadb.execute("insert into mt ({a: 7});")
+    assert monadb.sql("select * from mt;").fetchall() == [{"a": 7}]
+
+
+def test_module_level_fetchone():
+    monadb.execute("create table mo;")
+    monadb.execute("insert into mo ({a: 1});")
+    monadb.execute("select * from mo;")
+    assert monadb.fetchone() == {"a": 1}
+    assert monadb.fetchone() is None
