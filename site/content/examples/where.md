@@ -313,7 +313,7 @@ select * from T where T.x = null;
 
 ```json
 [
-  {  }
+  {}
 ]
 ```
 

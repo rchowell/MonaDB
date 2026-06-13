@@ -1,10 +1,8 @@
 +++
 title = "Syntax"
 description = "Identifiers, reserved words, literals, and comments."
-weight = 3
+weight = 2
 +++
-
-# Syntax
 
 ## Identifiers
 

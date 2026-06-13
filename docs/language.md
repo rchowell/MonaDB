@@ -192,29 +192,29 @@ type
 
 ### 2.4 Casting and coercion
 
-**Description.** Three equivalent forms convert values: `cast(v as T)`, `v::T`, and `T(v)`. Conversions are explicit; there is no implicit coercion between types except where this section names one.
+**Description.** A scalar type name is callable as a conversion function: `T(v)` where `T` is one of `int`, `float`, `string`, `bool`, or `number`. Conversions are explicit; there is no implicit coercion. A `null` argument yields `null` (the conversion is not applied). A conversion that cannot succeed — a non-numeric string, a non-finite or out-of-range value, or a non-scalar argument — is a runtime error.
 
 **Examples.**
 ```sql
-cast('3.14' as number)
-'3.14'::number
-number('3.14')
+int(2.7)        -- 2
+float('1.5')    -- 1.5
+string(42)      -- "42"
+bool('true')    -- true
+number('1e3')   -- 1000.0
 ```
 
 **Rules.**
-1. To **bool**: `null → false`, `0 → false`, any other number → `true`, `'' → false`, any other string → `true`, `[] → false`, any other array → `true`, `{} → false`, any other object → `true`.
-2. To **number**: `false → 0`, `true → 1`, numeric string → its parsed value, `null` → error, array/object → error.
-3. To **string**: every value has a canonical JSON representation; cast produces it.
-4. To **null**: only `null` casts to `null`; all others are an error.
-5. `int(v)` is `cast(v as number)` truncated toward zero. `float(v)` is `cast(v as number)`.
-6. Casting to a structured type (`array`, `object`, `[T]`, `{...}`) requires the value already match the shape; otherwise it is an error.
+1. To **int**: floats and decimal strings truncate toward zero; integer strings parse exactly; `true`/`false` → `1`/`0`.
+2. To **float**: ints widen; numeric strings parse; `true`/`false` → `1.0`/`0.0`.
+3. To **string**: a scalar's text form (strings unchanged, other scalars their JSON form). A non-scalar (array, object) is an error.
+4. To **bool**: a number is `false` when zero, else `true`; the strings `true`/`false` (case-insensitive) map to their values. Any other string or a non-scalar is an error.
+5. To **number**: numbers keep their int/float-ness; `true`/`false` → `1`/`0`; a string parses as the matching numeric literal (`'7'` → int, `'5.0'`/`'1e3'` → float).
+6. Only scalar type names are callable; `object`, `array`, and `any` are not conversion functions.
 
 **Syntax.**
 ```mckeeman
 expr_cast
-    "cast" "(" expr "as" type ")"
-    expr "::" type
-    type "(" expr ")"
+    t_scalar "(" expr ")"
 ```
 
 ---

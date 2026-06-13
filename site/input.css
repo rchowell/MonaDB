@@ -416,6 +416,11 @@ html[data-prose-font="libre-baskerville"] { --font-prose: "Libre Baskerville", B
     padding: 0;
     border: none;
   }
+  .lang-content.examples-content .example > h2 {
+    margin-top: 0;
+    margin-bottom: 8px;
+    font-size: 18px;
+  }
   .lang-content.examples-content .example > p:not(.example-label) {
     font-family: var(--font-prose);
     font-size: 15px;

@@ -84,6 +84,12 @@ static BUILTINS: &[Builtin] = &[
     e("ifnull",            Arity::Exact(2),   false,  ifnull),
     e("nvl",               Arity::Exact(2),   false,  ifnull),
     e("iif",               Arity::Exact(3),   false,  iif),
+    // -- type conversion (constructor casts; strict — a null casts to null) --
+    e("int",               Arity::Exact(1),   true,   cast_int),
+    e("float",             Arity::Exact(1),   true,   cast_float),
+    e("string",            Arity::Exact(1),   true,   cast_string),
+    e("bool",              Arity::Exact(1),   true,   cast_bool),
+    e("number",            Arity::Exact(1),   true,   cast_number),
     // -- math ----------------------------------------------------------------
     e("abs",               Arity::Exact(1),   true,   abs),
     e("ceil",              Arity::Exact(1),   true,   ceil),
@@ -295,6 +301,134 @@ fn iif(args: &[Value]) -> Result<Value> {
         Ok(args[1].clone())
     } else {
         Ok(args[2].clone())
+    }
+}
+
+//------------------------------
+// Cast (type conversion)
+//------------------------------
+
+/// A "cannot cast this value to `to`" runtime error.
+fn cannot_cast(from: &Value, to: &str) -> Error {
+    Error::InternalError(format!("cannot cast {} to {to}", type_name(from)))
+}
+
+/// Truncates a float toward zero into an `i64`, rejecting non-finite or
+/// out-of-range values (mirrors the arithmetic overflow policy). `i64::MAX as
+/// f64` rounds up to `2^63`, so the bound is the exact power of two.
+fn float_to_i64(f: f64) -> Result<i64> {
+    let t = f.trunc();
+    if t.is_finite() && (-(2f64.powi(63))..2f64.powi(63)).contains(&t) {
+        Ok(t as i64)
+    } else {
+        Err(Error::InternalError("value is out of range for int".into()))
+    }
+}
+
+/// Truncates a plain decimal string toward zero into an `i64` *exactly* — the
+/// integer part is parsed directly, so magnitudes beyond `f64`'s 53-bit mantissa
+/// keep full precision. Returns `None` for non-plain forms (e.g. exponents),
+/// which the caller routes through `f64`.
+fn trunc_decimal_str(t: &str) -> Option<i64> {
+    if let Ok(i) = t.parse::<i64>() {
+        return Some(i);
+    }
+    let (int_part, frac) = t.split_once('.')?;
+    if !frac.bytes().all(|b| b.is_ascii_digit()) {
+        return None; // exponent or junk → let the caller try f64
+    }
+    // A sign-only or empty integer part (".5", "-.5") fails here and falls back
+    // to the caller's f64 path, which truncates to the same 0.
+    int_part.parse::<i64>().ok()
+}
+
+/// Coerces a value to `i64` for an `int` cast: ints pass through, floats
+/// truncate toward zero, bools map to 0/1, and strings parse leniently (an
+/// integer or decimal truncated toward zero, else an exponent form via `f64`).
+fn to_i64(v: &Value) -> Result<i64> {
+    match v {
+        Value::Int(i) => Ok(*i),
+        Value::Float(f) => float_to_i64(*f),
+        Value::Bool(b) => Ok(i64::from(*b)),
+        Value::String(s) => {
+            let t = s.trim();
+            if let Some(i) = trunc_decimal_str(t) {
+                Ok(i)
+            } else if let Ok(f) = t.parse::<f64>() {
+                float_to_i64(f)
+            } else {
+                Err(cannot_cast(v, "int"))
+            }
+        }
+        _ => Err(cannot_cast(v, "int")),
+    }
+}
+
+/// Coerces a value to `f64` for a `float` cast: numbers widen (via [`Value::as_f64`]),
+/// bools map to 0.0/1.0, and strings parse leniently.
+fn to_f64(v: &Value) -> Result<f64> {
+    match v {
+        Value::Bool(b) => Ok(if *b { 1.0 } else { 0.0 }),
+        Value::String(s) => s.trim().parse::<f64>().map_err(|_| cannot_cast(v, "float")),
+        _ => v.as_f64().ok_or_else(|| cannot_cast(v, "float")),
+    }
+}
+
+/// Casts to int: truncates toward zero, parsing strings leniently.
+fn cast_int(args: &[Value]) -> Result<Value> {
+    Ok(Value::Int(to_i64(&args[0])?))
+}
+
+/// Casts to float: widens numbers, parses strings.
+fn cast_float(args: &[Value]) -> Result<Value> {
+    finite("float", to_f64(&args[0])?)
+}
+
+/// Casts to string: a scalar's text form (strings raw, other scalars their JSON
+/// form). Arrays, objects, and other non-scalars are not convertible.
+fn cast_string(args: &[Value]) -> Result<Value> {
+    match &args[0] {
+        // Already a string: clone is an `Rc` refcount bump, not a reallocation.
+        Value::String(_) => Ok(args[0].clone()),
+        Value::Bool(_) | Value::Int(_) | Value::Float(_) => Ok(text(stringify(&args[0]))),
+        v => Err(cannot_cast(v, "string")),
+    }
+}
+
+/// Casts to bool: zero is false and nonzero true; the strings `true`/`false`
+/// (case-insensitive) map to their values, anything else errors.
+fn cast_bool(args: &[Value]) -> Result<Value> {
+    let b = match &args[0] {
+        Value::Bool(b) => *b,
+        Value::Int(i) => *i != 0,
+        Value::Float(f) => *f != 0.0,
+        Value::String(s) => {
+            let t = s.trim();
+            if t.eq_ignore_ascii_case("true") {
+                true
+            } else if t.eq_ignore_ascii_case("false") {
+                false
+            } else {
+                return Err(cannot_cast(&args[0], "bool"));
+            }
+        }
+        v => return Err(cannot_cast(v, "bool")),
+    };
+    Ok(Value::Bool(b))
+}
+
+/// Casts to number: numbers and bools map to themselves / 0 / 1, and a string
+/// parses exactly as the matching numeric literal would ([`Value::number`]),
+/// rejecting a non-numeric (non-finite) result.
+fn cast_number(args: &[Value]) -> Result<Value> {
+    match &args[0] {
+        Value::Int(_) | Value::Float(_) => Ok(args[0].clone()),
+        Value::Bool(b) => Ok(Value::Int(i64::from(*b))),
+        Value::String(s) => match Value::number(s.trim()) {
+            Value::Float(f) if !f.is_finite() => Err(cannot_cast(&args[0], "number")),
+            n => Ok(n),
+        },
+        v => Err(cannot_cast(v, "number")),
     }
 }
 

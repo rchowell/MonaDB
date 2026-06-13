@@ -694,6 +694,27 @@ pub fn expr_call(name: String, args: Vec<Expr>) -> Expr {
     Expr::Call(Call { name, args })
 }
 
+/// Builds a constructor cast `int(expr)` as a call to the per-type conversion
+/// builtin (`int`, `float`, …) — like `is not null` desugaring to
+/// `not(is_null(...))`, no new IR node or opcode is needed.
+#[inline]
+pub fn expr_cast(expr: Expr, ty: &Type) -> Expr {
+    expr_call(cast_target(ty).to_string(), vec![expr])
+}
+
+/// Maps a scalar cast target to its conversion-builtin name.
+fn cast_target(ty: &Type) -> &'static str {
+    match ty {
+        Type::Int => "int",
+        Type::Float => "float",
+        Type::String => "string",
+        Type::Bool => "bool",
+        Type::Number => "number",
+        // The grammar restricts cast targets to `TScalar`; nothing else reaches here.
+        _ => unreachable!("cast target is not a scalar type: {ty:?}"),
+    }
+}
+
 /// Builds a `not arg` call.
 #[inline]
 pub fn expr_not(arg: Expr) -> Expr {

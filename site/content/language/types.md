@@ -1,56 +1,49 @@
 +++
 title = "Types"
-description = "Runtime value types and DDL type keywords for key columns."
-weight = 4
+description = "Runtime value types."
+weight = 3
 +++
 
-# Types
+## Scalars
 
-MonaDB uses a JSON-like type system at runtime. Values stored in tables and produced by expressions are one of null, boolean, integer, float, string, array, or object.
+Scalar types are the JSON scalar types with distinction between int and float.
 
-```
-null                    -- distinct from missing object keys
-true    false           -- booleans
-1       -5              -- exact 64-bit signed integers
-1.5     3.14            -- floats; non-finite values error on keyed insert
-'hello'                 -- UTF-8 text
-[1, 2, 3]               -- ordered sequence
-{ x: 1, y: 2 }          -- insertion-ordered map of named fields
-```
+| Type    | Example         | Notes                                 |
+|---------|-----------------|---------------------------------------|
+| null    | `null`          | Distinct from a missing object key    |
+| boolean | `true`, `false` |                                       |
+| integer | `1`, `-5`       | Exact 64-bit signed integers          |
+| float   | `1.5`, `3.14`   | Non-finite values error on insert     |
+| string  | `'hello'`       | UTF-8 text                            |
 
-`typeof(value)` reports runtime type names: `null`, `bool`, `int`, `float`, `string`, `array`, or `object`.
+## Complex
 
-## Key Columns
+Complex types are the JSON array type and object type.
 
-`create table` accepts an optional parenthesised list of **key columns**. Each column is a name followed by a type keyword. Only `int` (integer key component) and `string` (string key component) are accepted:
+| Type   | Example       | Notes                                     |
+|--------|---------------|-------------------------------------------|
+| array  | `[1, 2, 3]`   | Ordered sequence                          |
+| object | `{ x: 1 }`    | Insertion-ordered map of named fields     |
 
-```
-create table users (id int, name string);
-create table pages (slug string);
-```
+## Cast
 
-The parser recognises additional type keywords (`bool`, `float`, `number`, `object`, `array`, `any`), but using any of them in a key-column position is rejected at compile time.
+Scalar type names are callable as conversion functions: `int(x)`, `float(x)`, `string(x)`, `bool(x)`, and `number(x)`. A cast is a normal function call — it nests and combines with operators. `null` propagates (`int(null)` is `null`); conversions that cannot succeed are runtime errors; `object`, `array`, and `any` are not callable and produce syntax errors.
 
-## Keyless Tables
-
-A table declared without key columns accepts any JSON object (or scalar) on insert. No field-level schema checking is performed.
-
-```
-create table t;
-create table t ();     -- equivalent
-```
-
-Rows in a keyless table keep surrogate ids and return in insertion order. Rows in a keyed table are sorted by their encoded key.
-
-## Key Validation
-
-When key columns are declared, each insert must supply every key field with the correct type. Missing or mistyped keys are schema errors. Extra payload fields beyond the declared keys are allowed.
+| Function    | Description                                                                 |
+|-------------|-----------------------------------------------------------------------------|
+| `int(x)`    | To integer: floats truncate toward zero; strings parse leniently (trimmed whitespace, float syntax accepted for int targets); bools → `1`/`0` |
+| `float(x)`  | To float: ints widen, strings parse, bools → `1.0`/`0.0`                    |
+| `string(x)` | To string: the value's text form (`42`, `1.5`, `true`)                      |
+| `bool(x)`   | To bool: `0`/`0.0` → `false`, nonzero → `true`; the strings `true`/`false` (case-insensitive) |
+| `number(x)` | To number: keeps int/float-ness; strings parse to the narrowest numeric variant |
 
 ```
-create table t (x int);
-insert into t ({ x: 1, note: 'ok' });   -- ok
-insert into t ({ note: 'no key' });   -- schema error
-insert into t ({ x: 'a' });           -- schema error
+int(2.7)           -- 2
+int('2.7')         -- 2
+string(42)         -- "42"
+float(3)           -- 3.0
+int({a: 2.9}.a)    -- 2
+typeof(int(2.7))   -- "int"
 ```
 
-Explicit cast syntax is not implemented. Values retain their runtime types.
+See the [cast examples](/examples/cast/) for full conversion matrices and error cases.

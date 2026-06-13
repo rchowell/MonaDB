@@ -141,10 +141,8 @@ function main() {
   const frontMatter = `+++
 title = "Statements"
 description = "SELECT, INSERT, DELETE, CREATE TABLE, DROP TABLE, and CLEAR."
-weight = 2
+weight = 5
 +++
-
-# Statements
 
 `;
 

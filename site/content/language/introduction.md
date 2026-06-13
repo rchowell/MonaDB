@@ -4,8 +4,6 @@ description = "What the SQL dialect is and how to read this reference."
 weight = 1
 +++
 
-# Introduction
-
 SQL is the query language for embedded document storage. It keeps a familiar clause vocabulary — `select`, `from`, `where`, `order`, `limit` — and treats objects, arrays, and path navigation as core constructs rather than extensions.
 
 Every query compiles to a sequence of stack-based bytecode instructions and runs inside the host process. There is no server, no network, no configuration file. The database is a library.
@@ -58,8 +56,8 @@ t.address.city            -- path into binding t
 from T as t, t.items as item   -- unnest an array field
 ```
 
-Tables may declare key columns (`int` or `string`) or omit them entirely. A keyless table accepts any value on insert.
+Tables may declare key columns or omit them entirely. See [Schemas](@/language/schemas.md) for how keys affect storage, ordering, and lookups.
 
 ## How to Read This Reference
 
-The remaining sections cover the language in bottom-up order: [Syntax](@/language/syntax.md) and identifiers first, then [Types](@/language/types.md), then [Expressions](@/language/expressions.md), then [Statements](@/language/statements.md) that compose them. [Functions](@/language/functions.md) covers the built-in scalar library. Start with [Statements](@/language/statements.md) if you want to write queries immediately.
+The remaining sections cover the language in bottom-up order: [Syntax](@/language/syntax.md) and identifiers first, then [Types](@/language/types.md) and [Schemas](@/language/schemas.md), then [Statements](@/language/statements.md) that compose them, then [Expressions](@/language/expressions.md). [Functions](@/language/functions.md) covers the built-in scalar library. Start with [Statements](@/language/statements.md) if you want to write queries immediately.

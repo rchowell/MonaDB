@@ -1,10 +1,8 @@
 +++
 title = "Functions"
 description = "Built-in scalar function reference."
-weight = 6
+weight = 7
 +++
-
-# Functions
 
 ## Call Syntax
 
@@ -20,11 +18,9 @@ Most scalar functions are _strict_: a `null` argument yields a `null` result wit
 
 Aggregate functions, named arguments, and `read()` are not implemented.
 
-## Scalar Functions
-
 Built-in scalar functions grouped by domain. Each returns a single value per row.
 
-### Type and Conditional Functions
+## Type and Conditional Functions
 
 Inspect a value's type and select among values. These are null-aware rather than null-propagating.
 
@@ -36,7 +32,7 @@ Inspect a value's type and select among values. These are null-aware rather than
 | `ifnull(a, b)`, `nvl(a, b)` | `b` when `a` is null, else `a`                              |
 | `iif(cond, a, b)`           | `a` when `cond` is truthy, else `b`                         |
 
-### Math Functions
+## Math Functions
 
 Numeric operations. Integer arguments stay integers where the result is exact; non-finite results error rather than yield NaN or infinity.
 
@@ -57,7 +53,7 @@ Numeric operations. Integer arguments stay integers where the result is exact; n
 | `greatest(a, b, …)`                  | Largest argument by value order                             |
 | `least(a, b, …)`                     | Smallest argument by value order                            |
 
-### String Functions
+## String Functions
 
 Text manipulation. `length`, `reverse`, and `contains` also accept arrays, and `length` accepts objects.
 
@@ -82,7 +78,7 @@ Text manipulation. `length`, `reverse`, and `contains` also accept arrays, and `
 | `ends_with(str, suffix)`                    | Whether `str` ends with `suffix`                                       |
 | `contains(value, item)`                     | Whether a string contains a substring, or an array contains an element |
 
-### Array Functions
+## Array Functions
 
 Operate on arrays by value; each returns a new array or a derived scalar without mutating its input.
 
@@ -99,7 +95,7 @@ Operate on arrays by value; each returns a new array or a derived scalar without
 | `array_to_string(arr, sep)`    | Join non-null elements into a string with `sep`              |
 | `array_slice(arr, start, end)` | Sub-array between 1-based inclusive bounds, clamped to range |
 
-### Object Functions
+## Object Functions
 
 Inspect an object's members in insertion order.
 
@@ -108,3 +104,25 @@ Inspect an object's members in insertion order.
 | `object_keys(obj)`         | Keys as a string array, in insertion order |
 | `object_values(obj)`       | Values as an array, in insertion order     |
 | `object_has_key(obj, key)` | Whether `obj` has a member under `key`     |
+
+## Type Conversion Functions
+
+The scalar type names are callable as conversion functions. A `null` argument
+yields `null`; a conversion that can't succeed — an unparseable string, an
+out-of-range integer, or a non-convertible type such as an array — is a runtime
+error. Only scalar type names convert; `object`, `array`, and `any` are not callable.
+
+| Function    | Description                                                                    |
+|-------------|--------------------------------------------------------------------------------|
+| `int(x)`    | To integer: floats truncate toward zero, strings parse leniently, bools → `1`/`0` |
+| `float(x)`  | To float: ints widen, strings parse, bools → `1.0`/`0.0`                        |
+| `string(x)` | To string: the value's text form (`42`, `1.5`, `true`)                          |
+| `bool(x)`   | To bool: `0`/`0.0` → `false`, nonzero → `true`; the strings `true`/`false`       |
+| `number(x)` | To number: keeps int/float-ness; a string parses as the matching literal (`'7'` → int, `'5.0'` → float) |
+
+```
+int(2.7)        -- 2
+int('2.7')      -- 2
+string(42)      -- "42"
+float(3)        -- 3.0
+```

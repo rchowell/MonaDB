@@ -18,6 +18,7 @@ export const SUITE_TITLES = {
   get: "Keyed lookup",
   "order-clause": "Order by",
   functions: "Functions",
+  cast: "Casts",
   delete: "Delete",
   drop: "Drop table",
   clear: "Clear table",
@@ -139,6 +140,7 @@ function compactJsonValue(value) {
   const entries = Object.entries(value).map(
     ([k, v]) => `"${k}": ${compactJsonValue(v)}`,
   );
+  if (entries.length === 0) return "{}";
   return `{ ${entries.join(", ")} }`;
 }
 
@@ -157,9 +159,16 @@ function sqlBlock(statements, { terse = false } = {}) {
   return `${exampleLabel("SQL")}\n\n\`\`\`sql\n${body}\n\`\`\``;
 }
 
-function resultBlock(result, { terse = false } = {}) {
-  if (terse) return `\`\`\`json\n${resultToJson(result)}\n\`\`\``;
-  return `${exampleLabel("Result")}\n\n\`\`\`json\n${resultToJson(result)}\n\`\`\``;
+/** Single-row select results document the value, not the row array. */
+function unwrapScalarResult(result) {
+  if (Array.isArray(result) && result.length === 1) return result[0];
+  return result;
+}
+
+function resultBlock(result, { terse = false, scalar = false } = {}) {
+  const json = scalar ? compactJsonValue(unwrapScalarResult(result)) : resultToJson(result);
+  if (terse) return `\`\`\`json\n${json}\n\`\`\``;
+  return `${exampleLabel("Result")}\n\n\`\`\`json\n${json}\n\`\`\``;
 }
 
 function collectSetup(suite, test) {
@@ -240,6 +249,79 @@ export function renderSuiteTests(suite, { terse = false } = {}) {
     lines.push("");
   }
   return lines.join("\n").trimEnd();
+}
+
+/** Curated literals page — one section per kind, variations grouped. */
+export function renderLiteralsPage(suite) {
+  const sections = [
+    {
+      title: "Null",
+      examples: [{ sql: "select null;", result: [null] }],
+    },
+    {
+      title: "Boolean",
+      examples: [
+        { sql: "select true;", result: [true] },
+        { sql: "select false;", result: [false] },
+      ],
+    },
+    {
+      title: "Number",
+      examples: [
+        { sql: "select 1;", result: [1] },
+        { sql: "select 1.5;", result: [1.5] },
+        { sql: "select 9007199254740992;", result: [9007199254740992] },
+      ],
+    },
+    {
+      title: "String",
+      examples: [
+        { sql: "select 'hello';", result: ["hello"] },
+        { sql: "select '';", result: [""] },
+        { sql: "select 'café';", result: ["café"] },
+      ],
+    },
+    {
+      title: "Array",
+      examples: [
+        { sql: "select [];", result: [[]] },
+        { sql: "select [1, 2, 3];", result: [[1, 2, 3]] },
+        { sql: "select [1, 'a', null, true];", result: [[1, "a", null, true]] },
+        { sql: "select [[1, 2], [3, 4]];", result: [[[1, 2], [3, 4]]] },
+      ],
+    },
+    {
+      title: "Object",
+      examples: [
+        { sql: "select {};", result: [{}] },
+        { sql: "select {x: 1, y: 2};", result: [{ x: 1, y: 2 }] },
+        {
+          sql: "select {items: [1, 2], meta: {n: 2}};",
+          result: [{ items: [1, 2], meta: { n: 2 } }],
+        },
+      ],
+    },
+  ];
+
+  const lines = [];
+  for (const section of sections) {
+    lines.push('<div class="example">');
+    lines.push("");
+    lines.push(`## ${section.title}`);
+    lines.push("");
+    for (const ex of section.examples) {
+      lines.push(sqlBlock([ex.sql]));
+      lines.push("");
+      lines.push(resultBlock(ex.result, { scalar: true }));
+      lines.push("");
+    }
+    lines.push("</div>");
+    lines.push("");
+  }
+
+  const name = suite.suite ?? "literals";
+  const title = SUITE_TITLES[name] ?? name;
+  return { title, body: lines.join("\n").trimEnd() };
 }
 
 export function renderSuitePage(suite, filename) {

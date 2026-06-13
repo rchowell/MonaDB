@@ -1,10 +1,8 @@
 +++
 title = "Expressions"
 description = "Operators, precedence, object and array constructors, and path navigation."
-weight = 5
+weight = 6
 +++
-
-# Expressions
 
 ## Operators
 
@@ -82,9 +80,9 @@ select x from [1, 2, 3] as x;
 select x.a as a from [{a: 1}, {a: 2}] as x;
 ```
 
-### Keyed table lookup
+## Keyed table lookup
 
-When the receiver of `[…]` resolves to a catalog table with declared key columns, the subscript is a **point lookup**, not ordinary path navigation:
+When the receiver of `[…]` resolves to a catalog table with declared key columns, subscripting performs a **keyed lookup** rather than ordinary path navigation. Full keys return one row (or `null`); partial keys return a prefix sub-sequence as an array in key order. See [Schemas](@/language/schemas.md) for how keys are declared and why prefix lookup maps to ranged reads in storage.
 
 ```
 create table t (id int);

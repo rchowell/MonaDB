@@ -8,7 +8,11 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import yaml from "js-yaml";
-import { renderSuitePage, slugFromFilename } from "./render-suites.mjs";
+import {
+  renderLiteralsPage,
+  renderSuitePage,
+  slugFromFilename,
+} from "./render-suites.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const siteDir = path.resolve(__dirname, "..");
@@ -46,7 +50,10 @@ function main() {
 
     const raw = fs.readFileSync(path.join(suitesDir, file), "utf8");
     const suite = yaml.load(raw);
-    const { title, body } = renderSuitePage(suite, file);
+    const { title, body } =
+      slug === "literals"
+        ? renderLiteralsPage(suite)
+        : renderSuitePage(suite, file);
 
     const desc = suite.description
       ? String(suite.description).trim().replace(/\s+/g, " ")

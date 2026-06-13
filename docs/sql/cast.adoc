@@ -1,87 +1,62 @@
-= Cast and Coercions
+= Casts
+
+The scalar type names `int`, `float`, `string`, `bool`, and `number` are callable
+as conversion functions, `T(v)`. A `null` argument yields `null`. A conversion that
+cannot succeed — a non-numeric string, a non-finite or out-of-range value, or a
+non-scalar argument such as an array or object — is a runtime error.
 
 .Syntax
 [source]
 ----
-cast(v as bool)
-v::bool
+int(v)
+float(v)
+string(v)
 bool(v)
+number(v)
 ----
 
-In these examples, let the following variables denote:
-
-* _b_ - a boolean
-* _n_ - a number
-* _s_ - a string
-* _a_ - an array
-* _o_ - an object
-
+.Integers and floats
 [source]
 ----
-bool(b)     -- b
-
-bool(null)  -- false
-bool(0)     -- false
-bool(n)     -- true (for all n != 0)
-
-bool('')    -- false
-bool(s)     -- true (for all s not empty)
-
-bool([])    -- false
-bool(a)     -- true (for all a not empty)
-
-bool({})    -- false
-bool(o)     -- true (for all o not empty)
-----
-
-.Numbers
-[source]
-----
-int(false)      -- 0
+int(2.7)        -- 2      (truncates toward zero)
+int(-2.7)       -- -2
+int('5')        -- 5
+int('2.7')      -- 2
 int(true)       -- 1
-int('1.9')      -- 1
-int('3')        -- 3
-int('3.14')     -- 3
+int(false)      -- 0
 
-float(false)    -- 0.0
+float(3)        -- 3.0
+float('1.5')    -- 1.5
 float(true)     -- 1.0
-float('1.9')    -- 1.9
-float('3')      -- 3.0
-float('3.14')   -- 3.14
+----
+
+.Strings, booleans, numbers
+[source]
+----
+string(42)      -- "42"
+string(true)    -- "true"
+
+bool(0)         -- false
+bool(5)         -- true
+bool('true')    -- true   (case-insensitive)
+bool('false')   -- false
+
+number('7')     -- 7      (int)
+number('1.5')   -- 1.5    (float)
+number(true)    -- 1
 ----
 
 == Syntax
 
 [source,mckeeman]
 ----
-type
-    t_any
-    t_scalar
-    t_object
-    t_array
-
-t_any
-    "any"
+expr_cast
+    t_scalar "(" expr ")"
 
 t_scalar
-    "boolean"
+    "bool"
+    "int"
+    "float"
     "number"
     "string"
-
-t_object
-    "object"
-    "{" "}"
-    "{ t_members }"
-    "{ t_members "," "..." }"
-
-t_members
-    t_member
-    t_member "," t_member
-
-t_member
-    identifier ":" type
-
-t_array
-    "array"
-    "[" "]"
 ----
