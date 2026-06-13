@@ -103,6 +103,8 @@ pub enum Token {
     As,
     #[token("asc")]
     Asc,
+    #[token("at")]
+    At,
     #[token("between")]
     Between,
     #[token("by")]
@@ -135,12 +137,16 @@ pub enum Token {
     Or,
     #[token("order")]
     Order,
+    #[token("pivot")]
+    Pivot,
     #[token("select")]
     Select,
     #[token("table")]
     Table,
     #[token("unknown")]
     Unknown,
+    #[token("unpivot")]
+    Unpivot,
     #[token("where")]
     Where,
     //-------------------------

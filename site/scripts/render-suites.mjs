@@ -17,6 +17,8 @@ export const SUITE_TITLES = {
   keys: "Keys",
   get: "Keyed lookup",
   "order-clause": "Order by",
+  "unpivot-clause": "Unpivot",
+  "pivot-clause": "Pivot",
   functions: "Functions",
   delete: "Delete",
   drop: "Drop table",
