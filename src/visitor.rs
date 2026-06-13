@@ -859,9 +859,7 @@ pub mod fold {
             Source::Value(expr) => Source::Value(Box::new(f.fold_expr(*expr))),
             Source::Unpivot(u) => Source::Unpivot(Unpivot {
                 expr: Box::new(f.fold_expr(*u.expr)),
-                val_csr: u.val_csr,
-                att: u.att,
-                att_csr: u.att_csr,
+                ..u
             }),
         }
     }

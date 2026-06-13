@@ -363,18 +363,17 @@ impl VM {
                     let val = self.pop();
                     let name = self.pop();
                     if let Some(key) = name.as_str() {
-                        let key = key.to_string();
                         self.peek().set(key, val);
                     }
                 }
                 Vop::Entries => {
                     let val = self.pop();
                     let mut arr = Value::array();
-                    if let Some(members) = val.members() {
-                        for (name, value) in members {
+                    if let Value::Object(obj) = &val {
+                        for (name, value) in obj.iter() {
                             let mut pair = Value::array();
                             pair.push(Value::String(name.into()));
-                            pair.push(value);
+                            pair.push(value.clone());
                             arr.push(pair);
                         }
                     }

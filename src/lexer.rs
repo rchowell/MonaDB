@@ -119,6 +119,10 @@ pub enum Token {
     Desc,
     #[token("drop")]
     Drop,
+    #[token("group")]
+    Group,
+    #[token("having")]
+    Having,
     #[token("in")]
     In,
     #[token("is")]
