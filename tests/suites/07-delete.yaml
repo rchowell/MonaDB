@@ -1,5 +1,5 @@
 suite: delete
-spec_ref: "§7.1"
+spec_ref: "7.1"
 description: delete from table — delete-all and predicate-filtered deletes.
 
 setup:

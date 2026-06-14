@@ -1,5 +1,5 @@
 suite: order-clause
-spec_ref: "§4.6"
+spec_ref: "4.6"
 description: Sorts the binding-tuple stream by one or more keys (asc/desc), nulls last in asc / first in desc.
 
 setup:

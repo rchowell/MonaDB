@@ -1,5 +1,5 @@
 suite: predicates
-spec_ref: "§8"
+spec_ref: "8"
 description: |
   Primitive predicates and boolean connectives. Tests project the predicate
   through SELECT so the truth value is shown directly. A small section at the

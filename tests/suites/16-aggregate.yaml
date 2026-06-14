@@ -1,5 +1,5 @@
 suite: aggregate
-spec_ref: "§4.5"
+spec_ref: "4.5"
 description: >
   Ungrouped aggregation — count/min/max/sum/avg over the whole from/where
   stream, always collapsing to exactly one result row (even over an empty

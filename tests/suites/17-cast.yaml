@@ -1,5 +1,5 @@
 suite: cast
-spec_ref: "§5.1"
+spec_ref: "5.1"
 description: >
   Type conversions — the scalar type names are callable as conversion functions:
   int(x), float(x), string(x), bool(x), number(x). They desugar to per-type

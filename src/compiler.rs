@@ -514,7 +514,7 @@ impl Compiler {
     /// collector by the key bytes, then iterates it on a payload cursor: it
     /// applies the limit, re-seeds each from-binding via `SetVal` so the select
     /// constructor compiles exactly as in the streaming path, and yields. Per
-    /// the spec, select runs after limit (§4.9), so projection is post-sort.
+    /// the spec, select runs after limit (4.9), so projection is post-sort.
     fn cc_order(&mut self, select: Select) -> Result<()> {
         let Select {
             from,
@@ -564,7 +564,7 @@ impl Compiler {
         }
         self.emit_sort();
 
-        // Limit counters apply to the sorted stream (order then limit, §4.9).
+        // Limit counters apply to the sorted stream (order then limit, 4.9).
         let (cnt_skip, cnt_take) = self.emit_limit_counters(limit.as_ref());
 
         // Iterate the sorted collector on the payload cursor.

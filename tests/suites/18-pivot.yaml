@@ -1,5 +1,5 @@
 suite: pivot-clause
-spec_ref: "§4.1"
+spec_ref: "4.1"
 description: PIVOT folds a binding stream into a single tuple, contributing one attribute per row — the value at the AT name.
 
 setup:

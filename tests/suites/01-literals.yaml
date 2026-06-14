@@ -1,5 +1,5 @@
 suite: literals
-spec_ref: "§3.1"
+spec_ref: "3.1"
 description: Literal expressions — null, bool, number, string, array, object — evaluated via select with no from clause.
 
 tests:
@@ -117,7 +117,7 @@ tests:
       - sql: "select {items: [1, 2], meta: {n: 2}};"
         result: [{items: [1, 2], meta: {n: 2}}]
 
-  # §1.2 — keyword case-insensitivity
+  # 1.2 — keyword case-insensitivity
   - id: lex-keywords-case-insensitive
     description: keywords are case-insensitive
     steps:

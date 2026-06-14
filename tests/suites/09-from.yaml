@@ -1,5 +1,5 @@
 suite: from-clause
-spec_ref: "§4.2"
+spec_ref: "4.2"
 description: Iteration, aliasing, and lateral cross-product behavior of the from clause.
 
 setup:

@@ -1,5 +1,5 @@
 suite: insert
-spec_ref: "§6.1"
+spec_ref: "6.1"
 description: insert into table — single and multi-value expr lists.
 
 setup:

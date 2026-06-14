@@ -1,5 +1,5 @@
 suite: where-clause
-spec_ref: "§4.4"
+spec_ref: "4.4"
 description: Filters binding tuples by boolean predicate (residual scan filter).
 
 setup:

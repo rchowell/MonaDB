@@ -1,5 +1,5 @@
 suite: functions
-spec_ref: "§5"
+spec_ref: "5"
 description: >
   Builtin scalar functions — the standard library. Each case evaluates a
   function via a bare `select <expr>` (no from), which yields the result value

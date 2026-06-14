@@ -1,5 +1,5 @@
 suite: group
-spec_ref: "§4.5"
+spec_ref: "4.5"
 description: >
   GROUP BY — a two-pass sort then a streaming pass that resets one shared set
   of accumulators at each group boundary. One row per group, emitted in

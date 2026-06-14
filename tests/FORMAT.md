@@ -13,8 +13,8 @@ Each test is a sequence of **steps**. A step executes one SQL statement and opti
 ```
 manifest.yaml
 └── suites/
-    ├── 01-literals.yaml    §3.1
-    ├── 09-from.yaml        §4.2
+    ├── 01-literals.yaml    3.1
+    ├── 09-from.yaml        4.2
     └── ...
 ```
 
@@ -35,14 +35,14 @@ version: "1"
 suites:
   - file: suites/01-literals.yaml    # path relative to manifest
     title: Literals
-    spec_ref: "§3.1"                 # optional, references language.md section
+    spec_ref: "3.1"                 # optional, references language.md section
 ```
 
 ## Suite file schema
 
 ```yaml
 suite: from-clause                   # short machine-readable name
-spec_ref: "§4.2"                     # optional
+spec_ref: "4.2"                     # optional
 description: One-line description.   # optional
 
 setup:                               # optional; run before each test

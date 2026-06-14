@@ -1,5 +1,5 @@
 suite: keys
-spec_ref: "§6.2"
+spec_ref: "6.2"
 description: >
   Keyed storage. Declared columns are the composite key, in order, and may only
   be int or string. Inserts must supply every declared key field with the

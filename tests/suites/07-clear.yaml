@@ -1,5 +1,5 @@
 suite: clear
-spec_ref: "§7.3"
+spec_ref: "7.3"
 description: clear table — empties the table's data but keeps it registered in the catalog.
 
 tests:

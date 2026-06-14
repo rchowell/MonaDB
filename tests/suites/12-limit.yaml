@@ -1,5 +1,5 @@
 suite: limit-clause
-spec_ref: "§4.7"
+spec_ref: "4.7"
 description: Slices the binding-tuple stream by row position (take / skip / half-open slice).
 
 setup:

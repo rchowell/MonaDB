@@ -1,5 +1,5 @@
 suite: drop
-spec_ref: "§7.2"
+spec_ref: "7.2"
 description: drop table — removes the table from the catalog and clears its data.
 
 tests:

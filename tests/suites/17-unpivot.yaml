@@ -1,5 +1,5 @@
 suite: unpivot-clause
-spec_ref: "§4.2"
+spec_ref: "4.2"
 description: UNPIVOT ranges over the attribute-value pairs of a tuple, binding the value with AS and the attribute name with AT.
 
 setup:

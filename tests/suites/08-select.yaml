@@ -1,5 +1,5 @@
 suite: select-clause
-spec_ref: "§4.1"
+spec_ref: "4.1"
 description: Branches of the select constructor (., *, expr, item-list) paired with a single from source.
 
 setup:

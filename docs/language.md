@@ -98,7 +98,7 @@ null_lit
 
 Four scalar types: `null`, `bool`, `number`, `string`. There is exactly one
 numeric type, IEEE-754 double-precision float. The names `int` and `float` exist
-only as cast helpers (§2.4) and as schema refinements (§5.1); they are not
+only as cast helpers (2.4) and as schema refinements (5.1); they are not
 distinct runtime types.
 
 **Examples.**
@@ -243,7 +243,7 @@ expr_list
 
 ### 3.2 Variables and bindings
 
-**Description.** A bare identifier in an expression resolves to a name in the current binding tuple. Names are introduced by `from` (§4.2), `with` (§4.3), and `group` (§4.5).
+**Description.** A bare identifier in an expression resolves to a name in the current binding tuple. Names are introduced by `from` (4.2), `with` (4.3), and `group` (4.5).
 
 **Examples.**
 ```sql
@@ -283,7 +283,7 @@ t.items[0::2]      -- every other element
 5. Negative indices count from the end.
 6. Recursive descent (`..`), filter selectors (`?<expr>`), and multi-selectors (`[a, b]`) **on a value/path receiver** are not in v1 (Appendix A). A multi-element subscript on a **table receiver** is a composite-key tuple, not a path multi-selector — see *Keyed table access* below.
 
-**Keyed table access (`get`).** A subscript whose **base** is a bare identifier that does **not** resolve to a `from`/scope binding and **does** name a catalog table is a **key lookup** against that table, not value path-navigation (a binding of the same name shadows the table; the parser emits a uniform subscript node and the binder lowers it). The subscript is a key tuple matched positionally to the table's declared key columns (§5.1):
+**Keyed table access (`get`).** A subscript whose **base** is a bare identifier that does **not** resolve to a `from`/scope binding and **does** name a catalog table is a **key lookup** against that table, not value path-navigation (a binding of the same name shadows the table; the parser emits a uniform subscript node and the binder lowers it). The subscript is a key tuple matched positionally to the table's declared key columns (5.1):
 
 - arity **==** the key-column count (a **full** key) yields the one stored row (an object), or `null` on a miss — e.g. `t[1]`, `c['x', 7]`.
 - arity **<** the **leading** key columns (a **partial** key) yields the **sub-sequence** of matching rows as an array, in key order (empty on no match) — e.g. `c['x']`. The array is a first-class value: `c['x'][0]` indexes it, and `from c['x'] as r` scans it as a value source.
@@ -420,7 +420,7 @@ count(*)
 | `len`      | `(string \| array) → number`    | character count or element count   |
 | `upper`    | `(string) → string`             |                                    |
 | `lower`    | `(string) → string`             |                                    |
-| `count`    | `(any) → number`                | aggregate (§4.5); `count(*)` valid |
+| `count`    | `(any) → number`                | aggregate (4.5); `count(*)` valid |
 | `sum`      | `(number) → number`             | aggregate                          |
 | `min`      | `(T) → T`                       | aggregate; `T` ordered             |
 | `max`      | `(T) → T`                       | aggregate; `T` ordered             |
@@ -428,7 +428,7 @@ count(*)
 
 **Rules.**
 1. Calling an unknown function is a static error.
-2. Aggregate functions are valid in the `select` projection — ungrouped aggregation, which reduces the whole input to one row (§4.5). They may not appear in `where`, `order by`, or `from`, nor be nested inside another aggregate. Grouped aggregation via the `group` clause is deferred.
+2. Aggregate functions are valid in the `select` projection — ungrouped aggregation, which reduces the whole input to one row (4.5). They may not appear in `where`, `order by`, or `from`, nor be nested inside another aggregate. Grouped aggregation via the `group` clause is deferred.
 
 **Syntax.**
 ```mckeeman
@@ -511,7 +511,7 @@ query_body
 
 #### 4.1.1 pivot
 
-**Description.** `pivot value at name` replaces the `select` constructor. Where `select` emits one output per binding tuple, `pivot` folds the whole stream into a **single** tuple: each surviving tuple contributes one member `name: value`. It is the inverse of `unpivot` (§4.2).
+**Description.** `pivot value at name` replaces the `select` constructor. Where `select` emits one output per binding tuple, `pivot` folds the whole stream into a **single** tuple: each surviving tuple contributes one member `name: value`. It is the inverse of `unpivot` (4.2).
 
 **Examples.**
 ```sql
@@ -522,7 +522,7 @@ pivot price at sym from unpivot {a: 1, b: 2} as price at sym; -- { a: 1, b: 2 }
 **Rules.**
 1. `pivot` requires a `from` clause; the query yields exactly one object.
 2. `name` must evaluate to a string; a tuple whose `name` is not a string contributes no member.
-3. A repeated `name` is **last-wins** (consistent with object spread, §3.4).
+3. A repeated `name` is **last-wins** (consistent with object spread, 3.4).
 4. An empty stream still yields one empty object `{}`.
 5. In v1, `pivot` supports `where` but not `order by` or `limit`.
 
@@ -550,7 +550,7 @@ select * from T;                          -- alias defaults to T
 3. A source is a table name, a path expression rooted at a previously bound name, a parenthesized subquery, or an `unpivot` (below).
 4. After `from`, the binding tuple has one key per source, with the value being the current row of that source.
 
-**Unpivot.** `unpivot expr as value at name` ranges over the attribute-value pairs of the tuple `expr` evaluates to — the dual of `pivot` (§4.1.1). Where a value source iterates an array's elements, `unpivot` iterates an object's members: each pair binds its value under the `as` alias and its attribute name under the optional `at` alias. A non-object `expr` yields no rows (like any non-collection source); the value alias is required.
+**Unpivot.** `unpivot expr as value at name` ranges over the attribute-value pairs of the tuple `expr` evaluates to — the dual of `pivot` (4.1.1). Where a value source iterates an array's elements, `unpivot` iterates an object's members: each pair binds its value under the `as` alias and its attribute name under the optional `at` alias. A non-object `expr` yields no rows (like any non-collection source); the value alias is required.
 
 ```sql
 select sym as sym, price as price
@@ -588,7 +588,7 @@ unpivot_at_opt
 
 ### 4.3 with
 
-**Description.** `with` rewrites the binding tuple. Its constructor takes the same forms as `select` (§4.1), but instead of producing the output it produces the new bindings used by clauses to its right (`where`, `group`, `order`, `limit`, `select`).
+**Description.** `with` rewrites the binding tuple. Its constructor takes the same forms as `select` (4.1), but instead of producing the output it produces the new bindings used by clauses to its right (`where`, `group`, `order`, `limit`, `select`).
 
 **Examples.**
 ```sql
@@ -601,7 +601,7 @@ select . from T as t with *;              -- rebinds to the flat spread of t
 1. `with` **replaces** the binding tuple. After `with`, only the names introduced by the with-constructor are in scope.
 2. `with *` is the flat spread of the current tuple, equivalent to `with { ... }`.
 3. The with-constructor cannot reference output names from `select`.
-4. To spread a single binding, write `with { ...t }` or `with t.x as x, t.y as y`. There is no `t.*` spread shorthand; `.*` in any expression is the path wildcard from §3.3.
+4. To spread a single binding, write `with { ...t }` or `with t.x as x, t.y as y`. There is no `t.*` spread shorthand; `.*` in any expression is the path wildcard from 3.3.
 
 **Syntax.**
 ```mckeeman
@@ -644,7 +644,7 @@ select region, total from T as t
 ```
 
 **Rules.**
-1. Items use `as` aliases just like `select` (§4.1).
+1. Items use `as` aliases just like `select` (4.1).
 2. A path-only item (e.g., `t.region`) without an alias takes its last segment as the name.
 3. An item is an aggregate if and only if its expression contains an aggregate function call at the top level. Mixed aggregate/non-aggregate inside one expression is a static error.
 4. After `group`, only the names introduced by the group items are in scope. The original `from` bindings are no longer visible.
@@ -841,7 +841,7 @@ create table users ({ id: string, name: string }, { key: id });
 1. Without a schema, the table accepts any JSON object.
 2. With a closed schema (no trailing `...`), inserts with extra keys are a static error.
 3. Fields are non-null by default; declare `T | null` to permit `null`.
-4. In v1, the **declared columns, in declaration order, are the table's composite key**; key columns must be `int` or `string`. A subscript on the table name (§3.3, *Keyed table access*) looks up rows by this key.
+4. In v1, the **declared columns, in declaration order, are the table's composite key**; key columns must be `int` or `string`. A subscript on the table name (3.3, *Keyed table access*) looks up rows by this key.
 5. The `{key}` / `{hash, sort}` table-options syntax shown above is **planned** (Appendix A) and not implemented in v1; there is no implicit auto-assigned row identifier.
 6. Creating a table that already exists is a static error.
 
@@ -890,7 +890,7 @@ insert into archive select * from events where ts < 1700000000;
 ```
 
 **Rules.**
-1. Each value must satisfy the table's schema (§5.1). Schema mismatch is an error.
+1. Each value must satisfy the table's schema (5.1). Schema mismatch is an error.
 2. Values violating the table's key uniqueness are an error.
 3. The query form must produce values of the table's shape.
 
@@ -951,7 +951,7 @@ delete_stmt
 
 ## 7. Storage Model (informative)
 
-This section is non-normative. MonaDB is implemented on LMDB; see [resources/lmdb.adoc](resources/lmdb.adoc) for the full design. Each table maps to one primary B+ tree keyed by the table's composite key — in v1, its declared columns in declaration order (§5.1). Sort-order-preserving byte encoding of keys is the responsibility of the storage layer; the language is unaware of the encoding. Because the encoding is order-preserving, a **leading** subset of the key columns is a correct byte-prefix, which is what makes partial-key access (§3.3) a range scan.
+This section is non-normative. MonaDB is implemented on LMDB; see [resources/lmdb.adoc](resources/lmdb.adoc) for the full design. Each table maps to one primary B+ tree keyed by the table's composite key — in v1, its declared columns in declaration order (5.1). Sort-order-preserving byte encoding of keys is the responsibility of the storage layer; the language is unaware of the encoding. Because the encoding is order-preserving, a **leading** subset of the key columns is a correct byte-prefix, which is what makes partial-key access (3.3) a range scan.
 
 Storage limits (key length, value length, transaction concurrency) are properties of the storage layer and are not surfaced as language constructs. A query that exceeds a storage limit produces a runtime error of category `storage`.
 
@@ -966,17 +966,17 @@ Each item below is a deliberate omission. Add only with explicit language-design
 | `copy ... to <file>`                          | File I/O is orthogonal to the language; belongs in a tools layer. |
 | `create type`, `create view`, `create index`  | Minimal DDL; types live inline, indexes are an implementation concern. |
 | Transactions (`create transaction`, `commit`, `abort`) | Not yet specified; will be added when concurrency story stabilizes. |
-| User-defined functions                        | The built-in catalog (§3.6) is the entire function surface for v1. |
+| User-defined functions                        | The built-in catalog (3.6) is the entire function surface for v1. |
 | JSONPath filter selectors `?<expr>`           | Filter inside paths duplicates `where`; pick one.                 |
 | Recursive descent `..` in paths               | Power-tool; can be added later without breaking changes.          |
-| Multi-selectors `[a, b]` in **value/path** expressions | Same rationale. Table key-tuples `t[a, b]` are separate (§3.3, *Keyed table access*) and supported. |
-| `{key}` / `{hash, sort}` table options        | v1 uses declared columns in order as the key (§5.1); options syntax planned. |
+| Multi-selectors `[a, b]` in **value/path** expressions | Same rationale. Table key-tuples `t[a, b]` are separate (3.3, *Keyed table access*) and supported. |
+| `{key}` / `{hash, sort}` table options        | v1 uses declared columns in order as the key (5.1); options syntax planned. |
 | Runtime-expression keys `t[x.id]`             | v1 keyed access takes **literal** keys only; expression keys are a follow-up. |
 | Single-record `T@<id>` syntax                 | Pure sugar over `where ... = <id>`; can be added later.           |
 | `inner` / `left` / `outer` join keywords      | Lateral cross + `where` covers all join shapes.                   |
 | Window functions, CTEs                        | `with` is reserved for binding rewrite, not CTEs.                 |
-| Three-valued logic in `where`                 | `null` is treated as not-true; comparisons are strict (§3.5).      |
-| Integer vs float distinction at runtime       | One numeric type (§2.1); `int()`/`float()` are casts only.         |
+| Three-valued logic in `where`                 | `null` is treated as not-true; comparisons are strict (3.5).      |
+| Integer vs float distinction at runtime       | One numeric type (2.1); `int()`/`float()` are casts only.         |
 
 ---
 
@@ -984,15 +984,15 @@ Each item below is a deliberate omission. Add only with explicit language-design
 
 For each, this spec adopts the listed position. Future revisions may reopen these.
 
-1. **`select *` ≡ `select { ... }`** — flat spread of all bindings. `select .` returns the binding tuple as an envelope object. (§4.1)
-2. **`from T, S`** is a left-to-right **lateral** cross product. (§4.2)
-3. **`with`** **replaces** the binding tuple. Names from `from` are not in scope after `with`. (§4.3)
-4. **`group`** uses **implicit** keying: items without aggregate calls are keys; items with aggregate calls are reductions. No separate `by` clause. (§4.5)
-5. **`order`** is **not stable** by default. (§4.6)
-6. **Set ops** require **strict shape match**. (§4.8)
-7. **`update`** uses an **object-uniform** form: `set <expr>`, not `set col = val`. (§6.2)
+1. **`select *` ≡ `select { ... }`** — flat spread of all bindings. `select .` returns the binding tuple as an envelope object. (4.1)
+2. **`from T, S`** is a left-to-right **lateral** cross product. (4.2)
+3. **`with`** **replaces** the binding tuple. Names from `from` are not in scope after `with`. (4.3)
+4. **`group`** uses **implicit** keying: items without aggregate calls are keys; items with aggregate calls are reductions. No separate `by` clause. (4.5)
+5. **`order`** is **not stable** by default. (4.6)
+6. **Set ops** require **strict shape match**. (4.8)
+7. **`update`** uses an **object-uniform** form: `set <expr>`, not `set col = val`. (6.2)
 8. **`delete`** uses `delete from T where ...` as the general form; `@<id>` sugar is deferred to Appendix A.
-9. **Object duplicates**: explicit duplicate keys in one literal are a **static error**; spread merges are **last-wins**. (§3.4)
-10. **`null` comparison** is **strict**: `null = null` is `true`, `null = x` (x ≠ null) is `false`, ordering against `null` is `null` and treated as not-true in `where`. (§3.5, §4.4)
-11. **No `t.*` spread shorthand.** `.*` is exclusively the path wildcard (§3.3). To spread a binding, write `{ ...t }` or list members explicitly. The earlier draft in [docs/sql/select.adoc](sql/select.adoc) used `select t.* from T as t` as a synonym for `select { ...t } from T as t`; this synonym is dropped to keep `.*` unambiguous.
-12. **`pivot` / `unpivot`** are the dual tuple↔collection operators (§4.1.1, §4.2). `unpivot` of a non-object yields **no rows** (consistent with MonaDB's inner-join-like treatment of non-collection sources, rather than PartiQL's synthesized single pair), and its value alias is **required**. `pivot` skips a non-string `name`, is **last-wins** on a repeated name, and yields one empty object for an empty stream; v1 restricts it to `from` + `where`.
+9. **Object duplicates**: explicit duplicate keys in one literal are a **static error**; spread merges are **last-wins**. (3.4)
+10. **`null` comparison** is **strict**: `null = null` is `true`, `null = x` (x ≠ null) is `false`, ordering against `null` is `null` and treated as not-true in `where`. (3.5, 4.4)
+11. **No `t.*` spread shorthand.** `.*` is exclusively the path wildcard (3.3). To spread a binding, write `{ ...t }` or list members explicitly. The earlier draft in [docs/sql/select.adoc](sql/select.adoc) used `select t.* from T as t` as a synonym for `select { ...t } from T as t`; this synonym is dropped to keep `.*` unambiguous.
+12. **`pivot` / `unpivot`** are the dual tuple↔collection operators (4.1.1, 4.2). `unpivot` of a non-object yields **no rows** (consistent with MonaDB's inner-join-like treatment of non-collection sources, rather than PartiQL's synthesized single pair), and its value alias is **required**. `pivot` skips a non-string `name`, is **last-wins** on a repeated name, and yields one empty object for an empty stream; v1 restricts it to `from` + `where`.

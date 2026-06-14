@@ -1,5 +1,5 @@
 suite: params
-spec_ref: "§3.4"
+spec_ref: "3.4"
 description: >
   Query parameters. A placeholder stands in for a value supplied alongside the
   SQL text: `?` and `$N` draw from a positional list (1-based — the first `?`

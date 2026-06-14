@@ -1,5 +1,5 @@
 suite: get
-spec_ref: "§3.3"
+spec_ref: "3.3"
 description: >
   Key-index point lookup. A keyed table behaves like a big dict: `table[key]`
   resolves the receiver to a table (not a value) and does an order-preserving

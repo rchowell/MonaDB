@@ -249,7 +249,7 @@ One LMDB env, two named DBs, fixed `max_dbs = 8` (room to grow without reopening
 | DB        | Key                              | Value                       | Purpose |
 |-----------|----------------------------------|-----------------------------|---------|
 | `meta`    | `b"schema/<name>"` etc.          | bincode `TableSchema`       | Catalog: table schemas, table_id assignments, counters |
-| `data`    | composite (see §7)               | tagged value bytes          | All rows of all tables |
+| `data`    | composite (see 7)               | tagged value bytes          | All rows of all tables |
 
 ### Why a single shared `data` DB
 
@@ -287,7 +287,7 @@ Sizes:
 
 For tables with no declared PK, N = 1 and the single component is a system-allocated `u64_be(row_id)` — fixed-width 8 bytes, no terminator. For declared PKs, each variable-length component (strings) carries a trailing `0x00 0x00` terminator with byte-stuffing escape inside; fixed-width components (ints) are emitted raw.
 
-Properties (you should be able to derive each from §4):
+Properties (you should be able to derive each from 4):
 
 1. **All rows of table T are contiguous.** Range `[u32_be(T)..]` to `[u32_be(T+1)..]` covers them.
 2. **Every leading-column subset of the PK gives a contiguous range.** Rows with `c_1 = X` are contiguous; rows with `c_1 = X AND c_2 = Y` are contiguous; and so on for any prefix of the column list. This is the property the planner exploits.
@@ -365,7 +365,7 @@ if !k.starts_with(&table_prefix) {
     state = Exhausted; curr_row = None; return false;
 }
 // Note: no upper-bound check here. Range termination is the caller's job
-// via Idx* opcodes, not the cursor's. See §8.5.
+// via Idx* opcodes, not the cursor's. See 8.5.
 
 // Tag dispatch on the value.
 match v[0] {
@@ -413,7 +413,7 @@ Exit
 Three subtleties worth internalizing:
 
 1. **The eq prefix is pushed for both Seek and Idx.** Each end of the range carries the full prefix tuple. SQLite does the same. Don't try to "save" the bound in cursor state — it makes the bytecode less composable and obscures what's an operand vs. what's pinned at construction.
-2. **Bytewise compare in `idx_*` is correct only because the keycodec is sort-order preserving** (§4). The cursor encodes the bound tuple once per call and does a `[u8]` compare against the LMDB key at the cursor's current position. A comment in `cursor.rs` should spell this out so a future implementer doesn't accidentally swap to a typed compare.
+2. **Bytewise compare in `idx_*` is correct only because the keycodec is sort-order preserving** (4). The cursor encodes the bound tuple once per call and does a `[u8]` compare against the LMDB key at the cursor's current position. A comment in `cursor.rs` should spell this out so a future implementer doesn't accidentally swap to a typed compare.
 3. **Partial-prefix seeks use prefix-form encoding.** A 1-component seek on a 3-component PK builds `enc(c_1) || 00 00` for `seek_ge` and `enc(c_1) || 00 01` (the next-prefix successor) for an exclusive upper. `keycodec::encode_partial(values, pk_schema)` produces the right form when `values.len() < pk_schema.len()`. A bug here yields malformed full-arity keys that either over- or under-match silently.
 
 For pure equality on the full PK (`where x = 1 and y = 2` on `(x int, y int)`), the planner emits `SeekGE(ncols=2)` + `IdxGT(ncols=2)`. A dedicated `SeekEQ` fast-path is a possible future optimization (SQLite has `SeekRowid`); defer until measurement justifies it.
@@ -568,7 +568,7 @@ Let's trace `create table points; insert into points (1); select * from points;`
 
 The table is declared with key columns: `create table points (x int, y int);`. `put_row(value)` extracts `x` and `y` from the row JSON, type-checks them, encodes them via `keycodec::encode_int` in declaration order, and uses the result as the PK components. The full key becomes `u32_be(7) || enc(x) || enc(y) || 00 00 00 00 00 00 00 00`.
 
-The planner reads the `WHERE` clause and emits the `Seek*`/`Idx*` pair (§8.5):
+The planner reads the `WHERE` clause and emits the `Seek*`/`Idx*` pair (8.5):
 
 - `where x = 1 and y = 2` → `Open` + `Push(1); Push(2); SeekGE(c=0, ncols=2)` + (loop top) `Push(1); Push(2); IdxGT(c=0, ncols=2)` + body.
 - `where x = 1` (single leading column, no constraint on `y`) → same shape with `ncols=1`. The cursor encodes the partial tuple in prefix form (`enc(1) || 00 00` for the `SeekGE` lower, `enc(1) || 00 01` for the `IdxGE`-style upper successor).
@@ -647,16 +647,16 @@ Why "first" and not "any": commit_seqs are monotonically allocated globally, but
 
 ### A.5 The cursor MVCC walk
 
-**Layering rule, before any code.** The MVCC version walk lives *under* the `Seek*`/`Idx*` opcode surface (§8.5). `seek_ge` positions the inner LMDB cursor on a key in raw byte order, *then* the cursor's MVCC walk advances forward inside that position skipping older versions, tombstones, and out-of-ancestor entries until it lands on a visible row. The opcode-level upper-bound check (`IdxGT` etc.) runs against the *visible* row's key — i.e. the key the cursor reports via `curr()` — not whatever raw LMDB key the inner cursor happens to be parked on between visibility hops. Pushing the bound check down into the version-skipping inner loop is the classic trap; don't.
+**Layering rule, before any code.** The MVCC version walk lives *under* the `Seek*`/`Idx*` opcode surface (8.5). `seek_ge` positions the inner LMDB cursor on a key in raw byte order, *then* the cursor's MVCC walk advances forward inside that position skipping older versions, tombstones, and out-of-ancestor entries until it lands on a visible row. The opcode-level upper-bound check (`IdxGT` etc.) runs against the *visible* row's key — i.e. the key the cursor reports via `curr()` — not whatever raw LMDB key the inner cursor happens to be parked on between visibility hops. Pushing the bound check down into the version-skipping inner loop is the classic trap; don't.
 
-The non-versioned `advance()` from §8.4 grows two extra concerns: cluster dedup (skip older versions of the row we just yielded) and visibility check (find the newest version in our ancestry).
+The non-versioned `advance()` from 8.4 grows two extra concerns: cluster dedup (skip older versions of the row we just yielded) and visibility check (find the newest version in our ancestry).
 
 ```text
 loop {
     let (k, v) = inner.current()? else { exhausted; return false };
 
     if !k.starts_with(&table_prefix) { exhausted; return false }
-    // No upper-bound check here — that's an Idx* opcode's job (§8.5, A.5 layering rule).
+    // No upper-bound check here — that's an Idx* opcode's job (8.5, A.5 layering rule).
 
     let body = &k[4 .. k.len()-8];
     let seq  = !u64::from_be_bytes(k[k.len()-8..].try_into().unwrap());
