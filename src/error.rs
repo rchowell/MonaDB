@@ -89,6 +89,15 @@ macro_rules! error {
     }}
 }
 
+/// Returns early with an [`Error::Unsupported`] formatted from the arguments.
+#[macro_export]
+macro_rules! unsupported {
+    ($($arg:tt)*) => {{
+        let msg = format!($($arg)*);
+        return Err($crate::error::Error::Unsupported(msg.to_string()))
+    }}
+}
+
 impl From<std::io::Error> for Error {
     fn from(e: std::io::Error) -> Error {
         Error::IoError(e.to_string())

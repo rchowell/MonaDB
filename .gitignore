@@ -25,6 +25,7 @@ __pycache__/
 *.egg-info/
 dist/
 wheels/
+.pytest_cache/
 
 # example data (the todo example writes a database file)
 examples/todo/*.db
@@ -39,3 +40,6 @@ site/node_modules/
 
 # private LLM context documents
 .context/
+
+# rust
+target/

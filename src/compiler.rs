@@ -9,6 +9,7 @@ use serde_json::json;
 use crate::Result;
 use crate::catalog::CATALOG_OID;
 use crate::error::Error;
+use crate::unsupported;
 use crate::functions;
 use crate::ir::{
     AggKind, Call, Clear, Constructor, Create, Delete, Drop, Expr, Get, Insert, Jpe, Jpi, Jpk, Key,
@@ -20,17 +21,38 @@ use crate::value::Value;
 use crate::visitor::visit::{self, Visit};
 use crate::visitor::visit_mut::{self, VisitMut};
 use crate::vm::{Program, Vop};
-use std::vec;
 
-#[macro_export]
-macro_rules! unsupported {
-    ($($arg:tt)*) => {{
-        let msg = format!($($arg)*);
-        return Err($crate::error::Error::Unsupported(msg.to_string()))
-    }}
+/// The open back-patch sites a nested loop leaves for its caller: `begin0`
+/// (the outermost source's exhaust edge — its target is variant-specific)
+/// and `inner` (the innermost `Next`, where a dropped row resumes).
+struct LoopExits {
+    begin0: usize,
+    inner: usize,
+}
+
+/// The state threaded from [`Compiler::cc_loop_open`] to [`Compiler::cc_loop_close`].
+struct LoopFrame {
+    loop_csr: Vec<usize>,      // cursor each source advances (outer→inner)
+    entry: Vec<usize>,         // re-entry target per source (for the enclosing Next)
+    begin: Vec<usize>,         // exhaust-edge patch site per source
+    body: usize,               // first instruction of the per-iteration body
+    where_fail: Option<usize>, // IfNot patch site of the WHERE guard, if any
+}
+
+/// The per-source analysis of a from clause, computed in one pass: the cursor
+/// each source advances, the flattened projection bindings, and the unpivot
+/// reseed triples.
+struct FromPlan {
+    /// Cursor each source advances (outer→inner).
+    loop_csr: Vec<usize>,
+    /// Flattened projection environment: `(alias, cursor)` in binding order.
+    bindings: Vec<(String, usize)>,
+    /// `(pair, value, attr)` per unpivot source; empty when no unpivots.
+    seeds: Vec<(usize, usize, Option<usize>)>,
 }
 
 /// Translates a bound SQL statement into a `Program` of `Vop` bytecode.
+#[derive(Default)]
 pub struct Compiler {
     code: Vec<Vop>,
     /// Number of cursor slots required (max index + 1).
@@ -43,17 +65,10 @@ pub struct Compiler {
     txm: Option<TransactionMode>,
 }
 
-#[allow(dead_code, unused)]
 impl Compiler {
     /// Creates an empty compiler.
-    pub fn new() -> Compiler {
-        Compiler {
-            code: vec![],
-            cursor_slots: 0,
-            counter_slots: 0,
-            agg_slots: 0,
-            txm: None,
-        }
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// Compiles a statement into a self-contained `Program`, laid out in three
@@ -79,10 +94,10 @@ impl Compiler {
         // addr M:      Halt            -> end of body
         #[allow(clippy::single_match_else)]
         match statement {
-            Statement::Create(create) => self.cc_create(&create)?,
+            Statement::Create(create) => self.cc_create(create)?,
             Statement::Delete(delete) => self.cc_delete(delete)?,
-            Statement::Drop(drop) => self.cc_drop(&drop),
-            Statement::Clear(clear) => self.cc_clear(&clear),
+            Statement::Drop(drop) => self.cc_drop(drop),
+            Statement::Clear(clear) => self.cc_clear(clear),
             Statement::Insert(insert) => self.cc_insert(insert)?,
             Statement::Select(select) => self.cc_select(select)?,
         };
@@ -107,10 +122,12 @@ impl Compiler {
     }
 
     /// Compiles a CREATE TABLE: insert the table's definition into the catalog.
-    fn cc_create(&mut self, create: &Create) -> Result<()> {
+    fn cc_create(&mut self, create: Create) -> Result<()> {
         self.txm = Some(TransactionMode::Write);
 
-        let Create::Table(table_definition) = &create;
+        // Compute the SQL representation before destructuring `create` by value.
+        let sql = create.sql();
+        let Create::Table(table_definition) = create;
 
         // Validate the key columns are int or string.
         for member in &table_definition.keys {
@@ -123,7 +140,7 @@ impl Compiler {
         let object = json!({
             "name": table_definition.name,
             "type": "table",
-            "sql": create.sql(),
+            "sql": sql,
         });
 
         // Creating a table is an insert to the catalog table.
@@ -162,7 +179,7 @@ impl Compiler {
             if members.is_empty() {
                 self.emit_new_oid(csr);
             } else {
-                self.emit_new_key(members.clone());
+                self.emit_encode_key(members.clone());
             }
             self.emit_insert(csr);
         }
@@ -234,9 +251,14 @@ impl Compiler {
     }
 
     /// Compiles a DROP TABLE: delete the catalog row, then clear the data btree.
-    fn cc_drop(&mut self, drop: &Drop) {
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "cc_* take their IR node by ownership per convention; only the Copy oid is read"
+    )]
+    fn cc_drop(&mut self, drop: Drop) {
         self.ensure_txn(TransactionMode::Write);
-        let oid = drop.oid.expect("drop target should be bound to table oid");
+        let Drop { oid, name: _ } = drop;
+        let oid = oid.expect("drop target should be bound to table oid");
 
         // Dropping a table deletes its catalog row then clears its data btree.
         // The catalog delete is a point delete of a known key with no scan, so
@@ -255,45 +277,87 @@ impl Compiler {
     }
 
     /// Compiles a CLEAR: empty the table's data btree, leaving its catalog row.
-    fn cc_clear(&mut self, clear: &Clear) {
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "cc_* take their IR node by ownership per convention; only the Copy oid is read"
+    )]
+    fn cc_clear(&mut self, clear: Clear) {
         self.ensure_txn(TransactionMode::Write);
-        let oid = clear
-            .oid
-            .expect("clear target should be bound to table oid");
+        let Clear { oid, name: _ } = clear;
+        let oid = oid.expect("clear target should be bound to table oid");
         // Clearing a table empties its data btree but leaves the catalog row.
         self.emit_clear(oid);
     }
+
+    //--- NESTED LOOP SCAFFOLD ---
+
+    /// Emits a nested loop's prologue over `from`: opens table sources, emits
+    /// each source's begin block (outer→inner), marks the body, seeds unpivot
+    /// bindings, and emits the optional WHERE guard. The caller emits the body,
+    /// then calls [`Self::cc_loop_close`].
+    ///
+    /// `fp` is the pre-computed [`FromPlan`] for `from` (computed once by the
+    /// caller via [`analyze_from`] so it can also read `fp.bindings`/`fp.loop_csr`).
+    fn cc_loop_open(
+        &mut self,
+        from: Vec<crate::ir::From>,
+        fp: &FromPlan,
+        where_: Option<Expr>,
+    ) -> Result<LoopFrame> {
+        let n = from.len();
+        self.open_tables(&from);
+        let mut entry = vec![0usize; n];
+        let mut begin = vec![0usize; n];
+        for (i, f) in from.into_iter().enumerate() {
+            entry[i] = self.cc_source_begin(fp.loop_csr[i], f)?;
+            begin[i] = self.pc();
+        }
+        let body = self.code.len();
+        self.cc_seed(&fp.seeds);
+        let mut where_fail = None;
+        if let Some(where_) = where_ {
+            self.cc_expr(where_)?;
+            self.emit_if_not(0);
+            where_fail = Some(self.pc());
+        }
+        Ok(LoopFrame { loop_csr: fp.loop_csr.clone(), entry, begin, body, where_fail })
+    }
+
+    /// Emits the inner→outer `Next` chain and patches the loop's inner exhaust
+    /// edges: each inner source advances its enclosing source, and a failed
+    /// WHERE drops the row back to the innermost `Next`. Returns the sites the
+    /// caller still owns — `begin0` (the outermost exhaust, whose target depends
+    /// on the query form) and `inner` (the innermost Next, for WHERE/offset drops).
+    fn cc_loop_close(&mut self, frame: &LoopFrame) -> Result<LoopExits> {
+        let n = frame.loop_csr.len();
+        let mut next_pc = vec![0usize; n];
+        for i in (0..n).rev() {
+            let resume = if i + 1 < n { frame.entry[i + 1] } else { frame.body };
+            self.emit_next(frame.loop_csr[i], resume);
+            next_pc[i] = self.pc();
+        }
+        for i in 1..n {
+            self.patch(frame.begin[i], next_pc[i - 1])?;
+        }
+        let inner = next_pc[n - 1];
+        if let Some(pc) = frame.where_fail {
+            self.patch(pc, inner)?;
+        }
+        Ok(LoopExits { begin0: frame.begin[0], inner })
+    }
+
+    //--- END NESTED LOOP SCAFFOLD ---
 
     /// Compiles a SELECT, streaming the nested-loop from/where/limit/project
     /// path. An `ORDER BY` can't stream, so it detours to [`Self::cc_order`].
     fn cc_select(&mut self, select: Select) -> Result<()> {
         self.ensure_txn(TransactionMode::Read);
-
-        // GROUP BY sorts the post-where stream by the grouping key, then streams
-        // it, resetting the accumulators at each group boundary. Checked first so
-        // a grouped query reaches cc_group's own projection rules.
-        if select.group.is_some() {
-            return self.cc_group(select);
-        }
-
-        // PIVOT folds the whole stream into one tuple instead of projecting per
-        // row, so it has its own accumulate-then-yield path in cc_pivot. Checked
-        // before the aggregate path so `pivot … having` reaches cc_pivot's reject.
-        if let Constructor::Pivot(_) = &select.select {
-            return self.cc_pivot(select);
-        }
-
-        // An aggregate projection (or a HAVING) collapses the stream to one row;
-        // that path accumulates instead of yielding per row, so it lives in
-        // cc_aggregate (which treats the whole input as a single group).
-        if has_aggregate(&select.select) || select.having.is_some() {
-            return self.cc_aggregate(select);
-        }
-
-        // ORDER BY can't stream: it materializes the post-where stream, sorts
-        // it, then projects. That two-phase path lives in cc_order.
-        if select.order.is_some() {
-            return self.cc_order(select);
+        match plan(&select) {
+            Plan::Group => return self.cc_group(select),
+            Plan::Pivot => return self.cc_pivot(select),
+            Plan::Aggregate => return self.cc_aggregate(select),
+            Plan::Order => return self.cc_order(select),
+            Plan::Stream => {}
         }
 
         // Initialize the limit counters before the loop.
@@ -317,80 +381,18 @@ impl Compiler {
             return Ok(());
         }
 
-        // `loop_csr[i]` is the cursor source i advances (a table scan, a value
-        // iterator, or — for unpivot — its attribute-value pair iterator).
-        // `bindings` is the flattened projection environment: a table/value
-        // source contributes one binding; an unpivot contributes its value (and
-        // optional attribute-name) binding. `seeds` re-derives those from the
-        // current pair at the top of each body iteration.
-        let loop_csr = Self::loop_cursors(&from);
-        let bindings = Self::from_bindings(&from);
-        let seeds = Self::unpivot_seeds(&from);
-        let n = from.len();
-
-        // Open table sources once before the loop; value sources need no open.
-        self.open_tables(&from);
-
-        // Begin one iteration per source, outer to inner. The sources are:
-        //
-        //  1. A table source begin is a Scan.
-        //  2. A value source begin is an expression + Iter.
-        //  3. An unpivot source begin is an expression + Entries + Iter.
-        //
-        // We enter a value/unpivot source on the expression so that we evaluate
-        // it again. This is critical for correlated sources.
-        //
-        //  - entry[i] is the entry target for the enclosing Next instruction.
-        //  - begin[i] is the exhaust instruction to patch once `exit` is known.
-        //
-        let mut entry = vec![0usize; n];
-        let mut begin = vec![0usize; n];
-        for (i, f) in from.into_iter().enumerate() {
-            entry[i] = self.cc_source_begin(loop_csr[i], f)?;
-            begin[i] = self.pc();
-        }
-
-        // Innermost body: seed unpivot bindings, predicate filter, then
-        // offset/limit, then projection.
-        let body = self.code.len();
-        self.cc_seed(&seeds);
-        let mut where_fail = None;
-        if let Some(where_) = where_ {
-            self.cc_expr(where_)?;
-            self.emit_if_not(0);
-            where_fail = Some(self.pc());
-        }
-
-        // Compile the offset/limit guards.
+        let fp = analyze_from(&from);
+        let frame = self.cc_loop_open(from, &fp, where_)?;
+        // --- body ---
         let (offset, limit_pc) = self.emit_limit_checks(cnt_skip, cnt_take);
-
-        // Compile the 'select' projection (constructor).
-        self.cc_select_constructor(constructor, &bindings)?;
+        self.cc_select_constructor(constructor, &fp.bindings)?;
         self.emit_yield();
-
-        // Close the loops inner to outer. When source i advances, resume the
-        // next inner source's begin block (re-evaluating a value expr), or the
-        // body if i is innermost.
-        let mut next_pc = vec![0usize; n];
-        for i in (0..n).rev() {
-            let resume = if i + 1 < n { entry[i + 1] } else { body };
-            self.emit_next(loop_csr[i], resume);
-            next_pc[i] = self.pc();
-        }
-
-        // Patch exhaust edges: the outermost source exits the query; an inner
-        // source that exhausts (or yields nothing) advances its enclosing one.
+        // --- close ---
+        let exits = self.cc_loop_close(&frame)?;
         let exit = self.pc() + 1;
-        self.patch(begin[0], exit)?;
-        for i in 1..n {
-            self.patch(begin[i], next_pc[i - 1])?;
-        }
-        let inner = next_pc[n - 1];
-        if let Some(pc) = where_fail {
-            self.patch(pc, inner)?;
-        }
+        self.patch(exits.begin0, exit)?;
         if let Some(pc) = offset {
-            self.patch(pc, inner)?;
+            self.patch(pc, exits.inner)?;
         }
         if let Some(pc) = limit_pc {
             self.patch(pc, exit)?;
@@ -406,7 +408,6 @@ impl Compiler {
     /// `name: value` member; after the outermost source exhausts (or was empty)
     /// the single object is yielded — so an empty stream produces one `{}`.
     /// v1 supports `from` + `where`; `order by`/`limit` are rejected.
-    #[allow(clippy::too_many_lines)]
     fn cc_pivot(&mut self, select: Select) -> Result<()> {
         self.ensure_txn(TransactionMode::Read);
         let Select {
@@ -432,108 +433,20 @@ impl Compiler {
         // loop; each tuple sets one dynamic member on it.
         self.emit_obj();
 
-        let loop_csr = Self::loop_cursors(&from);
-        let seeds = Self::unpivot_seeds(&from);
-        let n = from.len();
-
-        self.open_tables(&from);
-
-        let mut entry = vec![0usize; n];
-        let mut begin = vec![0usize; n];
-        for (i, f) in from.into_iter().enumerate() {
-            entry[i] = self.cc_source_begin(loop_csr[i], f)?;
-            begin[i] = self.pc();
-        }
-
-        // Body: seed unpivot bindings, filter, then set obj[name] = value. The
-        // stack order ObjSet wants is `obj name value`, so push name then value.
-        let body = self.code.len();
-        self.cc_seed(&seeds);
-        let mut where_fail = None;
-        if let Some(where_) = where_ {
-            self.cc_expr(where_)?;
-            self.emit_if_not(0);
-            where_fail = Some(self.pc());
-        }
+        let fp = analyze_from(&from);
+        let frame = self.cc_loop_open(from, &fp, where_)?;
+        // --- body: set obj[name] = value (ObjSet wants `obj name value`) ---
         self.cc_expr(*pivot.name)?;
         self.cc_expr(*pivot.value)?;
         self.emit_obj_set();
-
-        // Close the loops inner to outer (mirrors cc_select).
-        let mut next_pc = vec![0usize; n];
-        for i in (0..n).rev() {
-            let resume = if i + 1 < n { entry[i + 1] } else { body };
-            self.emit_next(loop_csr[i], resume);
-            next_pc[i] = self.pc();
-        }
-
-        // After the outermost source exhausts (or was empty) we yield the one
-        // accumulated object. Both the initial-empty edge (begin[0]) and the
-        // exhausted edge (next[0] falling through) land on this Yield.
+        // --- close, then yield the accumulated object ---
+        let exits = self.cc_loop_close(&frame)?;
+        // After the outermost source exhausts (or was empty), yield the one
+        // accumulated object. Both the initial-empty edge (begin0) and the
+        // exhausted edge (Next falling through) land on this Yield.
         self.emit_yield();
-        let yield_pc = self.pc();
-
-        self.patch(begin[0], yield_pc)?;
-        for i in 1..n {
-            self.patch(begin[i], next_pc[i - 1])?;
-        }
-        let inner = next_pc[n - 1];
-        if let Some(pc) = where_fail {
-            self.patch(pc, inner)?;
-        }
+        self.patch(exits.begin0, self.pc())?;
         Ok(())
-    }
-
-    /// The cursor each from-source advances: a table scan, a value iterator, or
-    /// (for unpivot) the attribute-value pair iterator at [`crate::ir::From::csr`].
-    fn loop_cursors(from: &[crate::ir::From]) -> Vec<usize> {
-        from.iter()
-            .map(|f| f.csr.expect("from item should be bound") as usize)
-            .collect()
-    }
-
-    /// The flattened projection environment a from clause exposes, in binding
-    /// order: one binding per table/value source; for an unpivot, its value
-    /// binding plus its optional attribute-name binding.
-    fn from_bindings(from: &[crate::ir::From]) -> Vec<(String, usize)> {
-        let mut bindings = Vec::new();
-        for f in from {
-            if let Source::Unpivot(u) = &f.src {
-                bindings.push((
-                    f.var.clone(),
-                    u.val_csr.expect("unpivot value cursor") as usize,
-                ));
-                if let Some(att) = &u.att {
-                    bindings.push((
-                        att.clone(),
-                        u.att_csr.expect("unpivot attribute cursor") as usize,
-                    ));
-                }
-            } else {
-                bindings.push((
-                    f.var.clone(),
-                    f.csr.expect("from item should be bound") as usize,
-                ));
-            }
-        }
-        bindings
-    }
-
-    /// The `(pair, value, attr)` cursor triples of the unpivot sources: the pair
-    /// iterator, the value binding, and the optional attribute-name binding.
-    fn unpivot_seeds(from: &[crate::ir::From]) -> Vec<(usize, usize, Option<usize>)> {
-        from.iter()
-            .filter_map(|f| {
-                let Source::Unpivot(u) = &f.src else {
-                    return None;
-                };
-                Some((
-                    f.csr.expect("unpivot pair cursor") as usize,
-                    u.val_csr.expect("unpivot value cursor") as usize,
-                    u.att_csr.map(|c| c as usize),
-                ))
-            })
-            .collect()
     }
 
     /// Opens every table source's btree once before the loop; value and unpivot
@@ -602,7 +515,6 @@ impl Compiler {
     /// applies the limit, re-seeds each from-binding via `SetVal` so the select
     /// constructor compiles exactly as in the streaming path, and yields. Per
     /// the spec, select runs after limit (§4.9), so projection is post-sort.
-    #[allow(clippy::too_many_lines)]
     fn cc_order(&mut self, select: Select) -> Result<()> {
         let Select {
             from,
@@ -615,19 +527,14 @@ impl Compiler {
         let order = order.expect("cc_order requires an order clause");
         let dirs: Vec<bool> = order.keys.iter().map(|k| k.desc).collect();
 
-        // `loop_csr` is the cursor each source advances; `bindings` is the
-        // flattened projection environment (an unpivot contributes value + name).
-        let loop_csr = Self::loop_cursors(&from);
-        let bindings = Self::from_bindings(&from);
-        let seeds = Self::unpivot_seeds(&from);
-        let n = from.len();
-
-        // Register every from-cursor (iterators and bindings), then allocate the
-        // phase-2 payload cursor so it can't collide with them.
-        for &csr in &loop_csr {
+        // Pre-compute the from plan before consuming `from`, so we can register
+        // their cursors and allocate the phase-2 payload cursor without colliding
+        // with any from-cursor.
+        let fp = analyze_from(&from);
+        for &csr in &fp.loop_csr {
             self.use_cursor(csr);
         }
-        for (_, csr) in &bindings {
+        for (_, csr) in &fp.bindings {
             self.use_cursor(*csr);
         }
         let payload_csr = self.alloc_cursor();
@@ -635,28 +542,8 @@ impl Compiler {
         // The collector array lives at the bottom of the stack across phase 1.
         self.emit_arr();
 
-        // Open table sources once before the loop; value/unpivot sources don't.
-        self.open_tables(&from);
-
-        // Begin one iteration per source, outer to inner (mirrors cc_select).
-        let mut entry = vec![0usize; n];
-        let mut begin = vec![0usize; n];
-        for (i, f) in from.into_iter().enumerate() {
-            entry[i] = self.cc_source_begin(loop_csr[i], f)?;
-            begin[i] = self.pc();
-        }
-
-        // Innermost body: seed unpivot bindings, residual filter, then tag + collect.
-        let body = self.code.len();
-        self.cc_seed(&seeds);
-        let mut where_fail = None;
-        if let Some(where_) = where_ {
-            self.cc_expr(where_)?;
-            self.emit_if_not(0);
-            where_fail = Some(self.pc());
-        }
-
-        // Build the tagged element [order_key_bytes, payload].
+        let frame = self.cc_loop_open(from, &fp, where_)?;
+        // --- body: build the tagged element [order_key_bytes, payload] ---
         self.emit_arr();
         for k in order.keys {
             self.cc_expr(k.expr)?;
@@ -664,32 +551,15 @@ impl Compiler {
         self.emit_order_key(dirs);
         self.emit_arr_push();
         // The payload is the binding tuple, exactly what `select .` builds.
-        self.cc_select_constructor(Constructor::None, &bindings)?;
+        self.cc_select_constructor(Constructor::None, &fp.bindings)?;
         self.emit_arr_push();
         self.emit_arr_push();
-
-        // Close the loops inner to outer (mirrors cc_select).
-        let mut next_pc = vec![0usize; n];
-        for i in (0..n).rev() {
-            let resume = if i + 1 < n { entry[i + 1] } else { body };
-            self.emit_next(loop_csr[i], resume);
-            next_pc[i] = self.pc();
-        }
-
-        // Patch the phase-1 exhaust edges. The outermost source exhausting ends
-        // phase 1 and falls into the sort; an inner source advances its enclosing one.
+        // --- close, then phase 2 ---
+        let exits = self.cc_loop_close(&frame)?;
         let sort_pc = self.pc() + 1;
-        self.patch(begin[0], sort_pc)?;
-        for i in 1..n {
-            self.patch(begin[i], next_pc[i - 1])?;
-        }
-        let inner = next_pc[n - 1];
-        if let Some(pc) = where_fail {
-            self.patch(pc, inner)?;
-        }
-
+        self.patch(exits.begin0, sort_pc)?;
         // Phase 2: drop the read iterators, then sort the collector by key bytes.
-        for &csr in &loop_csr {
+        for &csr in &fp.loop_csr {
             self.emit_close(csr);
         }
         self.emit_sort();
@@ -707,15 +577,10 @@ impl Compiler {
 
         // Re-seed each from-binding from the payload (element[1]) so the select
         // constructor reads it via the same LoadVal as a live scan.
-        for (alias, csr) in &bindings {
-            self.emit_load(payload_csr);
-            self.emit_jpi(1);
-            self.emit_jpk(alias.clone());
-            self.emit_set_val(*csr);
-        }
+        self.emit_reseed_from_payload(payload_csr, &fp.bindings);
 
         // Project and yield.
-        self.cc_select_constructor(constructor, &bindings)?;
+        self.cc_select_constructor(constructor, &fp.bindings)?;
         self.emit_yield();
 
         // Advance; patch the exhaust/skip/take edges now that targets are known.
@@ -752,7 +617,6 @@ impl Compiler {
     ///   FIN:  [limit checks]           slice the single row
     ///         [AggFinal…] / project
     ///         Yield
-    #[allow(clippy::too_many_lines)]
     fn cc_aggregate(&mut self, select: Select) -> Result<()> {
         if select.order.is_some() {
             unsupported!("order by of an aggregate query is not supported");
@@ -788,11 +652,7 @@ impl Compiler {
         }
         let terms = collector.terms;
 
-        // Loop cursors / bindings handle table/value/unpivot sources uniformly.
-        let loop_csr = Self::loop_cursors(&from);
-        let bindings = Self::from_bindings(&from);
-        let seeds = Self::unpivot_seeds(&from);
-        let n = from.len();
+        let fp = analyze_from(&from);
 
         // Reset the accumulators and init the limit counters before the loop.
         for t in &terms {
@@ -800,27 +660,8 @@ impl Compiler {
         }
         let (cnt_skip, cnt_take) = self.emit_limit_counters(limit.as_ref());
 
-        // Open table sources once before the loop; value/unpivot need no open.
-        self.open_tables(&from);
-
-        // Begin one iteration per source, outer to inner (mirrors cc_select).
-        let mut entry = vec![0usize; n];
-        let mut begin = vec![0usize; n];
-        for (i, f) in from.into_iter().enumerate() {
-            entry[i] = self.cc_source_begin(loop_csr[i], f)?;
-            begin[i] = self.pc();
-        }
-
-        // Body: seed unpivot bindings, residual filter, then fold each aggregate
-        // (consuming the terms — their last use).
-        let body = self.code.len();
-        self.cc_seed(&seeds);
-        let mut where_fail = None;
-        if let Some(where_) = where_ {
-            self.cc_expr(where_)?;
-            self.emit_if_not(0);
-            where_fail = Some(self.pc());
-        }
+        let frame = self.cc_loop_open(from, &fp, where_)?;
+        // --- body: fold each aggregate (consuming the terms — their last use) ---
         for t in terms {
             match t.arg {
                 // count(*): push a non-null constant so AggStep counts the row.
@@ -829,36 +670,19 @@ impl Compiler {
             }
             self.emit_agg_step(t.slot, t.kind);
         }
-
-        // Close the loops inner to outer (mirrors cc_select).
-        let mut next_pc = vec![0usize; n];
-        for i in (0..n).rev() {
-            let resume = if i + 1 < n { entry[i + 1] } else { body };
-            self.emit_next(loop_csr[i], resume);
-            next_pc[i] = self.pc();
-        }
-
-        // The finalize block begins right after the Next instructions.
+        // --- close; outermost exhaust falls into the finalize block ---
+        let exits = self.cc_loop_close(&frame)?;
+        // The finalize block begins right after the Next instructions. An empty
+        // source exhausting before any row still reaches AggFinal and yields one row.
         let fin = self.pc() + 1;
-
-        // Patch the exhaust edges: the outermost source exhausting falls into the
-        // finalize block (so empty input still yields one row); an inner source
-        // exhausting advances its enclosing one.
-        self.patch(begin[0], fin)?;
-        for i in 1..n {
-            self.patch(begin[i], next_pc[i - 1])?;
-        }
-        let inner = next_pc[n - 1];
-        if let Some(pc) = where_fail {
-            self.patch(pc, inner)?;
-        }
+        self.patch(exits.begin0, fin)?;
 
         // Finalize: HAVING (whole input as one group), the limit, then project.
         // A failed HAVING, spent skip, or exhausted take drops the one row.
         let (cont, stop) = self.cc_emit_group_yield(
             &constructor,
             having.as_ref(),
-            &bindings,
+            &fp.bindings,
             (cnt_skip, cnt_take),
         )?;
         let exit = self.pc() + 1;
@@ -892,7 +716,10 @@ impl Compiler {
     ///   STEP: reseed; AggStep repr; fold aggs; Next{jmp:LOOP}
     ///         [output last group]
     ///   DONE: (Halt, appended by `compile`)
-    #[allow(clippy::too_many_lines)]
+    // The nested-loop scaffold is extracted (cc_loop_open/close); the residual
+    // length is the irreducible 3-phase grouped-stream emission. `expect` (not
+    // `allow`) so this fails the build once Phase 4 decomposes it under the limit.
+    #[expect(clippy::too_many_lines, reason = "irreducible 3-phase grouped-stream emission; the nested-loop scaffold is already extracted")]
     fn cc_group(&mut self, select: Select) -> Result<()> {
         self.ensure_txn(TransactionMode::Read);
         if select.order.is_some() {
@@ -944,18 +771,14 @@ impl Compiler {
         }
         let terms = collector.terms;
 
-        // Loop cursors / bindings handle table/value/unpivot sources uniformly.
-        let loop_csr = Self::loop_cursors(&from);
-        let bindings = Self::from_bindings(&from);
-        let seeds = Self::unpivot_seeds(&from);
-        let n = from.len();
-
-        // Register from-cursors, then the phase-3 payload (sorted scan) and
-        // representative-row cursors so they can't collide.
-        for &csr in &loop_csr {
+        // Pre-compute the from plan before consuming `from`, so we can register
+        // their cursors and allocate the phase-3 payload/repr cursors without
+        // colliding with any from-cursor.
+        let fp = analyze_from(&from);
+        for &csr in &fp.loop_csr {
             self.use_cursor(csr);
         }
-        for (_, csr) in &bindings {
+        for (_, csr) in &fp.bindings {
             self.use_cursor(*csr);
         }
         let payload_csr = self.alloc_cursor();
@@ -968,26 +791,9 @@ impl Compiler {
 
         // ---- Phase 1: collect [group_key_bytes, payload] (mirrors cc_order) ----
         self.emit_arr();
-        self.open_tables(&from);
 
-        let mut entry = vec![0usize; n];
-        let mut begin = vec![0usize; n];
-        for (i, f) in from.into_iter().enumerate() {
-            entry[i] = self.cc_source_begin(loop_csr[i], f)?;
-            begin[i] = self.pc();
-        }
-
-        let body = self.code.len();
-        self.cc_seed(&seeds);
-        let mut where_fail = None;
-        if let Some(where_) = where_ {
-            self.cc_expr(where_)?;
-            self.emit_if_not(0);
-            where_fail = Some(self.pc());
-        }
-
-        // Build the tagged element [group_key_bytes, payload]. Group order is
-        // ascending; direction is irrelevant to grouping, only to output order.
+        let frame = self.cc_loop_open(from, &fp, where_)?;
+        // --- body: build the tagged element [group_key_bytes, payload] ---
         let dirs = vec![false; group_keys.len()];
         self.emit_arr();
         for k in group_keys {
@@ -995,28 +801,14 @@ impl Compiler {
         }
         self.emit_order_key(dirs);
         self.emit_arr_push();
-        self.cc_select_constructor(Constructor::None, &bindings)?;
+        self.cc_select_constructor(Constructor::None, &fp.bindings)?;
         self.emit_arr_push();
         self.emit_arr_push();
-
-        let mut next_pc = vec![0usize; n];
-        for i in (0..n).rev() {
-            let resume = if i + 1 < n { entry[i + 1] } else { body };
-            self.emit_next(loop_csr[i], resume);
-            next_pc[i] = self.pc();
-        }
-
-        // Patch the phase-1 exhaust edges, then close the read iterators and sort.
+        // --- close, then close the read iterators and sort ---
+        let exits = self.cc_loop_close(&frame)?;
         let sort_pc = self.pc() + 1;
-        self.patch(begin[0], sort_pc)?;
-        for i in 1..n {
-            self.patch(begin[i], next_pc[i - 1])?;
-        }
-        let inner = next_pc[n - 1];
-        if let Some(pc) = where_fail {
-            self.patch(pc, inner)?;
-        }
-        for &csr in &loop_csr {
+        self.patch(exits.begin0, sort_pc)?;
+        for &csr in &fp.loop_csr {
             self.emit_close(csr);
         }
         self.emit_sort();
@@ -1039,7 +831,7 @@ impl Compiler {
             having.as_ref(),
             repr_csr,
             repr_slot,
-            &bindings,
+            &fp.bindings,
             (cnt_skip, cnt_take),
         )?;
         // Reset the representative row and accumulators for the new group; the
@@ -1049,12 +841,7 @@ impl Compiler {
 
         // Step block: fold the current row into the group.
         let step_pc = self.code.len();
-        for (alias, csr) in &bindings {
-            self.emit_load(payload_csr);
-            self.emit_jpi(1);
-            self.emit_jpk(alias.clone());
-            self.emit_set_val(*csr);
-        }
+        self.emit_reseed_from_payload(payload_csr, &fp.bindings);
         // Keep the group's representative row (the first one folded).
         self.emit_load(payload_csr);
         self.emit_jpi(1);
@@ -1075,7 +862,7 @@ impl Compiler {
             having.as_ref(),
             repr_csr,
             repr_slot,
-            &bindings,
+            &fp.bindings,
             (cnt_skip, cnt_take),
         )?;
         let done = self.pc() + 1;
@@ -1261,8 +1048,12 @@ impl Compiler {
 
     /// Patches the jump target of the control-flow instruction at `src` to `dst`.
     fn patch(&mut self, src: usize, dst: usize) -> Result<()> {
-        // TODO: actual error handling
-        match self.code.get_mut(src).unwrap() {
+        let len = self.code.len();
+        let op = self.code.get_mut(src)
+            .ok_or_else(|| crate::error::Error::InternalError(
+                format!("patch: pc[{src}] is out of range (code len={len})")
+            ))?;
+        match op {
             Vop::Init { jmp }
             | Vop::Next { csr: _, jmp }
             | Vop::Scan { csr: _, jmp }
@@ -1272,7 +1063,7 @@ impl Compiler {
             | Vop::CntIfPos(_, jmp)
             | Vop::CntIfZero(_, jmp)
             | Vop::GroupBreak { slot: _, jmp } => *jmp = dst,
-            _ => unsupported!("cannot patch instruction at pc[{}]", src),
+            _ => crate::error!("patch: instruction at pc[{src}] is not a control-flow op"),
         }
         Ok(())
     }
@@ -1351,15 +1142,16 @@ impl Compiler {
         let Call { name, args } = call;
         // Built-in operators compile to dedicated opcodes (hot path, special
         // promotion/3VL semantics live in the VM).
-        if let Some((arity_ok, op)) = operator_op(&name, args.len()) {
-            if !arity_ok {
-                return Err(Error::UnknownFunction(name));
+        match operator_op(&name, args.len()) {
+            OpLookup::Op(op) => {
+                for arg in args {
+                    self.cc_expr(arg)?;
+                }
+                self.code.push(op);
+                return Ok(());
             }
-            for arg in args {
-                self.cc_expr(arg)?;
-            }
-            self.code.push(op);
-            return Ok(());
+            OpLookup::BadArity => return Err(Error::UnknownFunction(name)),
+            OpLookup::NotAnOperator => {}
         }
         // Otherwise resolve against the standard-library registry.
         match functions::lookup(&name) {
@@ -1504,8 +1296,8 @@ impl Compiler {
         self.code.push(Vop::Insert { csr });
     }
 
-    fn emit_new_key(&mut self, keys: Vec<Key>) {
-        self.code.push(Vop::NewKey { keys });
+    fn emit_encode_key(&mut self, keys: Vec<Key>) {
+        self.code.push(Vop::EncodeKey { keys });
     }
 
     fn emit_delete(&mut self, csr: usize) {
@@ -1634,6 +1426,19 @@ impl Compiler {
         self.code.push(Vop::SetVal { csr });
     }
 
+    /// Re-seeds each from-binding from the sorted payload element (`element[1]`),
+    /// so the projection reads it via the same `LoadVal` as a live scan.
+    ///
+    /// For each `(alias, csr)` in `bindings`: `LoadVal` → `Jpi(1)` → `Jpk(alias)` → `SetVal`.
+    fn emit_reseed_from_payload(&mut self, payload_csr: usize, bindings: &[(String, usize)]) {
+        for (alias, csr) in bindings {
+            self.emit_load(payload_csr);
+            self.emit_jpi(1);
+            self.emit_jpk(alias.clone());
+            self.emit_set_val(*csr);
+        }
+    }
+
     fn emit_open(&mut self, csr: usize, tbl: u32) {
         self.use_cursor(csr);
         self.code.push(Vop::Open { csr, tbl });
@@ -1700,6 +1505,66 @@ fn has_aggregate(constructor: &Constructor) -> bool {
     scan.0
 }
 
+/// Which compilation strategy a SELECT takes. The order of checks is significant:
+/// GROUP BY and PIVOT are decided before the aggregate path.
+enum Plan {
+    /// Sort the from/where stream by the group key, then stream with accumulator resets.
+    Group,
+    /// Fold the entire stream into one accumulator object and yield it once.
+    Pivot,
+    /// Fold the entire stream into aggregate accumulators and yield one finalized row.
+    Aggregate,
+    /// Materialize the from/where stream, sort it, then project and yield.
+    Order,
+    /// Stream each row from the from/where loop, apply limit, project, and yield.
+    Stream,
+}
+
+/// Classifies a bound SELECT into the appropriate compilation strategy.
+///
+/// The check order is load-bearing: GROUP BY is tested before aggregates
+/// (a grouped aggregate query must reach `cc_group`, not `cc_aggregate`), and
+/// PIVOT is tested before aggregates for the same reason.
+fn plan(select: &Select) -> Plan {
+    if select.group.is_some() {
+        Plan::Group
+    } else if matches!(select.select, Constructor::Pivot(_)) {
+        Plan::Pivot
+    } else if has_aggregate(&select.select) || select.having.is_some() {
+        Plan::Aggregate
+    } else if select.order.is_some() {
+        Plan::Order
+    } else {
+        Plan::Stream
+    }
+}
+
+/// Analyzes a from clause in a single pass, producing the cursor list, the
+/// flattened projection bindings, and the unpivot reseed triples needed by
+/// [`Compiler::cc_loop_open`] and its callers.
+fn analyze_from(from: &[crate::ir::From]) -> FromPlan {
+    let mut loop_csr = Vec::with_capacity(from.len());
+    let mut bindings = Vec::new();
+    let mut seeds = Vec::new();
+    for f in from {
+        let csr = f.csr.expect("from item should be bound") as usize;
+        loop_csr.push(csr);
+        if let Source::Unpivot(u) = &f.src {
+            let val = u.val_csr.expect("unpivot value cursor") as usize;
+            bindings.push((f.var.clone(), val));
+            let att = u.att.as_ref().map(|att| {
+                let ac = u.att_csr.expect("unpivot attribute cursor") as usize;
+                bindings.push((att.clone(), ac));
+                ac
+            });
+            seeds.push((csr, val, att));
+        } else {
+            bindings.push((f.var.clone(), csr));
+        }
+    }
+    FromPlan { loop_csr, bindings, seeds }
+}
+
 /// A `VisitMut` over a projection (and HAVING) that pulls out each aggregate
 /// term — assigning its accumulator slot and taking its argument — and flags a
 /// bare from-binding reference (a per-row value, undefined in an aggregate
@@ -1757,34 +1622,43 @@ impl VisitMut for AggCollect<'_, '_> {
     }
 }
 
-/// Maps a built-in operator name to its opcode, or `None` if `name` is not an
-/// operator (in which case it is resolved as a standard-library function). The
-/// returned bool reports whether `argc` is a valid arity for that operator.
+/// The result of resolving a name against the built-in operator table.
+enum OpLookup {
+    /// Not an operator — resolve as a standard-library function instead.
+    NotAnOperator,
+    /// A known operator applied with the wrong number of arguments.
+    BadArity,
+    /// A known operator at a valid arity, with its opcode.
+    Op(Vop),
+}
+
+/// Maps a built-in operator name to an [`OpLookup`], distinguishing unknown
+/// names from known operators at the wrong arity.
 #[allow(clippy::len_zero)]
-fn operator_op(name: &str, argc: usize) -> Option<(bool, Vop)> {
-    Some(match name {
-        "*" => (argc == 2, Vop::Mul),
-        "/" => (argc == 2, Vop::Div),
-        "%" => (argc == 2, Vop::Rem),
-        "+" => (argc == 2, Vop::Add),
-        "-" => (argc == 2, Vop::Sub),
-        "<" => (argc == 2, Vop::Lt),
-        "<=" => (argc == 2, Vop::Le),
-        "=" => (argc == 2, Vop::Eq),
-        ">=" => (argc == 2, Vop::Ge),
-        ">" => (argc == 2, Vop::Gt),
-        "!=" => (argc == 2, Vop::Ne),
-        "and" => (argc == 2, Vop::And),
-        "or" => (argc == 2, Vop::Or),
-        "not" => (argc == 1, Vop::Not),
-        "is_null" => (argc == 1, Vop::IsNull),
-        "is_true" => (argc == 1, Vop::IsTrue),
-        "is_false" => (argc == 1, Vop::IsFalse),
-        "is_unknown" => (argc == 1, Vop::IsUnknown),
-        "between" => (argc == 3, Vop::Between),
-        "in_list" => (argc >= 1, Vop::InList(argc.saturating_sub(1))),
-        _ => return None,
-    })
+fn operator_op(name: &str, argc: usize) -> OpLookup {
+    match name {
+        "*" => if argc == 2 { OpLookup::Op(Vop::Mul) } else { OpLookup::BadArity },
+        "/" => if argc == 2 { OpLookup::Op(Vop::Div) } else { OpLookup::BadArity },
+        "%" => if argc == 2 { OpLookup::Op(Vop::Rem) } else { OpLookup::BadArity },
+        "+" => if argc == 2 { OpLookup::Op(Vop::Add) } else { OpLookup::BadArity },
+        "-" => if argc == 2 { OpLookup::Op(Vop::Sub) } else { OpLookup::BadArity },
+        "<" => if argc == 2 { OpLookup::Op(Vop::Lt) } else { OpLookup::BadArity },
+        "<=" => if argc == 2 { OpLookup::Op(Vop::Le) } else { OpLookup::BadArity },
+        "=" => if argc == 2 { OpLookup::Op(Vop::Eq) } else { OpLookup::BadArity },
+        ">=" => if argc == 2 { OpLookup::Op(Vop::Ge) } else { OpLookup::BadArity },
+        ">" => if argc == 2 { OpLookup::Op(Vop::Gt) } else { OpLookup::BadArity },
+        "!=" => if argc == 2 { OpLookup::Op(Vop::Ne) } else { OpLookup::BadArity },
+        "and" => if argc == 2 { OpLookup::Op(Vop::And) } else { OpLookup::BadArity },
+        "or" => if argc == 2 { OpLookup::Op(Vop::Or) } else { OpLookup::BadArity },
+        "not" => if argc == 1 { OpLookup::Op(Vop::Not) } else { OpLookup::BadArity },
+        "is_null" => if argc == 1 { OpLookup::Op(Vop::IsNull) } else { OpLookup::BadArity },
+        "is_true" => if argc == 1 { OpLookup::Op(Vop::IsTrue) } else { OpLookup::BadArity },
+        "is_false" => if argc == 1 { OpLookup::Op(Vop::IsFalse) } else { OpLookup::BadArity },
+        "is_unknown" => if argc == 1 { OpLookup::Op(Vop::IsUnknown) } else { OpLookup::BadArity },
+        "between" => if argc == 3 { OpLookup::Op(Vop::Between) } else { OpLookup::BadArity },
+        "in_list" => if argc >= 1 { OpLookup::Op(Vop::InList(argc.saturating_sub(1))) } else { OpLookup::BadArity },
+        _ => OpLookup::NotAnOperator,
+    }
 }
 
 #[cfg(test)]
@@ -1817,251 +1691,417 @@ mod tests {
         Compiler::new().compile(stmt).unwrap()
     }
 
+    /// Returns the index of the first instruction satisfying `pred`; panics with context if none.
+    fn find(code: &[Vop], pred: impl Fn(&Vop) -> bool) -> usize {
+        code.iter()
+            .position(pred)
+            .unwrap_or_else(|| panic!("no instruction matched in {code:#?}"))
+    }
+
+    /// Returns the count of instructions satisfying `pred`.
+    fn count(code: &[Vop], pred: impl Fn(&Vop) -> bool) -> usize {
+        code.iter().filter(|op| pred(op)).count()
+    }
+
+    // -------------------------------------------------------------------------
+    // select * from catalog
+    // -------------------------------------------------------------------------
+
     #[test]
-    fn select_star_from_catalog_bytecode_shape() {
+    fn select_star_from_catalog_scan_exhausts_into_halt() {
+        // Load-bearing: an empty table's Scan must exhaust into Halt (loop exit),
+        // not into a Yield or any body instruction. Following the jump survives
+        // any address shift introduced by later refactors.
         let (_dir, storage, catalog) = fixture();
         let program = compile_sql(&storage, &catalog, "select * from catalog;");
         assert_eq!(program.cursors, 1);
-        let code = program.instructions;
-        assert_eq!(code.len(), 9);
-        assert!(matches!(code[0], Vop::Init { jmp: 7 }));
-        assert!(matches!(code[1], Vop::Open { csr: 0, tbl: 0 }));
-        assert!(matches!(code[2], Vop::Scan { csr: 0, jmp: 6 }));
-        assert!(matches!(code[3], Vop::LoadVal { csr: 0 }));
-        assert!(matches!(code[4], Vop::Yield));
-        assert!(matches!(code[5], Vop::Next { csr: 0, jmp: 3 }));
-        assert!(matches!(code[6], Vop::Halt));
-        assert!(matches!(
-            code[7],
-            Vop::Transaction {
-                txm: TransactionMode::Read
-            }
-        ));
-        assert!(matches!(code[8], Vop::Jump { jmp: 1 }));
+        let code = &program.instructions;
+        let scan = find(code, |op| matches!(op, Vop::Scan { .. }));
+        let Vop::Scan { jmp, .. } = code[scan] else {
+            unreachable!()
+        };
+        assert!(
+            matches!(code[jmp], Vop::Halt),
+            "empty Scan must exhaust into Halt, found {:?}",
+            code[jmp]
+        );
     }
 
     #[test]
-    fn select_where_true_bytecode_shape() {
+    fn select_star_from_catalog_control_flow_shape() {
+        // Open precedes Scan; body emits LoadVal then Yield; Next loops back
+        // into the body (before Scan); Halt follows the scan's exhaust target.
+        let (_dir, storage, catalog) = fixture();
+        let program = compile_sql(&storage, &catalog, "select * from catalog;");
+        assert_eq!(program.cursors, 1);
+        let code = &program.instructions;
+        let open = find(code, |op| matches!(op, Vop::Open { .. }));
+        let scan = find(code, |op| matches!(op, Vop::Scan { .. }));
+        let load = find(code, |op| matches!(op, Vop::LoadVal { .. }));
+        let yld = find(code, |op| matches!(op, Vop::Yield));
+        let next = find(code, |op| matches!(op, Vop::Next { .. }));
+        let halt = find(code, |op| matches!(op, Vop::Halt));
+        // Structural order.
+        assert!(open < scan, "Open precedes Scan");
+        assert!(scan < load, "LoadVal is inside the loop body");
+        assert!(load < yld, "Yield follows LoadVal");
+        assert!(yld < next, "Next follows Yield");
+        assert!(next < halt, "Halt follows the loop");
+        // Next must jump back into the body (before or at LoadVal, after Scan).
+        let Vop::Next { jmp: next_jmp, .. } = code[next] else {
+            unreachable!()
+        };
+        assert!(
+            next_jmp > scan && next_jmp <= load,
+            "Next must loop back into the body"
+        );
+        // Exactly one Yield.
+        assert_eq!(count(code, |op| matches!(op, Vop::Yield)), 1);
+    }
+
+    // -------------------------------------------------------------------------
+    // select * from catalog where true
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn select_where_true_predicate_skips_to_next() {
+        // The IfNot (predicate guard) must jump to the Next instruction, not past it.
+        // A false predicate drops the row by jumping to Next which then loops.
         let (_dir, storage, catalog) = fixture();
         let program = compile_sql(&storage, &catalog, "select * from catalog where true;");
-        let code = program.instructions;
-        assert!(matches!(code[2], Vop::Scan { csr: 0, jmp: 8 }));
-        assert!(matches!(code[3], Vop::Push { .. }));
-        assert!(matches!(code[4], Vop::IfNot(7)));
-        assert!(matches!(code[5], Vop::LoadVal { csr: 0 }));
-        assert!(matches!(code[6], Vop::Yield));
-        assert!(matches!(code[7], Vop::Next { csr: 0, jmp: 3 }));
+        let code = &program.instructions;
+        let scan = find(code, |op| matches!(op, Vop::Scan { .. }));
+        let ifnot = find(code, |op| matches!(op, Vop::IfNot(..)));
+        let yld = find(code, |op| matches!(op, Vop::Yield));
+        // Predicate sits between Scan and Yield.
+        assert!(scan < ifnot, "IfNot is inside the scan loop");
+        assert!(ifnot < yld, "IfNot precedes Yield");
+        // IfNot jumps to Next (drops the row), not past it.
+        let Vop::IfNot(ifnot_jmp) = code[ifnot] else {
+            unreachable!()
+        };
+        assert!(
+            matches!(code[ifnot_jmp], Vop::Next { .. }),
+            "IfNot must jump to Next to drop the row, found {:?}",
+            code[ifnot_jmp]
+        );
     }
 
     #[test]
-    fn order_by_bytecode_shape() {
+    fn select_where_true_scan_exhausts_into_halt() {
+        let (_dir, storage, catalog) = fixture();
+        let program = compile_sql(&storage, &catalog, "select * from catalog where true;");
+        let code = &program.instructions;
+        let scan = find(code, |op| matches!(op, Vop::Scan { .. }));
+        let Vop::Scan { jmp, .. } = code[scan] else {
+            unreachable!()
+        };
+        assert!(
+            matches!(code[jmp], Vop::Halt),
+            "empty Scan must exhaust into Halt, found {:?}",
+            code[jmp]
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // select * from catalog order by catalog.name
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn order_by_phase_one_collects_sort_keys_into_array() {
+        // Phase 1: an Arr collector precedes Open; the body builds [OrderKey,
+        // payload] pairs and ArrPushes them; Scan exhausts into Close (not Halt).
         let (_dir, storage, catalog) = fixture();
         let program = compile_sql(
             &storage,
             &catalog,
             "select * from catalog order by catalog.name;",
         );
-        // Two cursors: the table scan (0) and the sorted-payload iterator (1).
         assert_eq!(program.cursors, 2);
-        let code = program.instructions;
-        assert_eq!(code.len(), 28);
-        assert!(matches!(code[0], Vop::Init { jmp: 26 }));
-        assert!(matches!(code[1], Vop::Arr)); // collector
-        assert!(matches!(code[2], Vop::Open { csr: 0, tbl: 0 }));
-        // Phase 1: scan, build [sortkey, payload], collect; empty table -> Close.
-        assert!(matches!(code[3], Vop::Scan { csr: 0, jmp: 15 }));
-        assert!(matches!(code[4], Vop::Arr)); // element
-        assert!(matches!(code[5], Vop::LoadVal { csr: 0 }));
-        assert!(matches!(code[6], Vop::Jpk(_))); // catalog.name
-        assert!(matches!(code[7], Vop::OrderKey { .. }));
-        assert!(matches!(code[8], Vop::ArrPush)); // elem[0] = key bytes
-        assert!(matches!(code[9], Vop::Obj)); // payload {catalog: row}
-        assert!(matches!(code[10], Vop::LoadVal { csr: 0 }));
-        assert!(matches!(code[11], Vop::ObjAssign(_)));
-        assert!(matches!(code[12], Vop::ArrPush)); // elem[1] = payload
-        assert!(matches!(code[13], Vop::ArrPush)); // collector += elem
-        assert!(matches!(code[14], Vop::Next { csr: 0, jmp: 4 }));
-        // Phase 2: release the read iterator, sort, then drain the sorted array.
-        assert!(matches!(code[15], Vop::Close { csr: 0 }));
-        assert!(matches!(code[16], Vop::Sort));
-        assert!(matches!(code[17], Vop::Iter { csr: 1, jmp: 25 }));
-        // Re-seed the `catalog` binding from the payload, then project + yield.
-        assert!(matches!(code[18], Vop::LoadVal { csr: 1 }));
-        assert!(matches!(code[19], Vop::Jpi(1)));
-        assert!(matches!(code[20], Vop::Jpk(_)));
-        assert!(matches!(code[21], Vop::SetVal { csr: 0 }));
-        assert!(matches!(code[22], Vop::LoadVal { csr: 0 }));
-        assert!(matches!(code[23], Vop::Yield));
-        assert!(matches!(code[24], Vop::Next { csr: 1, jmp: 18 }));
-        assert!(matches!(code[25], Vop::Halt));
-        assert!(matches!(
-            code[26],
-            Vop::Transaction {
-                txm: TransactionMode::Read
-            }
-        ));
-        assert!(matches!(code[27], Vop::Jump { jmp: 1 }));
+        let code = &program.instructions;
+        // The collector Arr comes before Open.
+        let collector_arr = find(code, |op| matches!(op, Vop::Arr));
+        let open = find(code, |op| matches!(op, Vop::Open { .. }));
+        assert!(collector_arr < open, "collector Arr precedes Open");
+        // OrderKey and ObjAssign (payload build) are inside the scan body.
+        let scan = find(code, |op| matches!(op, Vop::Scan { csr: 0, .. }));
+        let order_key = find(code, |op| matches!(op, Vop::OrderKey { .. }));
+        let obj_assign = find(code, |op| matches!(op, Vop::ObjAssign(..)));
+        assert!(scan < order_key, "OrderKey is inside the scan body");
+        assert!(scan < obj_assign, "ObjAssign (payload) is inside the scan body");
+        // Scan exhausts into Close (releases the read iterator before Sort).
+        let Vop::Scan { jmp, .. } = code[scan] else {
+            unreachable!()
+        };
+        assert!(
+            matches!(code[jmp], Vop::Close { .. }),
+            "empty Scan must exhaust into Close before Sort, found {:?}",
+            code[jmp]
+        );
     }
 
     #[test]
-    fn count_star_bytecode_shape() {
+    fn order_by_phase_two_sorts_then_drains_into_halt() {
+        // Phase 2: Close → Sort → Iter; the Iter exhaust jumps to Halt; the
+        // re-seed block (SetVal) and Yield are inside the Iter loop body.
+        let (_dir, storage, catalog) = fixture();
+        let program = compile_sql(
+            &storage,
+            &catalog,
+            "select * from catalog order by catalog.name;",
+        );
+        assert_eq!(program.cursors, 2);
+        let code = &program.instructions;
+        let close = find(code, |op| matches!(op, Vop::Close { .. }));
+        let sort = find(code, |op| matches!(op, Vop::Sort));
+        let iter = find(code, |op| matches!(op, Vop::Iter { csr: 1, .. }));
+        let set_val = find(code, |op| matches!(op, Vop::SetVal { .. }));
+        let yld = find(code, |op| matches!(op, Vop::Yield));
+        // Phase 2 structural order.
+        assert!(close < sort, "Close precedes Sort");
+        assert!(sort < iter, "Sort precedes Iter");
+        assert!(iter < set_val, "SetVal (re-seed) is inside the Iter body");
+        assert!(set_val < yld, "Yield follows SetVal");
+        // Iter exhaust jumps to Halt.
+        let Vop::Iter { jmp, .. } = code[iter] else {
+            unreachable!()
+        };
+        assert!(
+            matches!(code[jmp], Vop::Halt),
+            "empty Iter must exhaust into Halt, found {:?}",
+            code[jmp]
+        );
+        // Exactly one Yield in the whole program.
+        assert_eq!(count(code, |op| matches!(op, Vop::Yield)), 1);
+    }
+
+    // -------------------------------------------------------------------------
+    // select count(*) from catalog
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn count_star_empty_table_exhausts_into_finalize() {
+        // Load-bearing: an empty table's Scan jumps INTO the finalize block
+        // (AggFinal), not past the Yield — so `count(*)` of nothing still
+        // yields one row. Following the Scan's exhaust jump to its target opcode
+        // survives any address shift.
         let (_dir, storage, catalog) = fixture();
         let program = compile_sql(&storage, &catalog, "select count(*) from catalog;");
-        // One scan cursor and one accumulator slot.
-        assert_eq!(program.cursors, 1);
         assert_eq!(program.aggs, 1);
-        let code = program.instructions;
-        assert_eq!(code.len(), 12);
-        assert!(matches!(code[0], Vop::Init { jmp: 10 }));
-        assert!(matches!(
-            code[1],
-            Vop::AggInit {
-                slot: 0,
-                kind: AggKind::Count
-            }
-        ));
-        assert!(matches!(code[2], Vop::Open { csr: 0, tbl: 0 }));
-        // The load-bearing invariant: an empty table jumps to the FINALIZE block
-        // (so one row still comes out), NOT past the Yield.
-        assert!(matches!(code[3], Vop::Scan { csr: 0, jmp: 7 }));
-        assert!(matches!(code[4], Vop::Push { .. })); // count(*) non-null constant
-        assert!(matches!(
-            code[5],
-            Vop::AggStep {
-                slot: 0,
-                kind: AggKind::Count
-            }
-        ));
-        assert!(matches!(code[6], Vop::Next { csr: 0, jmp: 4 }));
-        assert!(matches!(
-            code[7],
-            Vop::AggFinal {
-                slot: 0,
-                kind: AggKind::Count
-            }
-        ));
-        assert!(matches!(code[8], Vop::Yield));
-        assert!(matches!(code[9], Vop::Halt));
-        // Prove the scan's exhaust target really is the finalize block.
-        let Vop::Scan { jmp, .. } = code[3] else {
-            panic!("expected Scan")
+        let code = &program.instructions;
+        let scan = find(code, |op| matches!(op, Vop::Scan { .. }));
+        let Vop::Scan { jmp, .. } = code[scan] else {
+            unreachable!()
         };
-        assert!(matches!(code[jmp], Vop::AggFinal { .. }));
+        assert!(
+            matches!(code[jmp], Vop::AggFinal { kind: AggKind::Count, .. }),
+            "empty Scan must exhaust into AggFinal, found {:?}",
+            code[jmp]
+        );
     }
 
     #[test]
-    fn sum_expr_bytecode_shape() {
+    fn count_star_folds_each_row_then_yields_once() {
+        // AggInit resets before the loop; AggStep folds inside; AggFinal then
+        // Yield happen exactly once after the loop completes.
+        let (_dir, storage, catalog) = fixture();
+        let program = compile_sql(&storage, &catalog, "select count(*) from catalog;");
+        assert_eq!(program.cursors, 1);
+        assert_eq!(program.aggs, 1);
+        let code = &program.instructions;
+        let init = find(code, |op| matches!(op, Vop::AggInit { .. }));
+        let scan = find(code, |op| matches!(op, Vop::Scan { .. }));
+        let step = find(code, |op| matches!(op, Vop::AggStep { .. }));
+        let fin = find(code, |op| matches!(op, Vop::AggFinal { .. }));
+        let yld = find(code, |op| matches!(op, Vop::Yield));
+        assert!(init < scan, "accumulator reset before the scan loop");
+        assert!(scan < step, "AggStep is inside the scan body");
+        assert!(step < fin, "AggFinal follows the loop");
+        assert!(fin < yld, "finalize precedes the single Yield");
+        assert_eq!(count(code, |op| matches!(op, Vop::Yield)), 1);
+    }
+
+    // -------------------------------------------------------------------------
+    // select sum(catalog.name) from catalog
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn sum_expr_arg_compiled_before_step_and_scan_exhausts_into_finalize() {
+        // Body compiles the arg (LoadVal + Jpk) then AggStep{Sum}; AggInit
+        // precedes Scan; Scan exhaust lands on AggFinal{Sum}; aggs == 1.
         let (_dir, storage, catalog) = fixture();
         let program = compile_sql(&storage, &catalog, "select sum(catalog.name) from catalog;");
         assert_eq!(program.aggs, 1);
-        let code = program.instructions;
-        assert!(matches!(
-            code[1],
-            Vop::AggInit {
-                slot: 0,
-                kind: AggKind::Sum
-            }
-        ));
-        assert!(matches!(code[3], Vop::Scan { csr: 0, jmp: 8 }));
-        // The body compiles the argument (catalog.name), then folds it.
-        assert!(matches!(code[4], Vop::LoadVal { csr: 0 }));
-        assert!(matches!(code[5], Vop::Jpk(_)));
-        assert!(matches!(
-            code[6],
-            Vop::AggStep {
-                slot: 0,
-                kind: AggKind::Sum
-            }
-        ));
-        assert!(matches!(code[7], Vop::Next { csr: 0, jmp: 4 }));
-        assert!(matches!(
-            code[8],
-            Vop::AggFinal {
-                slot: 0,
-                kind: AggKind::Sum
-            }
-        ));
-        assert!(matches!(code[9], Vop::Yield));
+        let code = &program.instructions;
+        let init = find(code, |op| matches!(op, Vop::AggInit { kind: AggKind::Sum, .. }));
+        let scan = find(code, |op| matches!(op, Vop::Scan { .. }));
+        let load = find(code, |op| matches!(op, Vop::LoadVal { .. }));
+        let step = find(code, |op| matches!(op, Vop::AggStep { kind: AggKind::Sum, .. }));
+        let fin = find(code, |op| matches!(op, Vop::AggFinal { kind: AggKind::Sum, .. }));
+        let yld = find(code, |op| matches!(op, Vop::Yield));
+        // Order: AggInit → Scan → LoadVal → AggStep → AggFinal → Yield.
+        assert!(init < scan, "AggInit precedes Scan");
+        assert!(scan < load, "arg eval (LoadVal) is inside the loop body");
+        assert!(load < step, "AggStep follows arg eval");
+        assert!(step < fin, "AggFinal is after the loop");
+        assert!(fin < yld, "Yield follows AggFinal");
+        // Scan exhaust jumps to AggFinal (not past Yield).
+        let Vop::Scan { jmp, .. } = code[scan] else {
+            unreachable!()
+        };
+        assert!(
+            matches!(code[jmp], Vop::AggFinal { kind: AggKind::Sum, .. }),
+            "empty Scan must exhaust into AggFinal{{Sum}}, found {:?}",
+            code[jmp]
+        );
     }
 
+    // -------------------------------------------------------------------------
+    // delete from catalog
+    // -------------------------------------------------------------------------
+
     #[test]
-    fn delete_all_bytecode_shape() {
+    fn delete_all_phase_one_scan_exhausts_into_close() {
+        // Phase 1: collect-then-delete. An empty table's Scan must exhaust into
+        // Close (releasing the read iterator) — not into the delete phase Iter.
         let (_dir, storage, catalog) = fixture();
         let program = compile_sql(&storage, &catalog, "delete from catalog;");
         assert_eq!(program.cursors, 2);
-        let code = program.instructions;
-        assert_eq!(code.len(), 15);
-        assert!(matches!(code[0], Vop::Init { jmp: 13 }));
-        assert!(matches!(code[1], Vop::Arr));
-        assert!(matches!(code[2], Vop::Open { csr: 0, tbl: 0 }));
-        // Phase 1: collect matching keys; an empty table jumps straight to Close.
-        assert!(matches!(code[3], Vop::Scan { csr: 0, jmp: 7 }));
-        assert!(matches!(code[4], Vop::LoadKey { csr: 0 }));
-        assert!(matches!(code[5], Vop::ArrPush));
-        assert!(matches!(code[6], Vop::Next { csr: 0, jmp: 4 }));
-        // Release the table's read iterator before any delete.
-        assert!(matches!(code[7], Vop::Close { csr: 0 }));
-        // Phase 2: `select delete(key) from keys` over a value cursor.
-        assert!(matches!(code[8], Vop::Iter { csr: 1, jmp: 12 }));
-        assert!(matches!(code[9], Vop::LoadVal { csr: 1 }));
-        assert!(matches!(code[10], Vop::Delete { csr: 0 }));
-        assert!(matches!(code[11], Vop::Next { csr: 1, jmp: 9 }));
-        assert!(matches!(code[12], Vop::Halt));
-        assert!(matches!(
-            code[13],
-            Vop::Transaction {
-                txm: TransactionMode::Write
-            }
-        ));
-        assert!(matches!(code[14], Vop::Jump { jmp: 1 }));
+        let code = &program.instructions;
+        let scan = find(code, |op| matches!(op, Vop::Scan { csr: 0, .. }));
+        let Vop::Scan { jmp, .. } = code[scan] else {
+            unreachable!()
+        };
+        assert!(
+            matches!(code[jmp], Vop::Close { csr: 0 }),
+            "empty Scan must exhaust into Close, found {:?}",
+            code[jmp]
+        );
     }
 
     #[test]
-    fn delete_where_bytecode_shape() {
+    fn delete_all_two_phase_structure() {
+        // Phase 1: Arr → Open → Scan → LoadKey → ArrPush → Next(loop).
+        // Phase 2: Close → Iter(key csr) → LoadVal → Delete → Next(loop) → Halt.
+        let (_dir, storage, catalog) = fixture();
+        let program = compile_sql(&storage, &catalog, "delete from catalog;");
+        assert_eq!(program.cursors, 2);
+        let code = &program.instructions;
+        // Phase 1 structural order.
+        let arr = find(code, |op| matches!(op, Vop::Arr));
+        let open = find(code, |op| matches!(op, Vop::Open { .. }));
+        let scan = find(code, |op| matches!(op, Vop::Scan { csr: 0, .. }));
+        let load_key = find(code, |op| matches!(op, Vop::LoadKey { .. }));
+        let arr_push = find(code, |op| matches!(op, Vop::ArrPush));
+        let next_scan = find(code, |op| matches!(op, Vop::Next { csr: 0, .. }));
+        assert!(arr < open, "key-collector Arr precedes Open");
+        assert!(open < scan, "Open precedes Scan");
+        assert!(scan < load_key, "LoadKey is inside the scan body");
+        assert!(load_key < arr_push, "ArrPush follows LoadKey");
+        assert!(arr_push < next_scan, "Next loops back after ArrPush");
+        // Phase 2 structural order.
+        let close = find(code, |op| matches!(op, Vop::Close { .. }));
+        let iter = find(code, |op| matches!(op, Vop::Iter { csr: 1, .. }));
+        let load_val = find(code, |op| matches!(op, Vop::LoadVal { .. }));
+        let delete = find(code, |op| matches!(op, Vop::Delete { .. }));
+        let next_iter = find(code, |op| matches!(op, Vop::Next { csr: 1, .. }));
+        let halt = find(code, |op| matches!(op, Vop::Halt));
+        assert!(close < iter, "Close (releases read lock) precedes Iter");
+        assert!(iter < load_val, "LoadVal is inside the Iter body");
+        assert!(load_val < delete, "Delete follows LoadVal");
+        assert!(delete < next_iter, "Next loops back after Delete");
+        assert!(next_iter < halt, "Halt follows the delete loop");
+    }
+
+    // -------------------------------------------------------------------------
+    // delete from catalog where catalog.name = 'x'
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn delete_where_predicate_skips_to_next() {
+        // A false predicate's IfNot must jump to Next (skipping LoadKey/ArrPush),
+        // not to Close — so only matching rows are collected.
         let (_dir, storage, catalog) = fixture();
         let program = compile_sql(
             &storage,
             &catalog,
             "delete from catalog where catalog.name = 'x';",
         );
-        let code = program.instructions;
-        // Phase 1: scan exits to Close; a false predicate skips the collect.
-        assert!(matches!(code[3], Vop::Scan { csr: 0, jmp: 12 }));
-        assert!(matches!(code[4], Vop::LoadVal { csr: 0 })); // predicate reads the row
-        assert!(matches!(code[8], Vop::IfNot(11)));
-        assert!(matches!(code[9], Vop::LoadKey { csr: 0 }));
-        assert!(matches!(code[10], Vop::ArrPush));
-        assert!(matches!(code[11], Vop::Next { csr: 0, jmp: 4 }));
-        assert!(matches!(code[12], Vop::Close { csr: 0 }));
-        // Phase 2: delete each collected key.
-        assert!(matches!(code[13], Vop::Iter { csr: 1, jmp: 17 }));
-        assert!(matches!(code[14], Vop::LoadVal { csr: 1 }));
-        assert!(matches!(code[15], Vop::Delete { csr: 0 }));
-        assert!(matches!(code[16], Vop::Next { csr: 1, jmp: 14 }));
+        let code = &program.instructions;
+        let ifnot = find(code, |op| matches!(op, Vop::IfNot(..)));
+        let next_scan = find(code, |op| matches!(op, Vop::Next { csr: 0, .. }));
+        // IfNot drops the row by jumping to Next.
+        let Vop::IfNot(ifnot_jmp) = code[ifnot] else {
+            unreachable!()
+        };
+        assert!(
+            matches!(code[ifnot_jmp], Vop::Next { csr: 0, .. }),
+            "IfNot must jump to Next to drop the row, found {:?}",
+            code[ifnot_jmp]
+        );
+        // LoadKey and ArrPush sit between IfNot and Next (only for matching rows).
+        let load_key = find(code, |op| matches!(op, Vop::LoadKey { .. }));
+        let arr_push = find(code, |op| matches!(op, Vop::ArrPush));
+        assert!(ifnot < load_key, "LoadKey follows the predicate guard");
+        assert!(load_key < arr_push, "ArrPush follows LoadKey");
+        assert!(arr_push < next_scan, "Next comes after ArrPush");
     }
 
     #[test]
-    fn create_table_bytecode_shape() {
+    fn delete_where_two_phase_structure() {
+        // Phase 1 Scan exhausts into Close; Phase 2 Iter follows Close.
+        let (_dir, storage, catalog) = fixture();
+        let program = compile_sql(
+            &storage,
+            &catalog,
+            "delete from catalog where catalog.name = 'x';",
+        );
+        let code = &program.instructions;
+        let scan = find(code, |op| matches!(op, Vop::Scan { csr: 0, .. }));
+        let Vop::Scan { jmp, .. } = code[scan] else {
+            unreachable!()
+        };
+        assert!(
+            matches!(code[jmp], Vop::Close { csr: 0 }),
+            "Scan must exhaust into Close, found {:?}",
+            code[jmp]
+        );
+        let close = find(code, |op| matches!(op, Vop::Close { .. }));
+        let iter = find(code, |op| matches!(op, Vop::Iter { csr: 1, .. }));
+        // Phase 2 loads from the key-array cursor (csr=1), not the table cursor (csr=0).
+        let load_val = find(code, |op| matches!(op, Vop::LoadVal { csr: 1 }));
+        let delete = find(code, |op| matches!(op, Vop::Delete { .. }));
+        assert!(close < iter, "Close precedes Iter");
+        assert!(iter < load_val, "LoadVal{{csr:1}} is inside Iter body");
+        assert!(load_val < delete, "Delete follows LoadVal");
+    }
+
+    // -------------------------------------------------------------------------
+    // create table t (id int)
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn create_table_emits_open_then_oid_btree_insert() {
+        // Open → Push(schema) → NewOid → NewBtree → Insert, all in relative order.
+        // cursors == 1 (the catalog cursor).
         let (_dir, storage, catalog) = fixture();
         let program = compile_sql(&storage, &catalog, "create table t (id int);");
         assert_eq!(program.cursors, 1);
-        let code = program.instructions;
-        assert_eq!(code.len(), 9);
-        assert!(matches!(code[0], Vop::Init { jmp: 7 }));
-        assert!(matches!(code[1], Vop::Open { csr: 0, tbl: 0 }));
-        assert!(matches!(code[2], Vop::Push { .. }));
-        assert!(matches!(code[3], Vop::NewOid { csr: 0 }));
-        assert!(matches!(code[4], Vop::NewBtree));
-        assert!(matches!(code[5], Vop::Insert { csr: 0 }));
-        assert!(matches!(code[6], Vop::Halt));
-        assert!(matches!(
-            code[7],
-            Vop::Transaction {
-                txm: TransactionMode::Write
-            }
-        ));
-        assert!(matches!(code[8], Vop::Jump { jmp: 1 }));
+        let code = &program.instructions;
+        let open = find(code, |op| matches!(op, Vop::Open { .. }));
+        let push = find(code, |op| matches!(op, Vop::Push { .. }));
+        let new_oid = find(code, |op| matches!(op, Vop::NewOid { .. }));
+        let new_btree = find(code, |op| matches!(op, Vop::NewBtree));
+        let insert = find(code, |op| matches!(op, Vop::Insert { .. }));
+        assert!(open < push, "Open precedes Push (schema)");
+        assert!(push < new_oid, "NewOid follows Push");
+        assert!(new_oid < new_btree, "NewBtree follows NewOid");
+        assert!(new_btree < insert, "Insert follows NewBtree");
     }
+
+    // -------------------------------------------------------------------------
+    // Already-robust tests — left unchanged per spec.
+    // -------------------------------------------------------------------------
 
     #[test]
     fn select_cursor_index_is_zero() {
@@ -2113,7 +2153,7 @@ mod tests {
         // EncodeKey carries the declared key columns in order, and precedes Insert.
         let encode = code
             .iter()
-            .position(|op| matches!(op, Vop::NewKey { keys } if *keys == members))
+            .position(|op| matches!(op, Vop::EncodeKey { keys } if *keys == members))
             .expect("keyed insert must emit EncodeKey for its key columns");
         let insert = code
             .iter()
@@ -2156,14 +2196,215 @@ mod tests {
         // dynamic member per row (ObjSet), and yields exactly once.
         let (_dir, storage, catalog) = fixture();
         let program = compile_sql(&storage, &catalog, "pivot c.name at c.name from catalog as c;");
-        let code = program.instructions;
-        // The accumulator is the first body instruction (after Init).
-        assert!(matches!(code[1], Vop::Obj));
-        assert!(
-            code.iter().any(|op| matches!(op, Vop::ObjSet)),
-            "pivot must set members dynamically"
-        );
-        let yields = code.iter().filter(|op| matches!(op, Vop::Yield)).count();
-        assert_eq!(yields, 1, "pivot yields exactly one object");
+        let code = &program.instructions;
+        // Obj accumulator appears before any Scan or Iter.
+        let obj = find(code, |op| matches!(op, Vop::Obj));
+        let scan_or_iter = code
+            .iter()
+            .position(|op| matches!(op, Vop::Scan { .. } | Vop::Iter { .. }))
+            .unwrap_or(code.len());
+        assert!(obj < scan_or_iter, "Obj accumulator precedes the scan/iter loop");
+        // At least one ObjSet (dynamic member assignment).
+        let obj_set = find(code, |op| matches!(op, Vop::ObjSet));
+        assert!(obj < obj_set, "ObjSet follows the Obj accumulator");
+        // Exactly one Yield.
+        assert_eq!(count(code, |op| matches!(op, Vop::Yield)), 1, "pivot yields exactly one object");
     }
+
+    // -------------------------------------------------------------------------
+    // Item 1 — patch error reclassification
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn patch_non_jump_instruction_is_internal_error() {
+        let mut c = Compiler::new();
+        c.code.push(Vop::Halt);                       // not a jump-bearing op
+        assert!(matches!(c.patch(0, 3), Err(Error::InternalError(_))));
+    }
+
+    #[test]
+    fn patch_out_of_range_pc_is_internal_error() {
+        let mut c = Compiler::new();                  // empty code
+        assert!(matches!(c.patch(0, 3), Err(Error::InternalError(_))));
+    }
+
+    // -------------------------------------------------------------------------
+    // Item 2 — OpLookup enum
+    // -------------------------------------------------------------------------
+
+    // -------------------------------------------------------------------------
+    // Phase 3 — multi-source nested-loop characterization test
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn nested_loop_two_value_sources_exhaust_topology() {
+        // Query: `select x from [1, 2] as x, [3, 4] as y;`
+        // Two value sources (outer = x, inner = y) produce a cross-product.
+        //
+        // The loop structure the helper centralises:
+        //   - inner Iter exhausts into the outer Next (advances x, re-enters y)
+        //   - outer Iter exhausts into exit (Halt)
+        //
+        // Using value-scan Iters so no catalog setup is needed.
+        let (_dir, storage, catalog) = fixture();
+        let program = compile_sql(
+            &storage,
+            &catalog,
+            "select x from [1, 2] as x, [3, 4] as y;",
+        );
+        let code = &program.instructions;
+
+        // There must be exactly two Iter instructions — outer (csr=0) and inner (csr=1).
+        let outer_iter = code
+            .iter()
+            .position(|op| matches!(op, Vop::Iter { csr: 0, .. }))
+            .expect("outer Iter{csr=0} must exist");
+        let inner_iter = code
+            .iter()
+            .position(|op| matches!(op, Vop::Iter { csr: 1, .. }))
+            .expect("inner Iter{csr=1} must exist");
+        assert!(outer_iter < inner_iter, "outer Iter precedes inner Iter");
+
+        // The outer Next advances the outer cursor; the inner Next advances the inner.
+        let outer_next = code
+            .iter()
+            .position(|op| matches!(op, Vop::Next { csr: 0, .. }))
+            .expect("outer Next{csr=0} must exist");
+        let inner_next = code
+            .iter()
+            .position(|op| matches!(op, Vop::Next { csr: 1, .. }))
+            .expect("inner Next{csr=1} must exist");
+
+        // Topology: inner Iter's exhaust must jump to the outer Next.
+        let Vop::Iter { jmp: inner_iter_jmp, .. } = code[inner_iter] else { unreachable!() };
+        assert!(
+            matches!(code[inner_iter_jmp], Vop::Next { csr: 0, .. }),
+            "inner Iter exhaust must jump to outer Next, found {:?}",
+            code[inner_iter_jmp]
+        );
+
+        // Topology: outer Iter's exhaust must jump to exit (Halt).
+        let Vop::Iter { jmp: outer_iter_jmp, .. } = code[outer_iter] else { unreachable!() };
+        assert!(
+            matches!(code[outer_iter_jmp], Vop::Halt),
+            "outer Iter exhaust must jump to Halt (loop exit), found {:?}",
+            code[outer_iter_jmp]
+        );
+
+        // Inner Next loops back to the loop body (past both Iters).
+        let Vop::Next { jmp: inner_next_jmp, .. } = code[inner_next] else { unreachable!() };
+        assert!(
+            inner_next_jmp > inner_iter,
+            "inner Next must loop back to the body (after inner Iter)"
+        );
+
+        // Outer Next loops back to re-enter the inner source (its expression, between the two Iters).
+        let Vop::Next { jmp: outer_next_jmp, .. } = code[outer_next] else { unreachable!() };
+        assert!(
+            outer_next_jmp > outer_iter && outer_next_jmp <= inner_iter,
+            "outer Next must loop back to inner source re-entry (between outer and inner Iter)"
+        );
+
+        // Exactly one Yield.
+        assert_eq!(count(code, |op| matches!(op, Vop::Yield)), 1);
+    }
+
+    #[test]
+    fn operator_op_resolves_binary_plus() {
+        assert!(matches!(operator_op("+", 2), OpLookup::Op(Vop::Add)));
+    }
+
+    #[test]
+    fn operator_op_rejects_plus_with_wrong_arity() {
+        assert!(matches!(operator_op("+", 3), OpLookup::BadArity));
+    }
+
+    #[test]
+    fn operator_op_in_list_needs_at_least_one_arg() {
+        assert!(matches!(operator_op("in_list", 0), OpLookup::BadArity));
+    }
+
+    #[test]
+    fn operator_op_unknown_name_is_not_an_operator() {
+        assert!(matches!(operator_op("hypot", 2), OpLookup::NotAnOperator));
+    }
+
+    // -------------------------------------------------------------------------
+    // Item 1 — `plan()` classifier precedence tests
+    // -------------------------------------------------------------------------
+
+    /// Parse + bind a SQL string and return the bound `Select`, stopping before
+    /// `.compile`. Used by the `plan()` precedence tests to exercise the pure
+    /// classifier without running the VM.
+    fn bound_select(storage: &Storage, catalog: &Catalog, sql: &str) -> Select {
+        let mut stmt = SqlParser::new()
+            .parse(&std::cell::Cell::new(0), SqlLexer::new(sql))
+            .unwrap();
+        let txn = storage.read_txn().unwrap();
+        let mut binder = Binder::new(catalog.clone(), &txn);
+        binder
+            .bind(&mut stmt, &crate::value::Params::none())
+            .unwrap();
+        txn.commit().unwrap();
+        let Statement::Select(select) = stmt else {
+            panic!("expected a SELECT statement");
+        };
+        select
+    }
+
+    #[test]
+    fn plan_streams_a_plain_select() {
+        let (_dir, storage, catalog) = fixture();
+        let select = bound_select(&storage, &catalog, "select * from catalog;");
+        assert!(matches!(plan(&select), Plan::Stream));
+    }
+
+    #[test]
+    fn plan_detects_order_by() {
+        let (_dir, storage, catalog) = fixture();
+        let select = bound_select(&storage, &catalog, "select * from catalog order by catalog.name;");
+        assert!(matches!(plan(&select), Plan::Order));
+    }
+
+    #[test]
+    fn plan_detects_aggregate_projection() {
+        let (_dir, storage, catalog) = fixture();
+        let select = bound_select(&storage, &catalog, "select count(*) from catalog;");
+        assert!(matches!(plan(&select), Plan::Aggregate));
+    }
+
+    #[test]
+    fn plan_having_without_aggregate_is_aggregate() {
+        let (_dir, storage, catalog) = fixture();
+        // HAVING with an aggregate — routes to cc_aggregate (whole input as one group).
+        let select = bound_select(&storage, &catalog, "select count(*) from catalog having count(*) > 0;");
+        assert!(matches!(plan(&select), Plan::Aggregate));
+    }
+
+    #[test]
+    fn plan_group_by_beats_aggregate() {
+        // A grouped aggregate must resolve to Plan::Group, not Plan::Aggregate —
+        // the group check is first in the ladder, locking this precedence.
+        let (_dir, storage, catalog) = fixture();
+        let select = bound_select(
+            &storage,
+            &catalog,
+            "select count(*) from catalog group by catalog.name;",
+        );
+        assert!(matches!(plan(&select), Plan::Group));
+    }
+
+    #[test]
+    fn plan_pivot_beats_aggregate() {
+        // A pivot must resolve to Plan::Pivot, not Plan::Aggregate even though
+        // pivot aggregates — the pivot check precedes the aggregate check.
+        let (_dir, storage, catalog) = fixture();
+        let select = bound_select(
+            &storage,
+            &catalog,
+            "pivot catalog.name at catalog.name from catalog;",
+        );
+        assert!(matches!(plan(&select), Plan::Pivot));
+    }
+
 }

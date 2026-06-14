@@ -80,8 +80,8 @@ pub enum Vop {
     Next { csr: usize, jmp: usize },
     /// Pushes a new OID for the given cursor (csr) onto the stack.
     NewOid { csr: usize },
-    /// Pushes a new key onto the stack, built by encoding the row's fields in the given order.
-    NewKey { keys: Vec<Key> },
+    /// Encodes the row's declared key columns into a composite key and pushes it onto the stack.
+    EncodeKey { keys: Vec<Key> },
     /// Creates a new btree named by the stack[0] oid.
     NewBtree,
     /// Opens the table at the given table oid and binds to cursors[csr].
@@ -362,7 +362,7 @@ impl VM {
                     };
                     self.push(oid);
                 }
-                Vop::NewKey { keys } => {
+                Vop::EncodeKey { keys } => {
                     let val = self.pop();
                     let key = schema::encode_key(&val, keys)?;
                     self.stack.push(val);
@@ -875,7 +875,7 @@ fn avg_parts(cell: &Value) -> (f64, i64) {
     }
 }
 
-/// Take an encoded key off the stack. `LoadKey`/`NewKey` already push encoded
+/// Take an encoded key off the stack. `LoadKey`/`EncodeKey` already push encoded
 /// key bytes, so move them out rather than re-cloning them through `encode()`.
 fn pop_key(val: Value) -> Result<Vec<u8>> {
     match val {
