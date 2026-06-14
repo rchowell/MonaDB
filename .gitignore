@@ -43,3 +43,6 @@ site/node_modules/
 
 # rust
 target/
+
+.agents/
+.claude/
