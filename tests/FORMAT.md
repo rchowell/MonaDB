@@ -68,13 +68,23 @@ tests:
 
 ## Step fields
 
-| Field    | Required | Description                             |
-|----------|----------|-----------------------------------------|
-| `sql`    | yes      | The SQL statement to execute            |
-| `result` | one of   | Ordered array of expected output values |
-| `error`  | one of   | Expected error category (see taxonomy)  |
+| Field        | Required | Description                                         |
+|--------------|----------|-----------------------------------------------------|
+| `sql`        | yes      | The SQL statement to execute                        |
+| `parameters` | no       | Query-parameter bindings (see below)                |
+| `result`     | one of   | Ordered array of expected output values             |
+| `error`      | one of   | Expected error category (see taxonomy)              |
 
 `result` and `error` are mutually exclusive. Omitting both asserts only that the statement succeeds.
+
+**Parameters.** `parameters` binds the statement's `?`/`$N`/`$name` placeholders. A YAML **sequence** binds positional placeholders — `?` and `$N` both index it 1-based, so the first `?` and `$1` both resolve to element 0. A YAML **mapping** binds named `$name` placeholders. Values bridge through JSON like `result`.
+
+```yaml
+- sql: select t.x from T where T.x = ?;
+  parameters: [2]
+- sql: select $name;
+  parameters: {name: "alice"}
+```
 
 **Result ordering.** `result` is an ordered sequence. For queries without `order`, use `order` in the SQL to pin the output order.
 

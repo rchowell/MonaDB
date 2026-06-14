@@ -52,6 +52,8 @@ pub enum Token {
     Colon,
     #[token("$")]
     Dollar,
+    #[token("?")]
+    Question,
     #[token("..")]
     DotDot,
     #[token("...")]
@@ -188,6 +190,18 @@ pub enum Token {
     #[regex(r#""([^"\\]|\\.)*""#, |lex| lex.slice().to_owned())]
     #[regex(r#"'([^'\\]|\\.)*'"#, |lex| lex.slice().to_owned())]
     String(String),
+    //-------------------------
+    // Query Parameters
+    //-------------------------
+    /// A numbered parameter `$N` (1-based), carrying its raw digits (without the
+    /// `$`). The index is parsed later so an out-of-range value surfaces as a
+    /// bind error rather than an opaque lexer failure. Logos prefers this over
+    /// the bare `$`/`Dollar` token by longest match.
+    #[regex(r"\$[0-9]+", |lex| lex.slice()[1..].to_owned())]
+    NumberedParam(String),
+    /// A named parameter `$name`, carrying the name (without the `$`).
+    #[regex(r"\$[a-zA-Z_][a-zA-Z0-9_]*", |lex| lex.slice()[1..].to_owned())]
+    NamedParam(String),
     //-------------------------
     // Names and Identifiers
     //-------------------------

@@ -8,11 +8,11 @@
 use crate::catalog::Catalog;
 use crate::error::{Error, Result};
 use crate::ir::{
-    Agg, AggKind, Call, Clear, Constructor, Drop, Expr, From, Get, Insert, Source, Statement,
+    Agg, AggKind, Call, Clear, Constructor, Drop, Expr, From, Get, Insert, Param, Source, Statement,
     TableDefinition,
 };
 use crate::transaction::Transaction;
-use crate::value::Value;
+use crate::value::{Params, Value};
 use crate::visitor::visit_mut::{
     VisitMut, visit_constructor_mut, visit_expr_mut, visit_insert_mut,
 };
@@ -47,8 +47,22 @@ impl<'txn> Binder<'txn> {
         }
     }
 
-    /// Binds the statement in place, returning the first error encountered.
-    pub fn bind(&mut self, statement: &mut Statement) -> Result<()> {
+    /// Binds the statement in place against `params`, returning the first error
+    /// encountered.
+    pub fn bind(&mut self, statement: &mut Statement, params: &Params) -> Result<()> {
+        // Pre-pass: substitute every parameter placeholder with its bound
+        // literal, so the main binder — and keyed-get lowering, which requires
+        // literal keys — only ever sees `Expr::Lit`. This also makes `t[?]` work.
+        let param_errors = {
+            let mut subst = ParamSubst {
+                params,
+                errors: vec![],
+            };
+            subst.visit_statement_mut(statement);
+            subst.errors
+        };
+        self.errors.extend(param_errors);
+
         self.visit_statement_mut(statement);
         if let Some(err) = self.errors.first() {
             Err(err.clone())
@@ -403,6 +417,36 @@ fn is_aggregate(name: &str) -> Option<AggKind> {
     })
 }
 
+/// A pre-pass that replaces every `Expr::Param` placeholder with the literal it
+/// binds to. Running it before the main binder means keyed-get lowering (which
+/// requires literal keys) and aggregate/variable resolution never see a
+/// parameter. A missing binding is recorded as a `BindError`.
+struct ParamSubst<'p> {
+    params: &'p Params,
+    errors: Vec<Error>,
+}
+
+impl VisitMut for ParamSubst<'_> {
+    fn visit_expr_mut(&mut self, i: &mut Expr) {
+        if let Expr::Param(p) = i {
+            // `cloned()` so the same parameter may fill several placeholders; the
+            // `Err` carries the `$`-rendered name for a uniform missing-param error.
+            let resolved = match p {
+                Param::Numbered(n) => self.params.get_numbered(*n).cloned().ok_or_else(|| format!("${n}")),
+                Param::Named(name) => self.params.get_named(name).cloned().ok_or_else(|| format!("${name}")),
+            };
+            match resolved {
+                Ok(v) => *i = Expr::Lit(v),
+                Err(name) => self
+                    .errors
+                    .push(Error::BindError(format!("missing parameter {name}"))),
+            }
+            return;
+        }
+        visit_expr_mut(self, i);
+    }
+}
+
 /// A single name binding in a scope (e.g. a cursor alias).
 #[derive(Debug, Clone)]
 struct Binding {
@@ -445,7 +489,7 @@ impl Scope {
 #[cfg(test)]
 mod test {
     use crate::{
-        MonaDB,
+        MonaDB, Params,
         error::Error,
         ir::{Constructor, Expr, Source, Statement},
     };
@@ -461,7 +505,7 @@ mod test {
     fn test_bind_table_assigns_cursor_and_oid() {
         let db = db_fixture();
         let mut stmt = MonaDB::parse("select * from users;").unwrap();
-        db.bind(&mut stmt).unwrap();
+        db.bind(&mut stmt, &Params::none()).unwrap();
 
         // Assert
         let Statement::Select(sel) = stmt else {
@@ -478,7 +522,7 @@ mod test {
             db.execute(ddl).unwrap();
         }
         let mut stmt = MonaDB::parse("select * from A as a, B as b;").unwrap();
-        db.bind(&mut stmt).unwrap();
+        db.bind(&mut stmt, &Params::none()).unwrap();
         let Statement::Select(sel) = stmt else {
             panic!("expected Select")
         };
@@ -495,7 +539,7 @@ mod test {
         let mut db = MonaDB::memory().unwrap();
         db.execute("create table T;").unwrap();
         let mut stmt = MonaDB::parse("select * from T as t, t.items as item;").unwrap();
-        db.bind(&mut stmt).unwrap();
+        db.bind(&mut stmt, &Params::none()).unwrap();
         let Statement::Select(sel) = stmt else {
             panic!("expected Select")
         };
@@ -518,7 +562,7 @@ mod test {
         let mut db = MonaDB::memory().unwrap();
         db.execute("create table T;").unwrap();
         let mut stmt = MonaDB::parse("select x from [1, 2, 3] as x;").unwrap();
-        db.bind(&mut stmt).unwrap();
+        db.bind(&mut stmt, &Params::none()).unwrap();
         let Statement::Select(sel) = stmt else {
             panic!("expected Select")
         };
@@ -531,7 +575,7 @@ mod test {
         let mut db = MonaDB::memory().unwrap();
         db.execute("create table T;").unwrap();
         let mut stmt = MonaDB::parse("select * from T as t, item.x as item;").unwrap();
-        assert!(matches!(db.bind(&mut stmt), Err(Error::BindError(_))));
+        assert!(matches!(db.bind(&mut stmt, &Params::none()), Err(Error::BindError(_))));
     }
 
     #[test]
@@ -540,7 +584,7 @@ mod test {
         // "select u.id from users as u"
         // u.id parses as Jpk { inp: Var(Unresolved("u")), key: "id" }
         let mut stmt = MonaDB::parse("select u.id from users as u;").unwrap();
-        db.bind(&mut stmt).unwrap();
+        db.bind(&mut stmt, &Params::none()).unwrap();
         let Statement::Select(sel) = stmt else {
             panic!("expected Select")
         };
@@ -557,7 +601,7 @@ mod test {
     fn test_bind_alias_not_found() {
         let db = db_fixture();
         let mut stmt = MonaDB::parse("select y.id from users as u;").unwrap();
-        let result = db.bind(&mut stmt);
+        let result = db.bind(&mut stmt, &Params::none());
 
         assert!(matches!(result, Err(Error::BindError(_))));
     }
@@ -566,7 +610,7 @@ mod test {
     fn test_bind_unknown_table_errors() {
         let db = db_fixture();
         let mut stmt = MonaDB::parse("select * from nonexistent;").unwrap();
-        let result = db.bind(&mut stmt);
+        let result = db.bind(&mut stmt, &Params::none());
         // catalog.get_table returns UnboundTable
         assert!(matches!(result, Err(Error::UnboundTable(_))));
     }
@@ -575,7 +619,7 @@ mod test {
     fn test_bind_insert_target_oid() {
         let db = db_fixture();
         let mut stmt = MonaDB::parse("insert into users ({id: 1});").unwrap();
-        db.bind(&mut stmt).unwrap();
+        db.bind(&mut stmt, &Params::none()).unwrap();
         let Statement::Insert(ins) = stmt else {
             panic!("expected Insert")
         };
@@ -588,7 +632,7 @@ mod test {
         // Binding succeeds only if `users.id` in the predicate resolves against
         // the target cursor's scope (an unresolved var is a BindError).
         let mut stmt = MonaDB::parse("delete from users where users.id = 1;").unwrap();
-        db.bind(&mut stmt).unwrap();
+        db.bind(&mut stmt, &Params::none()).unwrap();
         let Statement::Delete(del) = stmt else {
             panic!("expected Delete")
         };
@@ -601,7 +645,7 @@ mod test {
     fn test_bind_drop_resolves_oid() {
         let db = db_fixture();
         let mut stmt = MonaDB::parse("drop table users;").unwrap();
-        db.bind(&mut stmt).unwrap();
+        db.bind(&mut stmt, &Params::none()).unwrap();
         let Statement::Drop(drop) = stmt else {
             panic!("expected Drop")
         };
@@ -612,14 +656,14 @@ mod test {
     fn test_bind_drop_unknown_table_errors() {
         let db = db_fixture();
         let mut stmt = MonaDB::parse("drop table ghost;").unwrap();
-        assert!(matches!(db.bind(&mut stmt), Err(Error::UnboundTable(_))));
+        assert!(matches!(db.bind(&mut stmt, &Params::none()), Err(Error::UnboundTable(_))));
     }
 
     #[test]
     fn test_bind_clear_resolves_oid() {
         let db = db_fixture();
         let mut stmt = MonaDB::parse("clear table users;").unwrap();
-        db.bind(&mut stmt).unwrap();
+        db.bind(&mut stmt, &Params::none()).unwrap();
         let Statement::Clear(clear) = stmt else {
             panic!("expected Clear")
         };
@@ -630,7 +674,7 @@ mod test {
     fn test_bind_clear_unknown_table_errors() {
         let db = db_fixture();
         let mut stmt = MonaDB::parse("clear table ghost;").unwrap();
-        assert!(matches!(db.bind(&mut stmt), Err(Error::UnboundTable(_))));
+        assert!(matches!(db.bind(&mut stmt, &Params::none()), Err(Error::UnboundTable(_))));
     }
 
     #[test]
@@ -638,14 +682,14 @@ mod test {
         let db = db_fixture();
         // `ghost` is not a binding in scope, so the predicate fails to resolve.
         let mut stmt = MonaDB::parse("delete from users where ghost.id = 1;").unwrap();
-        assert!(matches!(db.bind(&mut stmt), Err(Error::BindError(_))));
+        assert!(matches!(db.bind(&mut stmt, &Params::none()), Err(Error::BindError(_))));
     }
 
     #[test]
     fn test_bind_delete_unknown_table_errors() {
         let db = db_fixture();
         let mut stmt = MonaDB::parse("delete from nonexistent;").unwrap();
-        assert!(matches!(db.bind(&mut stmt), Err(Error::UnboundTable(_))));
+        assert!(matches!(db.bind(&mut stmt, &Params::none()), Err(Error::UnboundTable(_))));
     }
 
     #[test]
@@ -678,7 +722,7 @@ mod test {
         let mut db = MonaDB::memory().unwrap();
         db.execute("create table t (id int);").unwrap();
         let mut stmt = MonaDB::parse("select t[1];").unwrap();
-        db.bind(&mut stmt).unwrap();
+        db.bind(&mut stmt, &Params::none()).unwrap();
         let Expr::Get(get) = projected_expr(stmt) else {
             panic!("expected Get, not Jpe — a bare table subscript is a key lookup")
         };
@@ -697,7 +741,7 @@ mod test {
         let mut db = MonaDB::memory().unwrap();
         db.execute("create table t (id int);").unwrap();
         let mut stmt = MonaDB::parse("select t[\"a\"];").unwrap();
-        db.bind(&mut stmt).unwrap();
+        db.bind(&mut stmt, &Params::none()).unwrap();
         let Expr::Get(get) = projected_expr(stmt) else {
             panic!("expected Get even for a type-mismatched literal key")
         };
@@ -710,7 +754,7 @@ mod test {
         let mut db = MonaDB::memory().unwrap();
         db.execute("create table c (a string, b int);").unwrap();
         let mut stmt = MonaDB::parse("select c[\"x\", 7];").unwrap();
-        db.bind(&mut stmt).unwrap();
+        db.bind(&mut stmt, &Params::none()).unwrap();
         let Expr::Get(get) = projected_expr(stmt) else {
             panic!("expected Get for a composite full-key subscript")
         };
@@ -723,7 +767,7 @@ mod test {
         let mut db = MonaDB::memory().unwrap();
         db.execute("create table c (a int, b int);").unwrap();
         let mut stmt = MonaDB::parse("select c[1, 2, 3];").unwrap();
-        assert!(matches!(db.bind(&mut stmt), Err(Error::BindError(_))));
+        assert!(matches!(db.bind(&mut stmt, &Params::none()), Err(Error::BindError(_))));
     }
 
     #[test]
@@ -731,7 +775,7 @@ mod test {
         let mut db = MonaDB::memory().unwrap();
         db.execute("create table k;").unwrap();
         let mut stmt = MonaDB::parse("select k[1];").unwrap();
-        assert!(matches!(db.bind(&mut stmt), Err(Error::BindError(_))));
+        assert!(matches!(db.bind(&mut stmt, &Params::none()), Err(Error::BindError(_))));
     }
 
     #[test]
@@ -742,7 +786,7 @@ mod test {
         let mut db = MonaDB::memory().unwrap();
         db.execute("create table c (a int, b int);").unwrap();
         let mut stmt = MonaDB::parse("select c[1];").unwrap();
-        db.bind(&mut stmt).unwrap();
+        db.bind(&mut stmt, &Params::none()).unwrap();
         let Expr::Get(get) = projected_expr(stmt) else {
             panic!("expected Get for a partial-key (leading-prefix) subscript")
         };
@@ -760,7 +804,7 @@ mod test {
         // `ghost` is neither a binding nor a table → falls through to the
         // existing unresolved-variable bind error.
         let mut stmt = MonaDB::parse("select ghost[1];").unwrap();
-        assert!(matches!(db.bind(&mut stmt), Err(Error::BindError(_))));
+        assert!(matches!(db.bind(&mut stmt, &Params::none()), Err(Error::BindError(_))));
     }
 
     #[test]
@@ -770,7 +814,7 @@ mod test {
         let mut db = MonaDB::memory().unwrap();
         db.execute("create table t (id int);").unwrap();
         let mut stmt = MonaDB::parse("select t[1] from t as t;").unwrap();
-        db.bind(&mut stmt).unwrap();
+        db.bind(&mut stmt, &Params::none()).unwrap();
         let Expr::Jpe(jpe) = projected_expr(stmt) else {
             panic!("expected Jpe — a bound name shadows the table")
         };
@@ -789,7 +833,7 @@ mod test {
         db.execute("create table t (id int);").unwrap();
         let mut stmt = MonaDB::parse("select t[ghost];").unwrap();
         assert!(
-            matches!(db.bind(&mut stmt), Err(Error::BindError(_))),
+            matches!(db.bind(&mut stmt, &Params::none()), Err(Error::BindError(_))),
             "unresolved arg inside a table subscript should produce BindError"
         );
     }
@@ -799,7 +843,7 @@ mod test {
         // An index into a literal array value is ordinary path-navigation.
         let db = db_fixture();
         let mut stmt = MonaDB::parse("select [1, 2, 3][0];").unwrap();
-        db.bind(&mut stmt).unwrap();
+        db.bind(&mut stmt, &Params::none()).unwrap();
         assert!(matches!(projected_expr(stmt), Expr::Jpe(_)));
     }
 }

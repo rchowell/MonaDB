@@ -45,3 +45,6 @@ suites:
   - file: suites/19-group.yaml
     title: group by clause
     spec_ref: "§4.5"
+  - file: suites/20-params.yaml
+    title: query parameters
+    spec_ref: "§3.4"

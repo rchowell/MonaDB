@@ -18,11 +18,15 @@ class Connection:
         self._keys: Dict[str, Tuple[str, ...]] = {}
 
     def execute(self, sql: str, parameters: Any = None) -> "Connection":
-        """Run ``sql``, buffer its rows, and return ``self`` for chaining."""
-        if parameters is not None:
-            raise NotImplementedError("parameterized queries are not supported yet")
+        """Run ``sql`` (optionally with ``parameters``), buffer its rows, and
+        return ``self`` for chaining. ``parameters`` is a list/tuple for
+        positional (``?``, ``$N``) or a dict for named (``$name``) placeholders.
+        """
         self._ensure_open()
-        self._result = self._engine.execute(sql).fetchall()
+        if parameters is None:
+            self._result = self._engine.execute(sql).fetchall()
+        else:
+            self._result = self._engine.execute(sql, parameters).fetchall()
         self._cursor = 0
         return self
 

@@ -4,6 +4,7 @@
 //! — a JSON-like tagged union with `Rc`-backed heap variants (cheap `Clone`,
 //! copy-on-write mutation). `serde_json` bridges to and from stored bytes.
 
+use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::rc::Rc;
 
@@ -497,6 +498,64 @@ impl From<JsonValue> for Value {
 impl From<u32> for Value {
     fn from(value: u32) -> Self {
         Value::Oid(value)
+    }
+}
+
+/// Parameter bindings supplied to a query alongside its SQL text.
+///
+/// `?` and `$N` both draw from the positional list, indexed 1-based — the first
+/// `?` and `$1` both resolve to `positional[0]`. `$name` resolves against the
+/// named map. The binder substitutes each placeholder with its bound literal
+/// before compilation, so a query may freely mix both kinds.
+#[derive(Debug, Clone, Default)]
+pub struct Params {
+    positional: Vec<Value>,
+    named: HashMap<String, Value>,
+}
+
+impl Params {
+    /// Returns an empty parameter set.
+    #[inline]
+    #[must_use]
+    pub fn none() -> Params {
+        Params::default()
+    }
+
+    /// Builds a parameter set from a positional list (`?`, `$N`).
+    #[inline]
+    #[must_use]
+    pub fn positional(values: Vec<Value>) -> Params {
+        Params {
+            positional: values,
+            named: HashMap::new(),
+        }
+    }
+
+    /// Builds a parameter set from a named map (`$name`).
+    #[inline]
+    #[must_use]
+    pub fn named(named: HashMap<String, Value>) -> Params {
+        Params {
+            positional: Vec::new(),
+            named,
+        }
+    }
+
+    /// Looks up a 1-based positional/numbered parameter (`?` or `$N`).
+    #[inline]
+    #[must_use]
+    pub fn get_numbered(&self, n: u32) -> Option<&Value> {
+        if n == 0 {
+            return None;
+        }
+        self.positional.get((n - 1) as usize)
+    }
+
+    /// Looks up a named parameter (`$name`).
+    #[inline]
+    #[must_use]
+    pub fn get_named(&self, name: &str) -> Option<&Value> {
+        self.named.get(name)
     }
 }
 

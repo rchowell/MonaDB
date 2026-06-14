@@ -4,6 +4,9 @@
 //!
 //! Feature-gated behind `python`; the default build never compiles this module.
 
+use std::collections::HashMap;
+use std::rc::Rc;
+
 use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyNotImplementedError};
 use pyo3::prelude::*;
@@ -12,7 +15,7 @@ use serde_json::Value as JsonValue;
 
 use crate::MonaDB;
 use crate::error::Error;
-use crate::value::Value;
+use crate::value::{Object, Params, Value};
 
 create_exception!(_monadb, MonaDBError, PyException);
 
@@ -68,6 +71,78 @@ fn json_to_py(py: Python<'_>, json: &JsonValue) -> PyObject {
     }
 }
 
+/// Collect a Python sequence (an already-confirmed list or tuple) into a
+/// `Vec<Value>`, converting each element through [`py_to_value`].
+fn py_seq_to_values(seq: &Bound<'_, PyAny>) -> PyResult<Vec<Value>> {
+    let mut vals = Vec::with_capacity(seq.len().unwrap_or(0));
+    for item in seq.try_iter()? {
+        vals.push(py_to_value(&item?)?);
+    }
+    Ok(vals)
+}
+
+/// Convert a Python `parameters` argument into engine [`Params`]. A `list`/
+/// `tuple` binds positional placeholders (`?`, `$N`); a `dict` binds named ones
+/// (`$name`); anything else is a type error.
+fn py_to_params(obj: &Bound<'_, PyAny>) -> PyResult<Params> {
+    if let Ok(dict) = obj.downcast::<PyDict>() {
+        let mut named = HashMap::with_capacity(dict.len());
+        for (k, v) in dict.iter() {
+            let key: String = k
+                .extract()
+                .map_err(|_| MonaDBError::new_err("named parameter keys must be strings"))?;
+            named.insert(key, py_to_value(&v)?);
+        }
+        return Ok(Params::named(named));
+    }
+    if obj.downcast::<PyList>().is_ok() || obj.downcast::<PyTuple>().is_ok() {
+        return Ok(Params::positional(py_seq_to_values(obj)?));
+    }
+    Err(MonaDBError::new_err(
+        "parameters must be a list, tuple, or dict",
+    ))
+}
+
+/// Convert a native Python object into a monadb [`Value`] (the inverse of
+/// [`value_to_py`]). Recurses into lists/tuples and dicts.
+fn py_to_value(obj: &Bound<'_, PyAny>) -> PyResult<Value> {
+    if obj.is_none() {
+        return Ok(Value::Null);
+    }
+    // `bool` must be checked before `int`: in Python `bool` subclasses `int`.
+    if let Ok(b) = obj.extract::<bool>() {
+        return Ok(Value::bool(b));
+    }
+    if let Ok(i) = obj.extract::<i64>() {
+        return Ok(Value::int(i));
+    }
+    if let Ok(f) = obj.extract::<f64>() {
+        return Ok(Value::float(f));
+    }
+    if let Ok(s) = obj.extract::<String>() {
+        return Ok(Value::from(s));
+    }
+    if let Ok(bytes) = obj.downcast::<PyBytes>() {
+        return Ok(Value::Bytes(Rc::from(bytes.as_bytes())));
+    }
+    if obj.downcast::<PyList>().is_ok() || obj.downcast::<PyTuple>().is_ok() {
+        return Ok(Value::Array(Rc::new(py_seq_to_values(obj)?)));
+    }
+    if let Ok(dict) = obj.downcast::<PyDict>() {
+        let mut object = Object::new();
+        for (k, v) in dict.iter() {
+            let key: String = k
+                .extract()
+                .map_err(|_| MonaDBError::new_err("object parameter keys must be strings"))?;
+            object.insert(Rc::from(key.as_str()), py_to_value(&v)?);
+        }
+        return Ok(Value::Object(Rc::new(object)));
+    }
+    Err(MonaDBError::new_err(
+        "unsupported parameter value type (expected null, bool, int, float, str, bytes, list, or dict)",
+    ))
+}
+
 /// A DuckDB-style connection/cursor over a MonaDB database.
 ///
 /// `execute()` eagerly materializes the full result set (which also commits the
@@ -83,20 +158,15 @@ pub struct Connection {
 }
 
 impl Connection {
-    /// Run `sql`, draining all rows into `self.result` and resetting the cursor.
-    fn run(&mut self, sql: &str, parameters: Option<&PyObject>) -> PyResult<()> {
-        if parameters.is_some() {
-            return Err(PyNotImplementedError::new_err(
-                "parameterized queries are not supported yet",
-            ));
-        }
-
+    /// Run `sql` with bound `params`, draining all rows into `self.result` and
+    /// resetting the cursor.
+    fn run(&mut self, sql: &str, params: &Params) -> PyResult<()> {
         let out = {
             let db = self
                 .db
                 .as_mut()
                 .ok_or_else(|| MonaDBError::new_err("connection is closed"))?;
-            let mut rows = db.query(sql, false).map_err(|e| to_pyerr(&e, sql))?;
+            let mut rows = db.query_with(sql, params, false).map_err(|e| to_pyerr(&e, sql))?;
             let mut out = Vec::new();
             while let Some(row) = rows.next().map_err(|e| to_pyerr(&e, sql))? {
                 out.push(row);
@@ -138,7 +208,12 @@ impl Connection {
         sql: &str,
         parameters: Option<PyObject>,
     ) -> PyResult<PyRefMut<'py, Self>> {
-        slf.run(sql, parameters.as_ref())?;
+        let py = slf.py();
+        let params = match &parameters {
+            None => Params::none(),
+            Some(obj) => py_to_params(obj.bind(py))?,
+        };
+        slf.run(sql, &params)?;
         Ok(slf)
     }
 

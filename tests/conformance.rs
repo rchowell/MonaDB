@@ -8,8 +8,8 @@
 // List: cargo test --test conformance -- --list
 // Single: cargo test --test conformance <suite>__<case>  e.g. select_clause__select_dot
 
-use monadb::MonaDB;
 use monadb::error::Error;
+use monadb::{MonaDB, Params, Value};
 use serde::Deserialize;
 use serde_json::Value as Json;
 
@@ -37,8 +37,42 @@ struct TestCase {
 #[derive(Deserialize)]
 struct Step {
     sql: String,
+    /// Query parameters: a YAML sequence binds `?`/`$N` (positional), a YAML
+    /// mapping binds `$name` (named). Omitted means no parameters.
+    #[serde(default)]
+    parameters: Option<serde_yaml::Value>,
     result: Option<Vec<serde_yaml::Value>>,
     error: Option<String>,
+}
+
+/// Converts a step's `parameters` field into engine [`Params`]. A sequence is
+/// positional, a mapping is named; values bridge through JSON like `result`.
+fn step_params(p: &Option<serde_yaml::Value>) -> Result<Params, String> {
+    match p {
+        None => Ok(Params::none()),
+        Some(serde_yaml::Value::Sequence(seq)) => {
+            let vals = seq.iter().map(yaml_to_value).collect::<Result<Vec<_>, _>>()?;
+            Ok(Params::positional(vals))
+        }
+        Some(serde_yaml::Value::Mapping(map)) => {
+            let mut named = std::collections::HashMap::new();
+            for (k, v) in map {
+                let key = k
+                    .as_str()
+                    .ok_or("parameter name must be a string")?
+                    .to_string();
+                named.insert(key, yaml_to_value(v)?);
+            }
+            Ok(Params::named(named))
+        }
+        Some(_) => Err("parameters must be a sequence or mapping".to_string()),
+    }
+}
+
+/// Bridges a single YAML parameter value to an engine [`Value`] via JSON.
+fn yaml_to_value(y: &serde_yaml::Value) -> Result<Value, String> {
+    let json = serde_json::to_value(y).map_err(|e| format!("yaml→json conversion: {e}"))?;
+    Ok(Value::from(json))
 }
 
 fn load_suite(path: &str) -> Suite {
@@ -67,10 +101,11 @@ fn exec_stmts(db: &mut MonaDB, stmts: &[String]) -> Result<(), String> {
 }
 
 fn run_step(db: &mut MonaDB, step: &Step, idx: usize) -> Result<(), String> {
+    let params = step_params(&step.parameters).map_err(|e| format!("step {idx}: {e}"))?;
     match (&step.result, &step.error) {
         (Some(expected_yaml), None) => {
             let mut rows = db
-                .query(&step.sql, true)
+                .query_with(&step.sql, &params, true)
                 .map_err(|e| format!("step {idx}: unexpected error: {e:?}"))?;
 
             let mut actual: Vec<Json> = Vec::new();
@@ -94,7 +129,7 @@ fn run_step(db: &mut MonaDB, step: &Step, idx: usize) -> Result<(), String> {
             }
         }
         (None, Some(expected_cat)) => {
-            let result = db.execute(&step.sql);
+            let result = db.execute_with(&step.sql, &params);
             match result {
                 Ok(_) => {
                     return Err(format!(
@@ -113,7 +148,7 @@ fn run_step(db: &mut MonaDB, step: &Step, idx: usize) -> Result<(), String> {
         }
         (None, None) => {
             // fire-and-forget: must succeed, output is not checked
-            db.execute(&step.sql)
+            db.execute_with(&step.sql, &params)
                 .map_err(|e| format!("step {idx}: unexpected error: {e:?}"))?;
         }
         (Some(_), Some(_)) => {

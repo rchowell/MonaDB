@@ -338,8 +338,9 @@ pub mod visit {
             Expr::Jpi(jpi) => v.visit_jpi(jpi),
             Expr::Jpk(jpk) => v.visit_jpk(jpk),
             Expr::Jpe(jpe) => v.visit_jpe(jpe),
-            // A bound `Get` holds literal key Values, not Expr children.
-            Expr::Lit(_) | Expr::Var(_) | Expr::Get(_) => {}
+            // A bound `Get` holds literal key Values, not Expr children; a
+            // `Param` is a leaf the binder rewrites to a literal.
+            Expr::Lit(_) | Expr::Var(_) | Expr::Get(_) | Expr::Param(_) => {}
             Expr::Obj(members) => {
                 for m in members {
                     v.visit_member(m);
@@ -675,8 +676,9 @@ pub mod visit_mut {
             Expr::Jpi(jpi) => v.visit_jpi_mut(jpi),
             Expr::Jpk(jpk) => v.visit_jpk_mut(jpk),
             Expr::Jpe(jpe) => v.visit_jpe_mut(jpe),
-            // A bound `Get` holds literal key Values, not Expr children.
-            Expr::Lit(_) | Expr::Var(_) | Expr::Get(_) => {}
+            // A bound `Get` holds literal key Values, not Expr children; a
+            // `Param` is a leaf the binder rewrites to a literal.
+            Expr::Lit(_) | Expr::Var(_) | Expr::Get(_) | Expr::Param(_) => {}
             Expr::Obj(members) => {
                 for m in members {
                     v.visit_member_mut(m);
@@ -993,6 +995,8 @@ pub mod fold {
             }),
             // A bound Get carries only literal key Values; fold is identity.
             Expr::Get(get) => Expr::Get(get),
+            // A Param is a leaf placeholder; fold is identity.
+            Expr::Param(p) => Expr::Param(p),
             Expr::Agg(agg) => Expr::Agg(Agg {
                 kind: agg.kind,
                 arg: agg.arg.map(|a| Box::new(f.fold_expr(*a))),
@@ -1043,7 +1047,7 @@ mod tests {
     fn parse(input: &str) -> Statement {
         let l = SqlLexer::new(input);
         let p = SqlParser::new();
-        p.parse(l).unwrap()
+        p.parse(&std::cell::Cell::new(0), l).unwrap()
     }
 
     /// Counts every Expr node reached by the default walk.

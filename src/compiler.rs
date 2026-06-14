@@ -1318,6 +1318,9 @@ impl Compiler {
             Expr::Subscript(_) => {
                 unsupported!("multi-element subscript on a value is not supported")
             }
+            // The binder substitutes every parameter with its literal; one
+            // reaching here is a compiler invariant break.
+            Expr::Param(_) => crate::error!("unbound parameter reached the compiler"),
         }
     }
 
@@ -1802,10 +1805,14 @@ mod tests {
     }
 
     fn compile_sql(storage: &Storage, catalog: &Catalog, sql: &str) -> Program {
-        let mut stmt = SqlParser::new().parse(SqlLexer::new(sql)).unwrap();
+        let mut stmt = SqlParser::new()
+            .parse(&std::cell::Cell::new(0), SqlLexer::new(sql))
+            .unwrap();
         let txn = storage.read_txn().unwrap();
         let mut binder = Binder::new(catalog.clone(), &txn);
-        binder.bind(&mut stmt).unwrap();
+        binder
+            .bind(&mut stmt, &crate::value::Params::none())
+            .unwrap();
         txn.commit().unwrap();
         Compiler::new().compile(stmt).unwrap()
     }
@@ -2081,7 +2088,10 @@ mod tests {
         // gathers, validates, and encodes the declared columns. The binder's
         // catalog lookup is simulated.
         let mut stmt = SqlParser::new()
-            .parse(SqlLexer::new("insert into t ({a: 1, b: \"x\"});"))
+            .parse(
+                &std::cell::Cell::new(0),
+                SqlLexer::new("insert into t ({a: 1, b: \"x\"});"),
+            )
             .unwrap();
         let Statement::Insert(ins) = &mut stmt else {
             panic!("expected insert");

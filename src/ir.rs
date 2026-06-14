@@ -309,6 +309,19 @@ pub enum Expr {
     /// An aggregate term (`count(*)`, `sum(x)`, …). The binder lowers a
     /// recognized aggregate `Call` into this; the compiler assigns its slot.
     Agg(Agg),
+    /// A query-parameter placeholder (`?`, `$N`, `$name`). The binder
+    /// substitutes it with the bound literal, so it never reaches the compiler.
+    Param(Param),
+}
+
+/// A query-parameter placeholder, resolved to a literal by the binder.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Param {
+    /// `?` (a parse-assigned 1-based index, in source order) or an explicit
+    /// `$N` — resolved from the supplied positional list.
+    Numbered(u32),
+    /// `$name` — resolved from the supplied named map.
+    Named(String),
 }
 
 /// The supported aggregate functions. The first five mirror SQLite's aggregate
@@ -768,6 +781,32 @@ pub fn expr_lit(val: Value) -> Expr {
     Expr::Lit(val)
 }
 
+/// Builds a positional parameter `?`, assigning it the next 1-based index in
+/// source order. The parser threads `counter` so indices follow the SQL text,
+/// not the binder's traversal order.
+#[inline]
+pub fn expr_param_positional(counter: &std::cell::Cell<u32>) -> Expr {
+    counter.set(counter.get() + 1);
+    Expr::Param(Param::Numbered(counter.get()))
+}
+
+/// Builds an explicitly numbered parameter `$N` (1-based). An index that
+/// overflows `u32` collapses to 0 — the canonical invalid index — which the
+/// binder rejects as a missing parameter, a clean bind error rather than an
+/// opaque lexer failure.
+#[inline]
+#[allow(clippy::needless_pass_by_value)] // for .lalrpop
+pub fn expr_param_numbered(raw: String) -> Expr {
+    Expr::Param(Param::Numbered(raw.parse::<u32>().unwrap_or(0)))
+}
+
+/// Builds a named parameter `$name`.
+#[inline]
+#[allow(clippy::needless_pass_by_value)] // for .lalrpop
+pub fn expr_param_named(name: String) -> Expr {
+    Expr::Param(Param::Named(name))
+}
+
 /// Builds a path-key access `inp.key`.
 #[inline]
 pub fn expr_jpk(inp: Expr, key: String) -> Expr {
@@ -974,7 +1013,7 @@ mod test {
     fn parse(input: &str) -> Statement {
         let l = SqlLexer::new(input);
         let p = SqlParser::new();
-        p.parse(l).unwrap()
+        p.parse(&std::cell::Cell::new(0), l).unwrap()
     }
 
     #[test]

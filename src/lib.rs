@@ -52,6 +52,8 @@ use crate::{
     vm::{Program, Rows, VM},
 };
 
+pub use crate::value::{Params, Value};
+
 /// The user-facing database handle.
 pub struct MonaDB {
     /// The storage engine over LMDB.
@@ -79,8 +81,14 @@ impl MonaDB {
     /// statement's transaction commits once the iterator is exhausted.
     /// Mirrors rusqlite's `Connection::query`.
     pub fn query(&mut self, sql: &str, debug: bool) -> Result<Rows> {
+        self.query_with(sql, &Params::none(), debug)
+    }
+
+    /// Run a parameterized query, binding `?`/`$N`/`$name` placeholders against
+    /// `params` before compilation. `query` is the no-parameter form.
+    pub fn query_with(&mut self, sql: &str, params: &Params, debug: bool) -> Result<Rows> {
         let mut stmt = Self::parse(sql)?;
-        self.bind(&mut stmt)?;
+        self.bind(&mut stmt, params)?;
         let program = self.compile(stmt)?;
         if debug {
             Self::debug(&program);
@@ -95,19 +103,27 @@ impl MonaDB {
         self.query(sql, false)?.finish()
     }
 
+    /// Run a parameterized statement to completion, returning its row count.
+    pub fn execute_with(&mut self, sql: &str, params: &Params) -> Result<u64> {
+        self.query_with(sql, params, false)?.finish()
+    }
+
     /// Phase 1: Parse input string into our AST (no binding or compilation).
     pub fn parse(sql: &str) -> Result<Statement> {
         let l = SqlLexer::new(sql);
         let p = SqlParser::new();
-        Ok(p.parse(l)?)
+        // Counts positional `?` placeholders, numbering them in source order.
+        let param_pos = std::cell::Cell::new(0);
+        Ok(p.parse(&param_pos, l)?)
     }
 
-    /// Phase 2: Bind all tables and variable references in the AST.
-    fn bind(&self, statement: &mut Statement) -> Result<()> {
+    /// Phase 2: Bind all tables and variable references in the AST, and
+    /// substitute parameter placeholders with their bound values.
+    fn bind(&self, statement: &mut Statement, params: &Params) -> Result<()> {
         let cat = self.catalog.clone();
         let txn = self.storage.read_txn()?;
         let mut binder = Binder::new(cat, &txn);
-        binder.bind(statement)?;
+        binder.bind(statement, params)?;
         txn.commit()
     }
 

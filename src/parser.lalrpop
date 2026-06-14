@@ -8,7 +8,9 @@ use crate::ir;
 use crate::lexer::Token;
 use crate::value::Value;
 
-grammar;
+// `param_pos` is a positional-parameter counter threaded so each `?` is
+// numbered in source order (see `ir::expr_param_positional`).
+grammar(param_pos: &std::cell::Cell<u32>);
 
 extern {
 
@@ -21,6 +23,7 @@ extern {
         ","         => Token::Comma,
         ":"         => Token::Colon,
         "$"         => Token::Dollar,
+        "?"         => Token::Question,
         ".."        => Token::DotDot,
         "..."       => Token::Ellipsis,
         "="         => Token::Eq,
@@ -86,6 +89,9 @@ extern {
         "false"     => Token::False,
         "number"    => Token::Number(<String>),
         "string"    => Token::String(<String>),
+        // query parameters
+        "$num"      => Token::NumberedParam(<String>),
+        "$name"     => Token::NamedParam(<String>),
         // names and identifiers
         "ident"     => Token::Identifier(<String>),
     }
@@ -274,6 +280,9 @@ Atom: ir::Expr = {
     <"ident"> "(" "*" ")"           => ir::expr_call_star(<>),
     <t:TScalar> "(" <e:Expr> ")"    => ir::expr_cast(e, &t),
     Value                           => ir::expr_lit(<>),
+    "?"                             => ir::expr_param_positional(param_pos),
+    "$num"                          => ir::expr_param_numbered(<>),
+    "$name"                         => ir::expr_param_named(<>),
     "{" <Members> "}"               => ir::expr_obj(<>),
     "[" <List<Expr>> "]"            => ir::expr_array(<>),
     "(" <Expr> ")"                  => <>,
