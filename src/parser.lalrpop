@@ -46,6 +46,7 @@ extern {
         "["         => Token::BracketL,
         "]"         => Token::BracketR,
         // keywords
+        "all"       => Token::All,
         "and"       => Token::And,
         "as"        => Token::As,
         "asc"       => Token::Asc,
@@ -57,6 +58,7 @@ extern {
         "delete"    => Token::Delete,
         "desc"      => Token::Desc,
         "drop"      => Token::Drop,
+        "exists"    => Token::Exists,
         "group"     => Token::Group,
         "having"    => Token::Having,
         "in"        => Token::In,
@@ -286,6 +288,8 @@ Atom: ir::Expr = {
     "{" <Members> "}"               => ir::expr_obj(<>),
     "[" <List<Expr>> "]"            => ir::expr_array(<>),
     "(" <Expr> ")"                  => <>,
+    "(" <Select> ")"                => ir::expr_subquery(<>),
+    "exists" "(" <Select> ")"       => ir::expr_exists(<>),
 };
 
 Expr: ir::Expr = {
@@ -313,6 +317,15 @@ Expr: ir::Expr = {
     <Expr> ">" <Expr>           => ir::expr_binary(">", <>),
     <Expr> ">=" <Expr>          => ir::expr_binary(">=", <>),
     <Expr> "!=" <Expr>          => ir::expr_binary("!=", <>),
+    // Quantified comparisons `lhs <op> any/all (select ...)`. The `any`/`all`
+    // tail can't begin an ordinary expression, so LR(1) picks these apart from
+    // the binary rules above by a single lookahead token after the operator.
+    <l:Expr> "<"  <r:QuantRhs>  => ir::expr_quantify(l, ir::CmpOp::Lt, r.0, r.1),
+    <l:Expr> "<=" <r:QuantRhs>  => ir::expr_quantify(l, ir::CmpOp::Le, r.0, r.1),
+    <l:Expr> "="  <r:QuantRhs>  => ir::expr_quantify(l, ir::CmpOp::Eq, r.0, r.1),
+    <l:Expr> ">"  <r:QuantRhs>  => ir::expr_quantify(l, ir::CmpOp::Gt, r.0, r.1),
+    <l:Expr> ">=" <r:QuantRhs>  => ir::expr_quantify(l, ir::CmpOp::Ge, r.0, r.1),
+    <l:Expr> "!=" <r:QuantRhs>  => ir::expr_quantify(l, ir::CmpOp::Ne, r.0, r.1),
 
     #[precedence(level="5")]                    #[assoc(side="left")]
     <Expr> "is" "null"                          => ir::expr_is_null(<>),
@@ -327,6 +340,8 @@ Expr: ir::Expr = {
     <Expr> "not" "between" <Expr> "and" <Expr>  => ir::expr_not_between(<>),
     <Expr> "in" "(" <List<Expr>> ")"            => ir::expr_in_list(<>),
     <Expr> "not" "in" "(" <List<Expr>> ")"      => ir::expr_not_in_list(<>),
+    <Expr> "in" "(" <Select> ")"                => ir::expr_in_subquery(<>),
+    <Expr> "not" "in" "(" <Select> ")"          => ir::expr_not_in_subquery(<>),
 
     #[precedence(level="6")]
     "not" <Expr>                => ir::expr_not(<>),
@@ -337,6 +352,13 @@ Expr: ir::Expr = {
     #[precedence(level="8")]    #[assoc(side="left")]
     <Expr> "or" <Expr>          => ir::expr_binary("or", <>),
 }
+
+// The right-hand side of a quantified comparison: the quantifier (`any` reuses
+// the `t_any` type token; `all` returns `true`) and the subquery it ranges over.
+QuantRhs: (bool, ir::Select) = {
+    "t_any" "(" <Select> ")"    => (false, <>),
+    "all"   "(" <Select> ")"    => (true, <>),
+};
 
 Value: Value = {
     "null"      => Value::null(),

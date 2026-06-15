@@ -1,9 +1,3 @@
-//! IR → `Vop` bytecode compiler.
-//!
-//! `cc_*` methods walk a bound [`Statement`] and append instructions through the
-//! `emit_*` helpers. Control-flow ops are emitted with placeholder jump targets
-//! and back-patched via [`Compiler::patch`] once the loop body's extent is known.
-
 use serde_json::json;
 
 use crate::Result;
@@ -12,8 +6,8 @@ use crate::error::Error;
 use crate::unsupported;
 use crate::functions;
 use crate::ir::{
-    AggKind, Call, Clear, Constructor, Create, Delete, Drop, Expr, Get, Insert, Jpe, Jpi, Jpk, Key,
-    Limit, Member, Obj, Select, Source, Statement, ToSql, Type, Var,
+    AggKind, Call, Clear, CmpOp, Constructor, Create, Delete, Drop, Expr, Get, Insert, Jpe, Jpi,
+    Jpk, Key, Limit, Member, Obj, Select, Source, Statement, ToSql, Type, Var,
 };
 use crate::schema;
 use crate::transaction::TransactionMode;
@@ -51,6 +45,16 @@ struct FromPlan {
     seeds: Vec<(usize, usize, Option<usize>)>,
 }
 
+/// Where a SELECT plan sends each output row: `Yield`ed to the caller (a
+/// top-level statement) or `Collect`ed onto a collector array (a subquery
+/// materializing its bag of rows on the stack).
+#[derive(Default, Clone, Copy, PartialEq)]
+enum Sink {
+    #[default]
+    Yield,
+    Collect,
+}
+
 /// Translates a bound SQL statement into a `Program` of `Vop` bytecode.
 #[derive(Default)]
 pub struct Compiler {
@@ -61,6 +65,9 @@ pub struct Compiler {
     counter_slots: usize,
     /// Number of aggregate-accumulator slots required (one per aggregate term).
     agg_slots: usize,
+    /// Where each SELECT plan sends its output rows (see [`Sink`]). A subquery
+    /// flips this to `Collect` while compiling, then restores it.
+    sink: Sink,
     /// The transaction mode this program requires
     txm: Option<TransactionMode>,
 }
@@ -377,7 +384,7 @@ impl Compiler {
                 unsupported!("select * / select . requires a from clause");
             }
             self.cc_select_constructor(constructor, &[])?;
-            self.emit_yield();
+            self.emit_row();
             return Ok(());
         }
 
@@ -386,7 +393,7 @@ impl Compiler {
         // --- body ---
         let (offset, limit_pc) = self.emit_limit_checks(cnt_skip, cnt_take);
         self.cc_select_constructor(constructor, &fp.bindings)?;
-        self.emit_yield();
+        self.emit_row();
         // --- close ---
         let exits = self.cc_loop_close(&frame)?;
         let exit = self.pc() + 1;
@@ -443,8 +450,8 @@ impl Compiler {
         let exits = self.cc_loop_close(&frame)?;
         // After the outermost source exhausts (or was empty), yield the one
         // accumulated object. Both the initial-empty edge (begin0) and the
-        // exhausted edge (Next falling through) land on this Yield.
-        self.emit_yield();
+        // exhausted edge (Next falling through) land on this row emission.
+        self.emit_row();
         self.patch(exits.begin0, self.pc())?;
         Ok(())
     }
@@ -474,7 +481,12 @@ impl Compiler {
             }
             Source::Value(expr) => {
                 let entry = self.pc() + 1;
-                self.cc_expr(*expr)?;
+                // A derived table iterates the subquery's whole bag, so emit the
+                // array directly — not the scalar coercion `cc_expr` would apply.
+                match *expr {
+                    Expr::Subquery(select) => self.cc_subquery_array(*select)?,
+                    other => self.cc_expr(other)?,
+                }
                 self.emit_iter(csr, 0);
                 entry
             }
@@ -579,9 +591,9 @@ impl Compiler {
         // constructor reads it via the same LoadVal as a live scan.
         self.emit_reseed_from_payload(payload_csr, &fp.bindings);
 
-        // Project and yield.
+        // Project and emit.
         self.cc_select_constructor(constructor, &fp.bindings)?;
-        self.emit_yield();
+        self.emit_row();
 
         // Advance; patch the exhaust/skip/take edges now that targets are known.
         self.emit_next(payload_csr, loop_top);
@@ -953,7 +965,7 @@ impl Compiler {
             stop.push(pc);
         }
         self.cc_select_constructor(constructor.clone(), bindings)?;
-        self.emit_yield();
+        self.emit_row();
         Ok((cont, stop))
     }
 
@@ -1112,7 +1124,43 @@ impl Compiler {
             // The binder substitutes every parameter with its literal; one
             // reaching here is a compiler invariant break.
             Expr::Param(_) => crate::error!("unbound parameter reached the compiler"),
+            // A subquery in scalar position: materialize its bag, then coerce
+            // the array to a single value (empty → null, >1 row → runtime error).
+            Expr::Subquery(select) => {
+                self.cc_subquery_array(*select)?;
+                self.emit_scalar();
+                Ok(())
+            }
+            // `exists (sub)`: materialize the bag, then test it is non-empty.
+            Expr::Exists(select) => {
+                self.cc_subquery_array(*select)?;
+                self.emit_exists();
+                Ok(())
+            }
+            // `lhs op any/all (sub)`: push lhs then the bag, then fold the
+            // comparison over the elements under three-valued logic.
+            Expr::Quantify(q) => {
+                self.cc_expr(*q.lhs)?;
+                self.cc_subquery_array(*q.sub)?;
+                self.emit_quantify(q.op, q.all);
+                Ok(())
+            }
         }
+    }
+
+    /// Compiles a subquery so its rows materialize as a `Value::Array` on top of
+    /// the stack. A fresh collector array sits at the bottom of the subquery's
+    /// frame and the row sink is flipped to `Collect`, so every `Select` plan
+    /// `ArrPush`es its output instead of `Yield`ing it; the array is left behind
+    /// when the loop exhausts. Correlation is automatic — the subquery compiles
+    /// inline in the enclosing loop body and reads the live outer cursors.
+    fn cc_subquery_array(&mut self, select: Select) -> Result<()> {
+        let saved = self.sink;
+        self.emit_arr();
+        self.sink = Sink::Collect;
+        let result = self.cc_select(select);
+        self.sink = saved;
+        result
     }
 
     /// Keyed-table access `table[key, ...]`. Literal keys are encoded at COMPILE
@@ -1386,6 +1434,18 @@ impl Compiler {
         self.code.push(Vop::ArrPush);
     }
 
+    fn emit_scalar(&mut self) {
+        self.code.push(Vop::Scalar);
+    }
+
+    fn emit_exists(&mut self) {
+        self.code.push(Vop::Exists);
+    }
+
+    fn emit_quantify(&mut self, op: CmpOp, all: bool) {
+        self.code.push(Vop::Quantify { op, all });
+    }
+
     fn emit_order_key(&mut self, dirs: Vec<bool>) {
         self.code.push(Vop::OrderKey { dirs });
     }
@@ -1470,6 +1530,16 @@ impl Compiler {
         self.code.push(Vop::Yield);
     }
 
+    /// Emits a plan's terminal output of one row: `Yield` it to the caller, or —
+    /// inside a subquery — `ArrPush` it onto the collector array that
+    /// [`Self::cc_subquery_array`] left at the bottom of the stack frame.
+    fn emit_row(&mut self) {
+        match self.sink {
+            Sink::Yield => self.emit_yield(),
+            Sink::Collect => self.emit_arr_push(),
+        }
+    }
+
     fn emit_transaction(&mut self, txn: TransactionMode) {
         self.code.push(Vop::Transaction { txm: txn });
     }
@@ -1489,6 +1559,17 @@ struct AggScan(bool);
 
 impl<'ast> Visit<'ast> for AggScan {
     fn visit_expr(&mut self, e: &'ast Expr) {
+        // A subquery is its own query level: aggregates inside it belong to that
+        // query, not this one. Don't cross the boundary (a quantifier's left
+        // operand is still part of this level, so scan it).
+        match e {
+            Expr::Subquery(_) | Expr::Exists(_) => return,
+            Expr::Quantify(q) => {
+                self.visit_expr(&q.lhs);
+                return;
+            }
+            _ => {}
+        }
         if matches!(e, Expr::Agg(_)) {
             self.0 = true;
         }
@@ -1591,6 +1672,17 @@ impl VisitMut for AggCollect<'_, '_> {
         // expressions; revisit if expression rewriting is ever added.
         if self.groups.contains(&*e) {
             return;
+        }
+        // A subquery is a separate query level — its aggregates and column
+        // references are collected when it is compiled, not here. Skip its body
+        // (but a quantifier's left operand belongs to this level).
+        match e {
+            Expr::Subquery(_) | Expr::Exists(_) => return,
+            Expr::Quantify(q) => {
+                self.visit_expr_mut(&mut q.lhs);
+                return;
+            }
+            _ => {}
         }
         match e {
             Expr::Agg(agg) => {

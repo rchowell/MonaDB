@@ -8,13 +8,13 @@
 use crate::catalog::Catalog;
 use crate::error::{Error, Result};
 use crate::ir::{
-    Agg, AggKind, Call, Clear, Constructor, Drop, Expr, From, Get, Insert, Param, Source, Statement,
-    TableDefinition,
+    Agg, AggKind, Call, Clear, Constructor, Drop, Expr, From, Get, Insert, Param, Select, Source,
+    Statement, TableDefinition,
 };
 use crate::transaction::Transaction;
 use crate::value::{Params, Value};
 use crate::visitor::visit_mut::{
-    VisitMut, visit_constructor_mut, visit_expr_mut, visit_insert_mut,
+    VisitMut, visit_constructor_mut, visit_expr_mut, visit_insert_mut, visit_select_mut,
 };
 
 /// The binder assigns cursor slots and resolves variable references.
@@ -191,6 +191,20 @@ impl VisitMut for Binder<'_> {
     /// Lowers an aggregate call to `Expr::Agg`, lowers a keyed-table subscript to
     /// a `Get`, else resolves a variable.
     fn visit_expr_mut(&mut self, i: &mut Expr) {
+        // A subquery binds in a child scope: it may read outer bindings
+        // (correlation) but its own bindings must not leak outward.
+        match i {
+            Expr::Subquery(s) | Expr::Exists(s) => {
+                self.bind_subquery(s);
+                return;
+            }
+            Expr::Quantify(q) => {
+                self.visit_expr_mut(&mut q.lhs);
+                self.bind_subquery(&mut q.sub);
+                return;
+            }
+            _ => {}
+        }
         // An aggregate call (`sum(x)`, `count(x)`, …): validate it is in a
         // projection, then lower it to `Expr::Agg`, descending into its argument
         // with aggregates disallowed (resolving its variables, rejecting nesting).
@@ -258,6 +272,21 @@ impl VisitMut for Binder<'_> {
 }
 
 impl Binder<'_> {
+    /// Binds a nested SELECT in a child scope. The inner query may reference
+    /// outer bindings (correlation), but its own from-bindings are dropped after
+    /// so they never leak into the enclosing query. Cursor slots are *not*
+    /// reclaimed — inner and outer cursors coexist at runtime, so the counter
+    /// stays monotonic — and aggregates are disallowed except in the subquery's
+    /// own projection (which re-enables the flag itself).
+    fn bind_subquery(&mut self, select: &mut Select) {
+        let mark = self.scope.mark();
+        let saved_agg = self.allow_agg;
+        self.allow_agg = false;
+        visit_select_mut(self, select);
+        self.allow_agg = saved_agg;
+        self.scope.truncate(mark);
+    }
+
     /// If `i` is a subscript (`base[exp]` or `base[a, b, ...]`) whose base is a
     /// bare unbound name that names a catalog table, lower it to a keyed-table
     /// access (`Expr::Get`) or record a classification error. Returns `true`
@@ -483,6 +512,16 @@ impl Scope {
             }
         }
         None
+    }
+
+    /// Returns a restore point: the current number of active bindings.
+    fn mark(&self) -> usize {
+        self.bindings.len()
+    }
+
+    /// Drops every binding added since `mark`, restoring the enclosing scope.
+    fn truncate(&mut self, mark: usize) {
+        self.bindings.truncate(mark);
     }
 }
 

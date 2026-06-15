@@ -8,6 +8,9 @@
 
 pub mod error;
 pub mod ir;
+/// Order-preserving key encoding. Public so the order/round-trip invariants its
+/// doc comments state can be exercised by the property-based conformance tests.
+pub mod schema;
 
 mod binder;
 mod catalog;
@@ -16,7 +19,6 @@ mod cursor;
 mod display;
 mod functions;
 mod lexer;
-mod schema;
 mod storage;
 mod transaction;
 mod value;

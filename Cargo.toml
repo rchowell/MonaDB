@@ -28,6 +28,7 @@ pyo3 = {version = "0.23", optional = true, features = [
 ]}
 
 [dev-dependencies]
+hegeltest = "0.18"
 serde = {version = "1", features = ["derive"]}
 serde_yaml = "0.9"
 tempfile = "3.14.0"

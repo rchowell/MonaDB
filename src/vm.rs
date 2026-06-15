@@ -12,7 +12,7 @@ use crate::Result;
 use crate::cursor::Cursor;
 use crate::error::Error;
 use crate::functions;
-use crate::ir::{AggKind, Key};
+use crate::ir::{AggKind, CmpOp, Key};
 use crate::schema;
 use crate::storage::Storage;
 use crate::transaction::{Transaction, TransactionMode};
@@ -201,6 +201,22 @@ pub enum Vop {
     Between,
     /// Variadic membership: pop n list values then target; push target in list.
     InList(usize),
+    /// Scalar-subquery coercion: pop an array; push its single element, or null
+    /// if empty. More than one element is a runtime error.
+    ///
+    ///   stack:  … [v]      ─▶  … v
+    ///   stack:  … []       ─▶  … null
+    Scalar,
+    /// Existence test: pop an array; push true iff it is non-empty.
+    ///
+    ///   stack:  … arr      ─▶  … (len(arr) > 0)
+    Exists,
+    /// Quantified comparison: pop an array then a left value; push the
+    /// three-valued result of `lhs <op> any/all (array)`. `all` chooses ALL
+    /// (else ANY); an empty array gives `true` for ALL and `false` for ANY.
+    ///
+    ///   stack:  … lhs arr  ─▶  … bool|null
+    Quantify { op: CmpOp, all: bool },
     /// Call builtin `fun` (a `functions` registry index) on its `cnt` arguments:
     ///
     ///   stack:  … a b c  ─▶  … fun(a, b, c)
@@ -613,6 +629,29 @@ impl VM {
                     }
                     self.push_bool(hit);
                 }
+                Vop::Scalar => {
+                    let arr = self.pop();
+                    let v = match &arr {
+                        Value::Array(items) => match items.as_slice() {
+                            [] => Value::null(),
+                            [v] => v.clone(),
+                            _ => crate::error!("scalar subquery returned more than one row"),
+                        },
+                        // A subquery always materializes an array; tolerate any
+                        // other value as itself rather than failing.
+                        other => other.clone(),
+                    };
+                    self.push(v);
+                }
+                Vop::Exists => {
+                    let arr = self.pop();
+                    self.push_bool(arr.len().unwrap_or(0) > 0);
+                }
+                Vop::Quantify { op, all } => {
+                    let arr = self.pop();
+                    let lhs = self.pop();
+                    self.push(quantify(*op, *all, &lhs, &arr));
+                }
                 Vop::Call { fun, cnt } => {
                     let args = self.take(*cnt);
                     self.push(functions::call(*fun, &args)?);
@@ -904,6 +943,49 @@ fn to_bool(v: &Value) -> Option<bool> {
         None
     } else {
         Some(v.is_truthy())
+    }
+}
+
+/// The three-valued comparison `lhs <op> rhs` of one element: `None` is unknown
+/// (either side null, or the two values are incomparable across types).
+fn cmp3(op: CmpOp, lhs: &Value, rhs: &Value) -> Option<bool> {
+    if lhs.is_null() || rhs.is_null() {
+        return None;
+    }
+    match op {
+        // Both sides are non-null here, so `eq`/`ne` are definite.
+        CmpOp::Eq => Some(lhs.eq(rhs)),
+        CmpOp::Ne => Some(lhs.ne(rhs)),
+        CmpOp::Lt => lhs.partial_cmp(rhs).map(Ordering::is_lt),
+        CmpOp::Le => lhs.partial_cmp(rhs).map(Ordering::is_le),
+        CmpOp::Gt => lhs.partial_cmp(rhs).map(Ordering::is_gt),
+        CmpOp::Ge => lhs.partial_cmp(rhs).map(Ordering::is_ge),
+    }
+}
+
+/// Folds a quantified comparison `lhs <op> any/all (array)` under three-valued
+/// logic. ANY is true on the first true element, false only if every element is
+/// false, else unknown; ALL is false on the first false element, true only if
+/// every element is true, else unknown. An empty array gives ALL true, ANY
+/// false. A non-array `arr` (never produced by a subquery) is treated as empty.
+fn quantify(op: CmpOp, all: bool, lhs: &Value, arr: &Value) -> Value {
+    let items: &[Value] = match arr {
+        Value::Array(items) => items,
+        _ => &[],
+    };
+    let mut saw_unknown = false;
+    for e in items {
+        match cmp3(op, lhs, e) {
+            Some(true) if !all => return Value::bool(true),
+            Some(false) if all => return Value::bool(false),
+            None => saw_unknown = true,
+            _ => {}
+        }
+    }
+    if saw_unknown {
+        Value::null()
+    } else {
+        Value::bool(all)
     }
 }
 

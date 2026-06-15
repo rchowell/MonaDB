@@ -48,3 +48,6 @@ suites:
   - file: suites/20-params.yaml
     title: query parameters
     spec_ref: "3.4"
+  - file: suites/21-subquery.yaml
+    title: subquery
+    spec_ref: "4.10"

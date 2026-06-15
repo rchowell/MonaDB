@@ -362,6 +362,11 @@ pub mod visit {
                     v.visit_expr(arg);
                 }
             }
+            Expr::Subquery(s) | Expr::Exists(s) => v.visit_select(s),
+            Expr::Quantify(q) => {
+                v.visit_expr(&q.lhs);
+                v.visit_select(&q.sub);
+            }
         }
     }
 
@@ -700,6 +705,11 @@ pub mod visit_mut {
                     v.visit_expr_mut(arg);
                 }
             }
+            Expr::Subquery(s) | Expr::Exists(s) => v.visit_select_mut(s),
+            Expr::Quantify(q) => {
+                v.visit_expr_mut(&mut q.lhs);
+                v.visit_select_mut(&mut q.sub);
+            }
         }
     }
 
@@ -1001,6 +1011,14 @@ pub mod fold {
                 kind: agg.kind,
                 arg: agg.arg.map(|a| Box::new(f.fold_expr(*a))),
                 slot: agg.slot,
+            }),
+            Expr::Subquery(s) => Expr::Subquery(Box::new(f.fold_select(*s))),
+            Expr::Exists(s) => Expr::Exists(Box::new(f.fold_select(*s))),
+            Expr::Quantify(q) => Expr::Quantify(Quantify {
+                op: q.op,
+                all: q.all,
+                lhs: Box::new(f.fold_expr(*q.lhs)),
+                sub: Box::new(f.fold_select(*q.sub)),
             }),
         }
     }

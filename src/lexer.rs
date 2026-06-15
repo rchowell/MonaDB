@@ -99,6 +99,8 @@ pub enum Token {
     //-------------------------
     // Keywords
     //-------------------------
+    #[token("all")]
+    All,
     #[token("and")]
     And,
     #[token("as")]
@@ -121,6 +123,8 @@ pub enum Token {
     Desc,
     #[token("drop")]
     Drop,
+    #[token("exists")]
+    Exists,
     #[token("group")]
     Group,
     #[token("having")]

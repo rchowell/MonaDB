@@ -81,7 +81,7 @@ pub struct Key {
 /// A SELECT query: its from-sources, residual filter, grouping, group filter,
 /// order, limit, and projection. Clauses run in spec order —
 /// from → where → group → having → order → limit → select.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Select {
     pub from: Vec<From>,
     // pub with: Option<Expr>,
@@ -96,13 +96,13 @@ pub struct Select {
 /// A GROUP BY clause: its grouping key expressions, most significant first. The
 /// post-where stream is sorted by these (then streamed) so each distinct key
 /// forms one output row.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GroupBy {
     pub keys: Vec<Expr>,
 }
 
 /// The projection form of a SELECT.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Constructor {
     /// Identity `.` — project the binding tuple as an object.
     None,
@@ -119,7 +119,7 @@ pub enum Constructor {
 }
 
 /// The two expressions of a `pivot value at name` projection.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Pivot {
     /// The attribute value contributed by each binding tuple.
     pub value: ExprRef,
@@ -129,7 +129,7 @@ pub struct Pivot {
 
 /// A from-clause source: a named table, an evaluated value to iterate, or an
 /// `unpivot` over the attribute-value pairs of a tuple.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Source {
     Table(String),
     Value(Box<Expr>),
@@ -140,7 +140,7 @@ pub enum Source {
 /// pairs of the tuple `expr` evaluates to: each pair binds its value under the
 /// enclosing [`From::var`] (the `as` alias) and, optionally, its attribute name
 /// under [`Unpivot::att`] (the `at` alias). A non-object `expr` yields no rows.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Unpivot {
     /// The tuple whose attribute-value pairs are iterated.
     pub expr: ExprRef,
@@ -153,7 +153,7 @@ pub struct Unpivot {
 }
 
 /// One from-item: a source bound to an alias, plus binder-assigned slots.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct From {
     pub src: Source,
     pub var: String,      // AS <var>
@@ -165,7 +165,7 @@ pub struct From {
 pub type Where = Expr;
 
 /// A LIMIT clause as a half-open row range `[skip, skip+take)`.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Limit {
     /// `limit N..` — skip the first N rows.
     Skip(u64),
@@ -176,13 +176,13 @@ pub enum Limit {
 }
 
 /// An ORDER BY clause: its sort keys, most significant first.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct OrderBy {
     pub keys: Vec<OrderKey>,
 }
 
 /// One ORDER BY key: the sort expression and its direction.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct OrderKey {
     pub expr: Expr,
     /// `true` sorts this key descending; `false` (the default) ascending.
@@ -312,6 +312,38 @@ pub enum Expr {
     /// A query-parameter placeholder (`?`, `$N`, `$name`). The binder
     /// substitutes it with the bound literal, so it never reaches the compiler.
     Param(Param),
+    /// A subquery `(select ...)` evaluated as a bag of rows. The compiler
+    /// materializes it to a `Value::Array`; in scalar position it then coerces
+    /// the array to a single value. A FROM derived table holds one of these as a
+    /// [`Source::Value`] and iterates the array directly.
+    Subquery(Box<Select>),
+    /// `exists (select ...)` — true iff the subquery yields at least one row.
+    Exists(Box<Select>),
+    /// A quantified comparison `lhs <op> any/all (select ...)`. `in`/`not in`
+    /// over a subquery lower to this (`= any` / `<> all`).
+    Quantify(Quantify),
+}
+
+/// A quantified comparison against a subquery bag: `lhs <op> any/all (sub)`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Quantify {
+    pub op: CmpOp,
+    /// `true` for `all`, `false` for `any`.
+    pub all: bool,
+    pub lhs: ExprRef,
+    pub sub: Box<Select>,
+}
+
+/// A comparison operator carried by a [`Quantify`] (the VM applies it per
+/// element under three-valued logic).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CmpOp {
+    Lt,
+    Le,
+    Eq,
+    Ne,
+    Gt,
+    Ge,
 }
 
 /// A query-parameter placeholder, resolved to a literal by the binder.
@@ -1002,6 +1034,41 @@ pub fn expr_in_list(x: Expr, list: Vec<Expr>) -> Expr {
 #[inline]
 pub fn expr_not_in_list(x: Expr, list: Vec<Expr>) -> Expr {
     expr_not(expr_in_list(x, list))
+}
+
+/// Builds a subquery expression `(select ...)`.
+#[inline]
+pub fn expr_subquery(select: Select) -> Expr {
+    Expr::Subquery(Box::new(select))
+}
+
+/// Builds an `exists (select ...)` test.
+#[inline]
+pub fn expr_exists(select: Select) -> Expr {
+    Expr::Exists(Box::new(select))
+}
+
+/// Builds a quantified comparison `lhs <op> any/all (select ...)`.
+#[inline]
+pub fn expr_quantify(lhs: Expr, op: CmpOp, all: bool, select: Select) -> Expr {
+    Expr::Quantify(Quantify {
+        op,
+        all,
+        lhs: Box::new(lhs),
+        sub: Box::new(select),
+    })
+}
+
+/// Builds an `x in (select ...)` test as `x = any (select ...)`.
+#[inline]
+pub fn expr_in_subquery(x: Expr, select: Select) -> Expr {
+    expr_quantify(x, CmpOp::Eq, false, select)
+}
+
+/// Builds an `x not in (select ...)` test as `x <> all (select ...)`.
+#[inline]
+pub fn expr_not_in_subquery(x: Expr, select: Select) -> Expr {
+    expr_quantify(x, CmpOp::Ne, true, select)
 }
 
 #[cfg(test)]
