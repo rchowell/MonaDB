@@ -1,11 +1,11 @@
 +++
 title = "Installation"
-description = "Install MonaDB for Python or the mona CLI shell."
+description = "Install MonaDB for Python or the monadb CLI shell."
 template = "docs/page.html"
 weight = 1
 +++
 
-MonaDB ships as a Python package, a Rust library, and an interactive CLI (`mona`).
+MonaDB ships as a Python package, a Rust library, and an interactive CLI (`monadb`).
 There is no separate server to install or configure.
 
 ## Python (PyPI)
@@ -21,33 +21,31 @@ pip install monadb
 
 Requires Python 3.9 or later.
 
-## CLI shell (`mona`)
-
-The Homebrew formula is named **monadb**; the command it installs is **mona**.
+## CLI shell (`monadb`)
 
 ### Homebrew
 
 ```sh
 brew tap rchowell/tap
 brew install monadb
-mona
+monadb
 ```
 
 ### cargo
 
 ```sh
 cargo install monadb --features cli
-mona
+monadb
 ```
 
 ### GitHub Releases
 
-Download a prebuilt `mona` tarball for your platform from
-[GitHub Releases](https://github.com/rchowell/MonaDB/releases), extract, and run `./mona`.
+Download a prebuilt `monadb` tarball for your platform from
+[GitHub Releases](https://github.com/rchowell/MonaDB/releases), extract, and run `./monadb`.
 
 ```sh
-mona              # in-memory database
-mona ./data.db    # open or create a file
+monadb              # in-memory database
+monadb ./data.db    # open or create a file
 ```
 
 Inside the REPL, dot-commands start with `.` (`.info`, `.debug`, `.exit`).
@@ -71,7 +69,7 @@ cd MonaDB
 uv run maturin develop
 
 # CLI shell
-cargo run --features cli --bin mona
+cargo run --features cli --bin monadb
 ```
 
 ## Requirements

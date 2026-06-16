@@ -54,6 +54,7 @@ extern {
         "between"   => Token::Between,
         "by"        => Token::By,
         "clear"     => Token::Clear,
+        "copy"      => Token::Copy,
         "create"    => Token::Create,
         "delete"    => Token::Delete,
         "desc"      => Token::Desc,
@@ -107,6 +108,7 @@ pub Sql = <Statement> ";";
 
 Statement: ir::Statement = {
     Clear   => ir::Statement::Clear(<>),
+    Copy    => ir::Statement::Copy(<>),
     Create  => ir::Statement::Create(<>),
     Delete  => ir::Statement::Delete(<>),
     Drop    => ir::Statement::Drop(<>),
@@ -117,7 +119,14 @@ Statement: ir::Statement = {
 // CREATE STATEMENT
 //------------------------------
 
-Create: ir::Create = CreateTable;
+Create: ir::Create = {
+    CreateTableAs,
+    CreateTable,
+};
+
+CreateTableAs: ir::Create =
+    "create" "table" <def:TableDefinition> "as" <query:Select> =>
+        ir::create_table_as(def, query);
 
 CreateTable: ir::Create = "create" "table" <TableDefinition> => ir::create_table(<>);
 
@@ -211,6 +220,26 @@ Drop: ir::Drop = "drop" "table" <"ident"> => ir::drop_table(<>);
 //------------------------------
 
 Clear: ir::Clear = "clear" "table" <"ident"> => ir::clear_table(<>);
+
+// COPY STATEMENT
+//------------------------------
+
+Copy: ir::Copy = {
+    "copy" <target:TableDefinition> "from" <path:"string"> <opts:CopyOptions> =>
+        ir::copy_from(target, path, opts),
+    "copy" <source:CopySource> "to" <path:"string"> <opts:CopyOptions> =>
+        ir::copy_to(source, path, opts),
+};
+
+CopySource: ir::CopySource = {
+    <name:TableName> => ir::copy_source_table(name),
+    "(" <Select> ")" => ir::copy_source_query(<>),
+};
+
+CopyOptions: ir::Obj = {
+    => vec![],
+    "{" <Members> "}" => <>,
+};
 
 //------------------------------
 // TYPES

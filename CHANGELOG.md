@@ -12,9 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Embedded LMDB storage engine with order-preserving key encoding.
 - SQL lexer, parser, binder, compiler, and stack-based VM.
 - Python package (`monadb`) with DuckDB-style `Connection` API.
-- Interactive `mona` REPL shell with syntax highlighting and multiline input.
+- Interactive `monadb` REPL shell with syntax highlighting and multiline input.
 - Caret-annotated syntax errors and user-facing runtime error messages.
 - Catalog system table for schema metadata.
-- Distribution via crates.io, PyPI, GitHub Releases, and Homebrew (`monadb` formula → `mona` binary).
+- Distribution via crates.io, PyPI, GitHub Releases, and Homebrew (`monadb` formula and binary).
 
 [0.1.0]: https://github.com/rchowell/MonaDB/releases/tag/v0.1.0

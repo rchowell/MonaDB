@@ -13,6 +13,14 @@ pub mod visit {
             visit_statement(self, i);
         }
 
+        fn visit_copy(&mut self, i: &'ast Copy) {
+            visit_copy(self, i);
+        }
+
+        fn visit_copy_source(&mut self, i: &'ast CopySource) {
+            visit_copy_source(self, i);
+        }
+
         fn visit_create(&mut self, i: &'ast Create) {
             visit_create(self, i);
         }
@@ -115,6 +123,7 @@ pub mod visit {
         V: Visit<'ast> + ?Sized,
     {
         match i {
+            Statement::Copy(c) => v.visit_copy(c),
             Statement::Create(c) => v.visit_create(c),
             Statement::Delete(d) => v.visit_delete(d),
             Statement::Drop(d) => v.visit_drop(d),
@@ -130,6 +139,40 @@ pub mod visit {
     {
         match i {
             Create::Table(td) => v.visit_table_definition(td),
+            Create::TableAs { def, query } => {
+                v.visit_table_definition(def);
+                v.visit_select(query);
+            }
+        }
+    }
+
+    pub fn visit_copy<'ast, V>(v: &mut V, i: &'ast Copy)
+    where
+        V: Visit<'ast> + ?Sized,
+    {
+        match i {
+            Copy::From { target, options, .. } => {
+                v.visit_table_definition(target);
+                for m in options {
+                    v.visit_member(m);
+                }
+            }
+            Copy::To { source, options, .. } => {
+                v.visit_copy_source(source);
+                for m in options {
+                    v.visit_member(m);
+                }
+            }
+        }
+    }
+
+    pub fn visit_copy_source<'ast, V>(v: &mut V, i: &'ast CopySource)
+    where
+        V: Visit<'ast> + ?Sized,
+    {
+        match i {
+            CopySource::Table { .. } => {}
+            CopySource::Query(s) => v.visit_select(s),
         }
     }
 
@@ -412,6 +455,14 @@ pub mod visit_mut {
             visit_statement_mut(self, i);
         }
 
+        fn visit_copy_mut(&mut self, i: &mut Copy) {
+            visit_copy_mut(self, i);
+        }
+
+        fn visit_copy_source_mut(&mut self, i: &mut CopySource) {
+            visit_copy_source_mut(self, i);
+        }
+
         fn visit_create_mut(&mut self, i: &mut Create) {
             visit_create_mut(self, i);
         }
@@ -518,6 +569,7 @@ pub mod visit_mut {
 
     pub fn visit_statement_mut<V: VisitMut + ?Sized>(v: &mut V, i: &mut Statement) {
         match i {
+            Statement::Copy(c) => v.visit_copy_mut(c),
             Statement::Create(c) => v.visit_create_mut(c),
             Statement::Delete(d) => v.visit_delete_mut(d),
             Statement::Drop(d) => v.visit_drop_mut(d),
@@ -530,6 +582,34 @@ pub mod visit_mut {
     pub fn visit_create_mut<V: VisitMut + ?Sized>(v: &mut V, i: &mut Create) {
         match i {
             Create::Table(td) => v.visit_table_definition_mut(td),
+            Create::TableAs { def, query } => {
+                v.visit_table_definition_mut(def);
+                v.visit_select_mut(query);
+            }
+        }
+    }
+
+    pub fn visit_copy_mut<V: VisitMut + ?Sized>(v: &mut V, i: &mut Copy) {
+        match i {
+            Copy::From { target, options, .. } => {
+                v.visit_table_definition_mut(target);
+                for m in options {
+                    v.visit_member_mut(m);
+                }
+            }
+            Copy::To { source, options, .. } => {
+                v.visit_copy_source_mut(source);
+                for m in options {
+                    v.visit_member_mut(m);
+                }
+            }
+        }
+    }
+
+    pub fn visit_copy_source_mut<V: VisitMut + ?Sized>(v: &mut V, i: &mut CopySource) {
+        match i {
+            CopySource::Table { .. } => {}
+            CopySource::Query(s) => v.visit_select_mut(s),
         }
     }
 
@@ -747,6 +827,14 @@ pub mod fold {
             fold_create(self, i)
         }
 
+        fn fold_copy(&mut self, i: Copy) -> Copy {
+            fold_copy(self, i)
+        }
+
+        fn fold_copy_source(&mut self, i: CopySource) -> CopySource {
+            fold_copy_source(self, i)
+        }
+
         fn fold_table_definition(&mut self, i: TableDefinition) -> TableDefinition {
             fold_table_definition(self, i)
         }
@@ -830,6 +918,7 @@ pub mod fold {
 
     pub fn fold_statement<F: Fold + ?Sized>(f: &mut F, i: Statement) -> Statement {
         match i {
+            Statement::Copy(c) => Statement::Copy(f.fold_copy(c)),
             Statement::Create(c) => Statement::Create(f.fold_create(c)),
             Statement::Delete(s) => Statement::Delete(s),
             Statement::Drop(s) => Statement::Drop(s),
@@ -842,6 +931,40 @@ pub mod fold {
     pub fn fold_create<F: Fold + ?Sized>(f: &mut F, i: Create) -> Create {
         match i {
             Create::Table(td) => Create::Table(f.fold_table_definition(td)),
+            Create::TableAs { def, query } => Create::TableAs {
+                def: f.fold_table_definition(def),
+                query: f.fold_select(query),
+            },
+        }
+    }
+
+    pub fn fold_copy<F: Fold + ?Sized>(f: &mut F, i: Copy) -> Copy {
+        match i {
+            Copy::From {
+                target,
+                path,
+                options,
+            } => Copy::From {
+                target: f.fold_table_definition(target),
+                path,
+                options: options.into_iter().map(|m| f.fold_member(m)).collect(),
+            },
+            Copy::To {
+                source,
+                path,
+                options,
+            } => Copy::To {
+                source: f.fold_copy_source(source),
+                path,
+                options: options.into_iter().map(|m| f.fold_member(m)).collect(),
+            },
+        }
+    }
+
+    pub fn fold_copy_source<F: Fold + ?Sized>(f: &mut F, i: CopySource) -> CopySource {
+        match i {
+            CopySource::Table { name, oid } => CopySource::Table { name, oid },
+            CopySource::Query(s) => CopySource::Query(f.fold_select(s)),
         }
     }
 

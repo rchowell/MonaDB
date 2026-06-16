@@ -1,4 +1,4 @@
-//! Interactive MonaDB shell (`mona`).
+//! Interactive MonaDB shell (`monadb`).
 
 use std::borrow::Cow;
 use std::io::{BufRead, IsTerminal, Write};
@@ -17,7 +17,7 @@ use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 /// Top-level CLI arguments.
 #[derive(Debug, Parser)]
 #[command(
-    name = "mona",
+    name = "monadb",
     version,
     about = "Interactive MonaDB SQL shell",
     long_about = None
@@ -116,8 +116,8 @@ fn print_error(stdout: &mut StandardStream, sql: &str, err: &monadb::error::Erro
     writeln!(stdout).expect("write newline");
 }
 
-fn run_statement(mona: &mut MonaDB, sql: &str, debug: bool, stdout: &mut StandardStream) {
-    match mona.query(sql, debug) {
+fn run_statement(db: &mut MonaDB, sql: &str, debug: bool, stdout: &mut StandardStream) {
+    match db.query(sql, debug) {
         Ok(mut rows) => {
             let mut count = 0u64;
             loop {
@@ -144,9 +144,9 @@ fn run_statement(mona: &mut MonaDB, sql: &str, debug: bool, stdout: &mut Standar
     }
 }
 
-fn print_catalog(mona: &mut MonaDB) {
+fn print_catalog(db: &mut MonaDB) {
     let sql = "select catalog.name, catalog.type, catalog.sql from catalog order by catalog.name;";
-    let Ok(mut rows) = mona.query(sql, false) else {
+    let Ok(mut rows) = db.query(sql, false) else {
         return;
     };
 
@@ -195,7 +195,7 @@ fn open_database(db: Option<PathBuf>) -> MonaDB {
     }
 }
 
-fn run_repl(mona: &mut MonaDB) {
+fn run_repl(db: &mut MonaDB) {
     let mut line_reader = LineReader::default();
     let mut buffer = String::new();
     let mut debug = false;
@@ -227,11 +227,11 @@ fn run_repl(mona: &mut MonaDB) {
                     debug = !debug;
                     println!("debug: {debug}");
                 }
-                ShellCommand::Info => print_catalog(mona),
+                ShellCommand::Info => print_catalog(db),
                 ShellCommand::Exit => break,
             }
         } else {
-            run_statement(mona, &buffer, debug, &mut stdout);
+            run_statement(db, &buffer, debug, &mut stdout);
         }
     }
 
@@ -255,6 +255,6 @@ fn main() {
         return;
     }
 
-    let mut mona = open_database(args.db);
-    run_repl(&mut mona);
+    let mut db = open_database(args.db);
+    run_repl(&mut db);
 }

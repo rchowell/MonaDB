@@ -6,7 +6,7 @@ This project publishes **four artifacts** from one git tag:
 |---------|----------|---------|
 | [crates.io](https://crates.io/crates/monadb) | Rust library | `cargo publish` in CI |
 | [PyPI](https://pypi.org/project/monadb/) | Python wheel | `maturin upload` in CI |
-| [GitHub Releases](https://github.com/rchowell/MonaDB/releases) | `mona` CLI tarballs | CI upload |
+| [GitHub Releases](https://github.com/rchowell/MonaDB/releases) | `monadb` CLI tarballs | CI upload |
 | [Homebrew tap](https://github.com/rchowell/homebrew-tap) | `monadb` formula | Manual bump after release |
 
 Version is defined in [`Cargo.toml`](Cargo.toml); PyPI reads it via `dynamic = ["version"]` in [`pyproject.toml`](pyproject.toml).
@@ -59,7 +59,7 @@ Repository secrets (Settings → Secrets → Actions):
    ```sh
    brew tap rchowell/tap
    brew install monadb
-   mona --version
+   monadb --version
    ```
 
 ---
@@ -75,8 +75,8 @@ Repository secrets (Settings → Secrets → Actions):
 
    ```sh
    cargo test
-   cargo build --release --features cli --bin mona
-   ./target/release/mona --version
+   cargo build --release --features cli --bin monadb
+   ./target/release/monadb --version
    maturin build --release --features python
    cargo publish --dry-run --no-default-features
    ```
@@ -91,7 +91,7 @@ git push origin v0.1.0
 The [`release.yml`](.github/workflows/release.yml) workflow will:
 
 1. Run tests.
-2. Build `mona` for macOS (arm64, x86_64) and Linux (arm64, x86_64).
+2. Build `monadb` for macOS (arm64, x86_64) and Linux (arm64, x86_64).
 3. Build and upload PyPI wheels.
 4. `cargo publish --no-default-features` to crates.io.
 5. Create a GitHub Release with CLI tarballs.
@@ -102,7 +102,7 @@ Monitor the Actions tab until all jobs succeed.
 
 1. **Verify crates.io**: `cargo install monadb --version X.Y.Z --features cli`
 2. **Verify PyPI**: `pip install monadb==X.Y.Z` then `python -c "import monadb"`
-3. **Verify CLI assets**: download a release tarball and run `./mona --version`
+3. **Verify CLI assets**: download a release tarball and run `./monadb --version`
 4. **Update Homebrew formula** in `rchowell/homebrew-tap`:
 
    ```sh
@@ -129,7 +129,7 @@ Monitor the Actions tab until all jobs succeed.
 
 **Homebrew:** `brew tap rchowell/tap && brew upgrade monadb`
 
-**CLI binaries** (this page) — extract and run `mona`.
+**CLI binaries** (this page) — extract and run `monadb`.
 
 ## Highlights
 

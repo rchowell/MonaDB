@@ -13,7 +13,7 @@ for target in \
   aarch64-unknown-linux-gnu \
   x86_64-unknown-linux-gnu
 do
-  url="${BASE}/mona-${target}.tar.gz"
+  url="${BASE}/monadb-${target}.tar.gz"
   echo "# ${target}"
   echo "url \"${url}\""
   if command -v curl >/dev/null 2>&1; then

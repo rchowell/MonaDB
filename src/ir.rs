@@ -14,6 +14,7 @@ pub use crate::display::ToSql;
 #[derive(Debug)]
 pub enum Statement {
     Clear(Clear),
+    Copy(Copy),
     Create(Create),
     Delete(Delete),
     Drop(Drop),
@@ -21,10 +22,45 @@ pub enum Statement {
     Select(Select),
 }
 
-/// A CREATE statement. (`CREATE TABLE` is the only form today.)
+/// A CREATE statement.
 #[derive(Debug)]
 pub enum Create {
+    /// `CREATE TABLE` with an optional key declaration.
     Table(TableDefinition),
+    /// `CREATE TABLE … AS SELECT`.
+    TableAs {
+        def: TableDefinition,
+        query: Select,
+    },
+}
+
+/// A COPY import/export statement.
+#[derive(Debug)]
+pub enum Copy {
+    /// `COPY <table> FROM <file> [<options>]`.
+    From {
+        target: TableDefinition,
+        path: String,
+        options: Obj,
+    },
+    /// `COPY <source> TO <file> [<options>]`.
+    To {
+        source: CopySource,
+        path: String,
+        options: Obj,
+    },
+}
+
+/// The data source for `COPY … TO`.
+#[derive(Debug)]
+pub enum CopySource {
+    /// A table name.
+    Table {
+        name: String,
+        oid: Option<u32>,
+    },
+    /// A parenthesized SELECT.
+    Query(Select),
 }
 
 /// An INSERT of one or more row expressions into a table.
@@ -458,6 +494,12 @@ pub fn create_table(table: TableDefinition) -> Create {
     Create::Table(table)
 }
 
+/// Builds a CREATE TABLE AS SELECT.
+#[inline]
+pub fn create_table_as(def: TableDefinition, query: Select) -> Create {
+    Create::TableAs { def, query }
+}
+
 /// Builds a table definition from a name and its key columns.
 #[inline]
 pub fn table_definition(name: String, members: Vec<Key>) -> TableDefinition {
@@ -509,6 +551,44 @@ pub fn drop_table(name: String) -> Drop {
 #[inline]
 pub fn clear_table(name: String) -> Clear {
     Clear { name, oid: None }
+}
+
+/// Strips quotes from a SQL string literal token.
+#[inline]
+pub fn string_path(raw: String) -> String {
+    Value::string(raw).as_str().expect("string literal").to_string()
+}
+
+/// Builds `COPY <table> FROM <file> [<options>]`.
+#[inline]
+pub fn copy_from(target: TableDefinition, raw_path: String, options: Obj) -> Copy {
+    Copy::From {
+        target,
+        path: string_path(raw_path),
+        options,
+    }
+}
+
+/// Builds `COPY <source> TO <file> [<options>]`.
+#[inline]
+pub fn copy_to(source: CopySource, raw_path: String, options: Obj) -> Copy {
+    Copy::To {
+        source,
+        path: string_path(raw_path),
+        options,
+    }
+}
+
+/// Builds a table copy source.
+#[inline]
+pub fn copy_source_table(name: String) -> CopySource {
+    CopySource::Table { name, oid: None }
+}
+
+/// Builds a query copy source.
+#[inline]
+pub fn copy_source_query(select: Select) -> CopySource {
+    CopySource::Query(select)
 }
 
 /// Builds a from-less `select <value>`.
@@ -608,9 +688,9 @@ pub fn select_item(expr: Expr, name: String) -> Member {
     Member::Assign(name, expr)
 }
 
-/// Builds a from-item: a bare variable becomes a table reference, any other
-/// expression a value source. (A variable without a path is assumed to be a
-/// table; the grammar could disambiguate this, but this is a reasonable start.)
+/// Builds a from-item: a bare variable becomes a table reference, a file-path
+/// string literal desugars to `read_csv`/`read_jsonl`, any other expression a
+/// value source.
 #[inline]
 pub fn from_item(src: Expr, alias: Option<String>) -> From {
     match src {
@@ -620,6 +700,15 @@ pub fn from_item(src: Expr, alias: Option<String>) -> From {
             csr: None,
             oid: None,
         },
+        Expr::Lit(Value::String(ref path)) if crate::read::looks_like_file(path) => {
+            let var = alias.unwrap_or_else(|| crate::read::default_alias(path));
+            From {
+                var,
+                src: Source::Value(Box::new(desugar_file_from(path))),
+                csr: None,
+                oid: None,
+            }
+        }
         expr => From {
             var: alias.unwrap_or_default(),
             src: Source::Value(Box::new(expr)),
@@ -627,6 +716,27 @@ pub fn from_item(src: Expr, alias: Option<String>) -> From {
             oid: None,
         },
     }
+}
+
+/// Desugars a file-path string literal into a `read_csv` / `read_jsonl` call.
+#[inline]
+pub fn desugar_file_from(path: &str) -> Expr {
+    let format = crate::read::infer_format(path).expect("looks_like_file");
+    let name = crate::read::read_builtin(format).to_string();
+    expr_call(
+        name,
+        vec![Expr::Lit(Value::String(std::rc::Rc::from(path)))],
+    )
+}
+
+/// Returns true when `expr` is a `read_csv` / `read_jsonl` call.
+#[inline]
+pub fn is_file_read_call(expr: &Expr) -> bool {
+    matches!(
+        expr,
+        Expr::Call(Call { name, .. })
+            if name == "read_csv" || name == "read_jsonl" || name == "read_ndjson"
+    )
 }
 
 /// Builds an `unpivot expr [as value] [at name]` from-item. The `as` alias

@@ -1,29 +1,10 @@
 # MonaDB
 
-An embedded document database with a small SQL dialect. Use it from Python, Rust, or the interactive `mona` shell.
+An embedded document database with a small SQL dialect. Use it from Python, Rust, or the interactive `monadb` shell.
 
 ## Install
 
-### Homebrew
-
-Installing the monadb cli.
-
-```sh
-brew tap rchowell/tap
-brew install monadb
-```
-
-### Rust
-
-Installing the rust library.
-
-```sh
-cargo add monadb
-```
-
 ### Python (PyPI)
-
-Installing the python bindings.
 
 ```sh
 pip install monadb
@@ -37,27 +18,27 @@ con = monadb.connect("app.db")  # file-backed
 con.execute("create table todos (id int);")
 ```
 
-### CLI shell
+### CLI shell (`monadb`)
 
-**Homebrew** (installs the `mona` command):
+**Homebrew**
 
 ```sh
 brew tap rchowell/tap
 brew install monadb
-mona
+monadb
 ```
 
-**cargo** (builds from source):
+**cargo**
 
 ```sh
 cargo install monadb --features cli
-mona
+monadb
 ```
 
-**GitHub Releases** — download a prebuilt `mona` binary for your platform from
+**GitHub Releases** — download a prebuilt `monadb` binary for your platform from
 [Releases](https://github.com/rchowell/MonaDB/releases).
 
-### Rust library (crates.io)
+### Rust (crates.io)
 
 ```sh
 cargo add monadb
@@ -70,26 +51,20 @@ let mut db = MonaDB::open("app.db")?;
 db.execute("create table t (id int);")?;
 ```
 
-Install the REPL via Cargo:
+## `monadb` REPL
 
 ```sh
-cargo install monadb --features cli
-```
-
-## `mona` REPL
-
-```sh
-mona              # in-memory database
-mona ./data.db    # open or create a file
+monadb              # in-memory database
+monadb ./data.db    # open or create a file
 ```
 
 Dot-commands inside the shell:
 
-| Command | Action |
-|---------|--------|
-| `.info` | List catalog tables |
+| Command  | Action                |
+|----------|-----------------------|
+| `.info`  | List catalog tables   |
 | `.debug` | Toggle bytecode trace |
-| `.exit` | Quit |
+| `.exit`  | Quit                  |
 
 SQL statements end with `;`. The prompt supports syntax highlighting and multiline input.
 

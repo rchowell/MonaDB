@@ -24,7 +24,7 @@ _This section contains a list of features/ideas that are not yet implemented._
 * [ ] DDL with constraints (no enforcement).
 * [ ] null operators
 * [ ] Check schema on insert.
-* [ ] Read JSONLines on stdin to make `mona` a jq tool.
+* [ ] Read JSONLines on stdin to make `monadb` a jq tool.
 * [ ] Scalar functions
 * [ ] Load input from a file into a table.
 * [ ] CROSS JOIN

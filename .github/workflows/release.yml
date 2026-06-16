@@ -58,19 +58,19 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build
-        run: cargo build --release --features cli --bin mona --target ${{ matrix.target }}
+        run: cargo build --release --features cli --bin monadb --target ${{ matrix.target }}
 
       - name: Package
         run: |
-          mkdir -p dist/mona-${{ matrix.target }}
-          cp target/${{ matrix.target }}/release/mona dist/mona-${{ matrix.target }}/
-          cp LICENSE README.md dist/mona-${{ matrix.target }}/
-          tar czf mona-${{ matrix.target }}.tar.gz -C dist/mona-${{ matrix.target }} .
+          mkdir -p dist/monadb-${{ matrix.target }}
+          cp target/${{ matrix.target }}/release/monadb dist/monadb-${{ matrix.target }}/
+          cp LICENSE README.md dist/monadb-${{ matrix.target }}/
+          tar czf monadb-${{ matrix.target }}.tar.gz -C dist/monadb-${{ matrix.target }} .
 
       - uses: actions/upload-artifact@v4
         with:
-          name: mona-${{ matrix.target }}
-          path: mona-${{ matrix.target }}.tar.gz
+          name: monadb-${{ matrix.target }}
+          path: monadb-${{ matrix.target }}.tar.gz
 
   build-wheels:
     name: Wheels ${{ matrix.target }}
@@ -140,7 +140,7 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          pattern: mona-*
+          pattern: monadb-*
           merge-multiple: true
           path: dist
 

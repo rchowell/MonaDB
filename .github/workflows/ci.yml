@@ -30,10 +30,10 @@ jobs:
         continue-on-error: true
 
       - name: Build CLI
-        run: cargo build --features cli --bin mona
+        run: cargo build --features cli --bin monadb
 
       - name: CLI version
-        run: ./target/debug/mona --version
+        run: ./target/debug/monadb --version
 
   python:
     name: Python

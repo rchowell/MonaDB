@@ -36,6 +36,7 @@ use std::cmp::Ordering;
 use std::rc::Rc;
 
 use crate::error::{Error, Result};
+use crate::read::{self, FileFormat, ReadOptions, WriteOptions};
 use crate::value::Value;
 
 /// How many arguments a builtin accepts, checked at compile time.
@@ -143,6 +144,12 @@ static BUILTINS: &[Builtin] = &[
     e("object_keys",       Arity::Exact(1),   true,   object_keys),
     e("object_values",     Arity::Exact(1),   true,   object_values),
     e("object_has_key",    Arity::Exact(2),   true,   object_has_key),
+    // -- file I/O ------------------------------------------------------------
+    e("read_csv",          Arity::Range(1, 2),true,   read_csv),
+    e("read_jsonl",        Arity::Range(1, 2),true,   read_jsonl),
+    e("read_ndjson",       Arity::Range(1, 2),true,   read_jsonl),
+    e("write_csv",         Arity::Exact(3),   true,   write_csv),
+    e("write_jsonl",       Arity::Exact(3),   true,   write_jsonl),
 ];
 
 /// Builds a registry entry (keeps the `BUILTINS` table aligned and terse).
@@ -903,4 +910,66 @@ fn object_has_key(args: &[Value]) -> Result<Value> {
         }
         v => Err(type_err("object_has_key", "an object", v)),
     }
+}
+
+//------------------------------
+// File I/O
+//------------------------------
+
+fn read_opts(args: &[Value]) -> Result<ReadOptions> {
+    match args.len() {
+        1 => Ok(ReadOptions::default()),
+        2 => ReadOptions::from_value(&args[1]),
+        _ => unreachable!(),
+    }
+}
+
+fn write_opts(args: &[Value]) -> Result<WriteOptions> {
+    WriteOptions::from_value(&args[2])
+}
+
+/// Reads a CSV/TSV file into an array of row objects.
+fn read_csv(args: &[Value]) -> Result<Value> {
+    let path = want_str("read_csv", &args[0])?;
+    let opts = read_opts(args)?;
+    let format = read::infer_format(path).unwrap_or(FileFormat::Csv);
+    let opts = if format == FileFormat::Tsv {
+        opts.for_tsv()
+    } else {
+        opts
+    };
+    let rows = read::read_rows(path, format, opts)?;
+    Ok(Value::Array(Rc::new(rows)))
+}
+
+/// Reads a JSONL file into an array of row objects.
+fn read_jsonl(args: &[Value]) -> Result<Value> {
+    let path = want_str("read_jsonl", &args[0])?;
+    let opts = read_opts(args)?;
+    let rows = read::read_rows(path, FileFormat::Jsonl, opts)?;
+    Ok(Value::Array(Rc::new(rows)))
+}
+
+/// Writes row objects to a CSV/TSV file; returns null.
+fn write_csv(args: &[Value]) -> Result<Value> {
+    let path = want_str("write_csv", &args[0])?;
+    let rows = want_arr("write_csv", &args[1])?;
+    let opts = write_opts(args)?;
+    let format = read::infer_format(path).unwrap_or(FileFormat::Csv);
+    let opts = if format == FileFormat::Tsv {
+        opts.for_tsv()
+    } else {
+        opts
+    };
+    read::write_rows(path, format, opts, rows)?;
+    Ok(Value::Null)
+}
+
+/// Writes row objects to a JSONL file; returns null.
+fn write_jsonl(args: &[Value]) -> Result<Value> {
+    let path = want_str("write_jsonl", &args[0])?;
+    let rows = want_arr("write_jsonl", &args[1])?;
+    let opts = write_opts(args)?;
+    read::write_rows(path, FileFormat::Jsonl, opts, rows)?;
+    Ok(Value::Null)
 }

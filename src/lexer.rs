@@ -115,6 +115,8 @@ pub enum Token {
     By,
     #[token("clear")]
     Clear,
+    #[token("copy")]
+    Copy,
     #[token("create")]
     Create,
     #[token("delete")]

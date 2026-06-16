@@ -25,7 +25,7 @@ SQL text → Lexer (logos) → Parser (lalrpop) → IR → Compiler → Vop byte
 ```sh
 cargo build   # regenerates src/parser.rs from src/parser.lalrpop via build.rs
 cargo test
-cargo run --features cli --bin mona   # starts the REPL
+cargo run --features cli --bin monadb   # starts the REPL
 ```
 
 ## Release

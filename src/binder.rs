@@ -8,8 +8,8 @@
 use crate::catalog::Catalog;
 use crate::error::{Error, Result};
 use crate::ir::{
-    Agg, AggKind, Call, Clear, Constructor, Drop, Expr, From, Get, Insert, Param, Select, Source,
-    Statement, TableDefinition,
+    Agg, AggKind, Call, Clear, Constructor, Copy, CopySource, Create, Drop, Expr, From, Get,
+    Insert, Param, Select, Source, Statement, TableDefinition,
 };
 use crate::transaction::Transaction;
 use crate::value::{Params, Value};
