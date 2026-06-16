@@ -24,4 +24,4 @@ do
   echo
 done
 
-echo "Update homebrew-tap/Formula/monadb.rb with the values above."
+echo "Update Formula/monadb.rb in github.com/rchowell/homebrew-tap with the values above."

@@ -34,7 +34,7 @@ See [RELEASING.md](RELEASING.md). Summary:
 
 - Version lives in `Cargo.toml`; PyPI reads it via maturin `dynamic = ["version"]`.
 - Tag `vX.Y.Z` triggers `.github/workflows/release.yml` (crates.io, PyPI, GitHub CLI assets).
-- Homebrew: bump `homebrew-tap/Formula/monadb.rb`, push to `rchowell/homebrew-tap`.
+- Homebrew: bump [`Formula/monadb.rb`](https://github.com/rchowell/homebrew-tap/blob/main/Formula/monadb.rb) in `rchowell/homebrew-tap`.
 
 ```sh
 cargo publish --dry-run --no-default-features

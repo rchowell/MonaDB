@@ -18,7 +18,19 @@ def test_unknown_table_raises_monadb_error():
         con.execute("select * from nope;")
 
 
-def test_parameters_not_supported():
+def test_missing_parameter_raises_monadb_error():
     con = monadb.connect()
-    with pytest.raises(NotImplementedError):
-        con.execute("select 1;", [1])
+    with pytest.raises(monadb.Error, match="missing parameter"):
+        con.execute("select ?;")
+
+
+def test_bad_parameters_container_raises_monadb_error():
+    con = monadb.connect()
+    with pytest.raises(monadb.Error, match="list, tuple, or dict"):
+        con.execute("select 1;", "not a list")
+
+
+def test_bad_parameter_value_raises_monadb_error():
+    con = monadb.connect()
+    with pytest.raises(monadb.Error, match="unsupported parameter value type"):
+        con.execute("select ?;", [object()])

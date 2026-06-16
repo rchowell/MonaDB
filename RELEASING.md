@@ -52,15 +52,15 @@ Repository secrets (Settings → Secrets → Actions):
 
 ### Homebrew tap
 
-1. Create public repo `github.com/rchowell/homebrew-tap`.
-2. Copy [`homebrew-tap/Formula/monadb.rb`](homebrew-tap/Formula/monadb.rb) into that repo.
-3. Users install with:
+The formula lives in the separate repo [`rchowell/homebrew-tap`](https://github.com/rchowell/homebrew-tap) at [`Formula/monadb.rb`](https://github.com/rchowell/homebrew-tap/blob/main/Formula/monadb.rb).
 
-   ```sh
-   brew tap rchowell/tap
-   brew install monadb
-   monadb --version
-   ```
+Users install with:
+
+```sh
+brew tap rchowell/tap
+brew install monadb
+monadb --version
+```
 
 ---
 
@@ -103,18 +103,15 @@ Monitor the Actions tab until all jobs succeed.
 1. **Verify crates.io**: `cargo install monadb --version X.Y.Z --features cli`
 2. **Verify PyPI**: `pip install monadb==X.Y.Z` then `python -c "import monadb"`
 3. **Verify CLI assets**: download a release tarball and run `./monadb --version`
-4. **Update Homebrew formula** in `rchowell/homebrew-tap`:
+4. **Update Homebrew formula** in [`rchowell/homebrew-tap`](https://github.com/rchowell/homebrew-tap):
 
    ```sh
-   cd homebrew-tap
-   # For each platform tarball:
-   curl -sL <release-url> | shasum -a 256
-   # Edit Formula/monadb.rb: version, sha256 values
+   VERSION=X.Y.Z ./scripts/update-homebrew-sha256.sh
+   # Edit Formula/monadb.rb in your homebrew-tap clone: version, sha256 values
+   cd ../homebrew-tap   # or wherever you cloned github.com/rchowell/homebrew-tap
    git commit -am "monadb X.Y.Z"
    git push
    ```
-
-   Or run [`scripts/update-homebrew-sha256.sh`](scripts/update-homebrew-sha256.sh) after setting `VERSION`.
 
 ---
 
@@ -145,4 +142,5 @@ Monitor the Actions tab until all jobs succeed.
 | `cargo publish` fails: crate already exists | Bump version; you cannot republish the same version |
 | maturin upload 403 | Check PyPI trusted publishing or `PYPI_API_TOKEN` |
 | Conformance tests fail in CI | Six known failures; CI runs them with `continue-on-error` until fixed |
+| Release jobs stuck on macOS x86_64 | Replace retired `macos-13` with `macos-15-intel` in `release.yml` |
 | Homebrew `sha256 mismatch` | Re-download tarball URL from the exact release tag |
