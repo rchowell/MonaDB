@@ -21,7 +21,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.86"
+          toolchain: "stable"
 
       - uses: Swatinem/rust-cache@v2
 
@@ -52,7 +52,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.86"
+          toolchain: "stable"
           targets: ${{ matrix.target }}
 
       - uses: Swatinem/rust-cache@v2
@@ -111,7 +111,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.86"
+          toolchain: "stable"
 
       - uses: Swatinem/rust-cache@v2
 
