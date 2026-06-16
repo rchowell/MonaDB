@@ -823,16 +823,16 @@ pub mod fold {
             fold_statement(self, i)
         }
 
-        fn fold_create(&mut self, i: Create) -> Create {
-            fold_create(self, i)
-        }
-
         fn fold_copy(&mut self, i: Copy) -> Copy {
             fold_copy(self, i)
         }
 
         fn fold_copy_source(&mut self, i: CopySource) -> CopySource {
             fold_copy_source(self, i)
+        }
+
+        fn fold_create(&mut self, i: Create) -> Create {
+            fold_create(self, i)
         }
 
         fn fold_table_definition(&mut self, i: TableDefinition) -> TableDefinition {

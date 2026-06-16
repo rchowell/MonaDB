@@ -1,0 +1,22 @@
+suite: copy
+tests:
+  - id: copy-round-trip-csv
+    steps:
+      - sql: create table src;
+      - sql: "insert into src ({name: 'alice', age: 30}, {name: 'bob', age: 25});"
+      - sql: copy src to 'tests/fixtures/out.csv';
+      - sql: create table dst;
+      - sql: copy dst from 'tests/fixtures/out.csv';
+      - sql: "select * from dst as d order by d.name;"
+        result:
+          - {name: alice, age: 30}
+          - {name: bob, age: 25}
+
+  - id: copy-query-to-jsonl
+    steps:
+      - sql: create table t;
+      - sql: "insert into t ({x: 1});"
+      - sql: copy (select t.x as x from t as t) to 'tests/fixtures/out.jsonl';
+      - sql: select read_jsonl('tests/fixtures/out.jsonl');
+        result:
+          - - {x: 1}

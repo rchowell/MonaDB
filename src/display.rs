@@ -169,6 +169,7 @@ impl ToSql for Statement {
     fn block(&self) -> Block {
         match self {
             Statement::Clear(_) => unimplemented!("CLEAR formatting"),
+            Statement::Copy(_) => unimplemented!("COPY formatting"),
             Statement::Create(c) => c.block(),
             Statement::Delete(_) => unimplemented!("DELETE formatting"),
             Statement::Drop(_) => unimplemented!("DROP formatting"),
@@ -184,6 +185,10 @@ impl ToSql for Create {
         match self {
             Create::Table(td) => {
                 t = t + td.block();
+            }
+            Create::TableAs { def, .. } => {
+                t = t + def.block();
+                t = t + text(" as select ...");
             }
         }
         t + text(";")

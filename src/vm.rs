@@ -86,6 +86,10 @@ pub enum Vop {
     NewBtree,
     /// Opens the table at the given table oid and binds to cursors[csr].
     Open { csr: usize, tbl: u32 },
+    /// Pops a table oid and opens that btree on cursors[csr].
+    OpenOid { csr: usize },
+    /// Duplicates the top-of-stack value.
+    Dup,
     /// Point lookup: pop an encoded key, fetch the row from cursor (csr)'s
     /// btree, and push the decoded row value (or null on a miss). The cursor
     /// must already be `Open`.
@@ -675,6 +679,18 @@ impl VM {
                         let btree = self.storage.open_btree(txn, *tbl)?;
                         self.cursors[*csr].open(btree);
                     }
+                }
+                Vop::OpenOid { csr } => {
+                    let oid = self.pop().as_oid();
+                    if !self.cursors[*csr].is_open() {
+                        let txn = self.txn.as_ref().expect("Open before Transaction");
+                        let btree = self.storage.open_btree(txn, oid)?;
+                        self.cursors[*csr].open(btree);
+                    }
+                }
+                Vop::Dup => {
+                    let val = self.stack.last().expect("Dup on empty stack").clone();
+                    self.push(val);
                 }
                 Vop::Get { csr } => {
                     let key = pop_key(self.pop())?;

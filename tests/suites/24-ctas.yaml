@@ -1,0 +1,9 @@
+suite: ctas
+tests:
+  - id: create-table-as-select-from-csv
+    steps:
+      - sql: "create table loaded as select * from 'tests/fixtures/people.csv';"
+      - sql: "select * from loaded as r order by r.name;"
+        result:
+          - {name: alice, age: 30}
+          - {name: bob, age: 25}

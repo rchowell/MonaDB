@@ -6,9 +6,11 @@ use crate::error::Error;
 use crate::unsupported;
 use crate::functions;
 use crate::ir::{
-    AggKind, Call, Clear, CmpOp, Constructor, Create, Delete, Drop, Expr, Get, Insert, Jpe, Jpi,
-    Jpk, Key, Limit, Member, Obj, Select, Source, Statement, ToSql, Type, Var,
+    AggKind, Call, Clear, CmpOp, Constructor, Copy, CopySource, Create, Delete, Drop, Expr, Get,
+    Insert, Jpe, Jpi, Jpk, Key, Limit, Member, Obj, Select, Source, Statement, TableDefinition,
+    ToSql, Type, Var,
 };
+use crate::read::{self, FileFormat};
 use crate::schema;
 use crate::transaction::TransactionMode;
 use crate::value::Value;
@@ -101,6 +103,7 @@ impl Compiler {
         // addr M:      Halt            -> end of body
         #[allow(clippy::single_match_else)]
         match statement {
+            Statement::Copy(copy) => self.cc_copy(copy)?,
             Statement::Create(create) => self.cc_create(create)?,
             Statement::Delete(delete) => self.cc_delete(delete)?,
             Statement::Drop(drop) => self.cc_drop(drop),
@@ -128,42 +131,207 @@ impl Compiler {
         })
     }
 
-    /// Compiles a CREATE TABLE: insert the table's definition into the catalog.
+    /// Compiles CREATE TABLE or CREATE TABLE AS SELECT.
     fn cc_create(&mut self, create: Create) -> Result<()> {
+        match create {
+            Create::Table(def) => self.cc_create_table(def),
+            Create::TableAs { def, query } => self.cc_create_table_as(def, query),
+        }
+    }
+
+    /// Compiles a CREATE TABLE: insert the table's definition into the catalog.
+    fn cc_create_table(&mut self, table_definition: TableDefinition) -> Result<()> {
         self.txm = Some(TransactionMode::Write);
 
-        // Compute the SQL representation before destructuring `create` by value.
-        let sql = create.sql();
-        let Create::Table(table_definition) = create;
+        let sql = Create::Table(table_definition.clone()).sql();
 
-        // Validate the key columns are int or string.
         for member in &table_definition.keys {
             if !matches!(member.ty, Type::Int | Type::String) {
                 unsupported!("key column '{}' must be int or string", member.name);
             }
         }
 
-        // Create the catalog table object for insertion.
         let object = json!({
             "name": table_definition.name,
             "type": "table",
             "sql": sql,
         });
 
-        // Creating a table is an insert to the catalog table.
-        //
-        // 0   Open { tbl=0 }      Open the 'catalog' system table (oid=0)
-        // 1   Push { val }        Push the table definition; the insert value.
-        // 2   NewOid              Push the next oid; the insert key
-        // 3   NewBtree            Create the LMDB btree before insertion (peek NewOid)
-        // 4   Insert              Pop the key then the value, then insert into the new btree
-        //
         let csr = self.alloc_cursor();
         self.emit_open(csr, CATALOG_OID);
         self.emit_push(object);
         self.emit_new_oid(csr);
         self.emit_new_btree();
         self.emit_insert(csr);
+        Ok(())
+    }
+
+    /// Compiles CREATE TABLE AS SELECT: catalog entry, then bulk-insert query rows.
+    fn cc_create_table_as(&mut self, def: TableDefinition, query: Select) -> Result<()> {
+        self.txm = Some(TransactionMode::Write);
+        for member in &def.keys {
+            if !matches!(member.ty, Type::Int | Type::String) {
+                unsupported!("key column '{}' must be int or string", member.name);
+            }
+        }
+
+        let arr_csr = self.alloc_cursor();
+        let oid_csr = self.alloc_cursor();
+        let data_csr = self.alloc_cursor();
+        let row_csr = self.alloc_cursor();
+
+        self.cc_subquery_array(query)?;
+        self.emit_set_val(arr_csr);
+
+        let csr = self.alloc_cursor();
+        let catalog_sql = Create::Table(def.clone()).sql();
+        let object = json!({
+            "name": def.name,
+            "type": "table",
+            "sql": catalog_sql,
+        });
+        self.emit_open(csr, CATALOG_OID);
+        self.emit_push(object);
+        self.emit_new_oid(csr);
+        self.emit_dup();
+        self.emit_set_val(oid_csr);
+        self.emit_new_btree();
+        self.emit_insert(csr);
+
+        self.emit_load(oid_csr);
+        self.emit_open_oid(data_csr);
+        self.emit_load(arr_csr);
+        self.cc_insert_from_cursor(data_csr, row_csr, &def.keys)?;
+
+        Ok(())
+    }
+
+    /// Compiles COPY import or export.
+    fn cc_copy(&mut self, copy: Copy) -> Result<()> {
+        match copy {
+            Copy::From {
+                target,
+                path,
+                options,
+            } => self.cc_copy_from(target, path, options),
+            Copy::To {
+                source,
+                path,
+                options,
+            } => self.cc_copy_to(source, path, options),
+        }
+    }
+
+    /// Compiles `COPY <table> FROM <file>`.
+    fn cc_copy_from(
+        &mut self,
+        target: TableDefinition,
+        path: String,
+        options: Obj,
+    ) -> Result<()> {
+        self.ensure_txn(TransactionMode::Write);
+        let tbl = target
+            .oid
+            .expect("copy target should be resolved to an oid");
+        let keys = target.keys;
+
+        let format = read::infer_format(&path)
+            .ok_or_else(|| Error::Unsupported(format!("unsupported file format: {path}")))?;
+        self.emit_read_call(path, format, options)?;
+
+        let data_csr = self.alloc_cursor();
+        let row_csr = self.alloc_cursor();
+        self.emit_open(data_csr, tbl);
+        self.cc_insert_from_cursor(data_csr, row_csr, &keys)?;
+        Ok(())
+    }
+
+    /// Compiles `COPY <source> TO <file>`.
+    fn cc_copy_to(
+        &mut self,
+        source: CopySource,
+        path: String,
+        options: Obj,
+    ) -> Result<()> {
+        self.ensure_txn(TransactionMode::Read);
+        let hold_csr = self.alloc_cursor();
+        let format = read::infer_format(&path)
+            .ok_or_else(|| Error::Unsupported(format!("unsupported file format: {path}")))?;
+
+        match source {
+            CopySource::Table { oid, .. } => {
+                let tbl = oid.expect("copy table source should be resolved to an oid");
+                self.emit_arr();
+                let tcsr = self.alloc_cursor();
+                self.emit_open(tcsr, tbl);
+                self.emit_scan(tcsr, 0);
+                let scan = self.pc();
+                let loop_top = self.code.len();
+                self.emit_load(tcsr);
+                self.emit_arr_push();
+                self.emit_next(tcsr, loop_top);
+                self.emit_close(tcsr);
+                let _ = self.patch(scan, self.pc());
+            }
+            CopySource::Query(select) => {
+                self.cc_subquery_array(select)?;
+            }
+        }
+
+        self.emit_set_val(hold_csr);
+        self.emit_push(Value::String(std::rc::Rc::from(path.as_str())));
+        self.emit_load(hold_csr);
+        self.cc_obj(options)?;
+        self.emit_write_call(format)?;
+        Ok(())
+    }
+
+    /// Emits a read builtin call leaving a row array on the stack.
+    fn emit_read_call(&mut self, path: String, format: FileFormat, options: Obj) -> Result<()> {
+        let builtin = read::read_builtin(format);
+        let fun =
+            functions::lookup(builtin).ok_or_else(|| Error::UnknownFunction(builtin.into()))?;
+        self.emit_push(Value::String(std::rc::Rc::from(path)));
+        self.cc_obj(options)?;
+        self.code.push(Vop::Call { fun, cnt: 2 });
+        Ok(())
+    }
+
+    /// Emits a write builtin call consuming path, rows, and options on the stack.
+    fn emit_write_call(&mut self, format: FileFormat) -> Result<()> {
+        let builtin = read::write_builtin(format);
+        let fun =
+            functions::lookup(builtin).ok_or_else(|| Error::UnknownFunction(builtin.into()))?;
+        self.code.push(Vop::Call { fun, cnt: 3 });
+        Ok(())
+    }
+
+    /// Compiles an object literal onto the stack.
+    fn cc_obj(&mut self, obj: Obj) -> Result<()> {
+        self.cc_expr(Expr::Obj(obj))
+    }
+
+    /// Inserts each row from `row_csr`'s array iteration into `data_csr`'s table.
+    fn cc_insert_from_cursor(
+        &mut self,
+        data_csr: usize,
+        row_csr: usize,
+        keys: &[Key],
+    ) -> Result<()> {
+        self.emit_iter(row_csr, 0);
+        let iter = self.pc();
+        let loop_top = self.code.len();
+        self.emit_load(row_csr);
+        if keys.is_empty() {
+            self.emit_new_oid(data_csr);
+        } else {
+            self.emit_encode_key(keys.to_vec());
+        }
+        self.emit_insert(data_csr);
+        self.emit_next(row_csr, loop_top);
+        let exit = self.pc() + 1;
+        self.patch(iter, exit)?;
+        self.emit_close(row_csr);
         Ok(())
     }
 
@@ -1504,6 +1672,15 @@ impl Compiler {
         self.code.push(Vop::Open { csr, tbl });
     }
 
+    fn emit_open_oid(&mut self, csr: usize) {
+        self.use_cursor(csr);
+        self.code.push(Vop::OpenOid { csr });
+    }
+
+    fn emit_dup(&mut self) {
+        self.code.push(Vop::Dup);
+    }
+
     fn emit_get(&mut self, csr: usize) {
         self.code.push(Vop::Get { csr });
     }
@@ -2497,6 +2674,16 @@ mod tests {
             "pivot catalog.name at catalog.name from catalog;",
         );
         assert!(matches!(plan(&select), Plan::Pivot));
+    }
+
+    #[test]
+    fn ctas_from_csv_runs() {
+        let (_dir, storage, catalog) = fixture();
+        let sql = "create table people as select * from 'tests/fixtures/people.csv';";
+        let program = compile_sql(&storage, &catalog, sql);
+        let vm = crate::vm::VM::init(storage.clone(), program);
+        let rows = crate::vm::Rows::new(vm);
+        rows.finish().expect("ctas should complete");
     }
 
 }

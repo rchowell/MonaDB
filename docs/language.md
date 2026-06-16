@@ -963,7 +963,6 @@ Each item below is a deliberate omission. Add only with explicit language-design
 
 | Feature                                       | Rationale                                                         |
 |-----------------------------------------------|-------------------------------------------------------------------|
-| `copy ... to <file>`                          | File I/O is orthogonal to the language; belongs in a tools layer. |
 | `create type`, `create view`, `create index`  | Minimal DDL; types live inline, indexes are an implementation concern. |
 | Transactions (`create transaction`, `commit`, `abort`) | Not yet specified; will be added when concurrency story stabilizes. |
 | User-defined functions                        | The built-in catalog (3.6) is the entire function surface for v1. |

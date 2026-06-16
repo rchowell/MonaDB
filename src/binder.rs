@@ -188,6 +188,46 @@ impl VisitMut for Binder<'_> {
         i.oid = self.get_table(&i.name).and_then(|d| d.oid);
     }
 
+    /// Resolves copy targets and binds nested expressions.
+    fn visit_copy_mut(&mut self, i: &mut Copy) {
+        match i {
+            Copy::From { target, options, .. } => {
+                if target.oid.is_none()
+                    && let Some(def) = self.get_table(&target.name)
+                {
+                    target.oid = def.oid;
+                    target.keys = def.keys;
+                }
+                for m in options {
+                    self.visit_member_mut(m);
+                }
+            }
+            Copy::To { source, options, .. } => {
+                if let CopySource::Table { name, oid } = source {
+                    *oid = self.get_table(name).and_then(|d| d.oid);
+                } else if let CopySource::Query(s) = source {
+                    self.visit_select_mut(s);
+                }
+                for m in options {
+                    self.visit_member_mut(m);
+                }
+            }
+        }
+    }
+
+    /// Binds a CREATE TABLE AS SELECT query; the table itself is not looked up.
+    fn visit_create_mut(&mut self, i: &mut Create) {
+        match i {
+            Create::Table(td) => {
+                self.visit_table_definition_mut(td);
+            }
+            Create::TableAs { def, query } => {
+                self.visit_table_definition_mut(def);
+                self.visit_select_mut(query);
+            }
+        }
+    }
+
     /// Lowers an aggregate call to `Expr::Agg`, lowers a keyed-table subscript to
     /// a `Get`, else resolves a variable.
     fn visit_expr_mut(&mut self, i: &mut Expr) {

@@ -155,6 +155,8 @@ pub enum Token {
     Select,
     #[token("table")]
     Table,
+    #[token("to")]
+    To,
     #[token("unknown")]
     Unknown,
     #[token("unpivot")]

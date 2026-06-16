@@ -49,6 +49,7 @@ fn style_for(tok: &Token) -> &'static str {
         | Token::Between
         | Token::By
         | Token::Clear
+        | Token::Copy
         | Token::Create
         | Token::Delete
         | Token::Desc
@@ -68,6 +69,7 @@ fn style_for(tok: &Token) -> &'static str {
         | Token::Pivot
         | Token::Select
         | Token::Table
+        | Token::To
         | Token::Unknown
         | Token::Unpivot
         | Token::Where => KEYWORD,

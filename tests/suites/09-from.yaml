@@ -272,6 +272,22 @@ tests:
           - {a: 1}
           - {a: 2}
 
+  - id: from-file-literal-csv
+    description: a file-path string literal desugars to read_csv
+    steps:
+      - sql: "select * from 'tests/fixtures/people.csv' order by people.name;"
+        result:
+          - {name: alice, age: 30}
+          - {name: bob, age: 25}
+
+  - id: from-read-csv-call
+    description: read_csv in FROM with an explicit alias
+    steps:
+      - sql: select r.name as name from read_csv('tests/fixtures/people.csv') as r order by r.name;
+        result:
+          - {name: alice}
+          - {name: bob}
+
   - id: from-value-non-array
     description: a non-array value source contributes no rows
     steps:

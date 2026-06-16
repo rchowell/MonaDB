@@ -18,9 +18,9 @@ mod compiler;
 mod cursor;
 mod display;
 mod functions;
-mod read;
 pub mod highlight;
 pub mod lexer;
+mod read;
 mod storage;
 mod transaction;
 mod value;
@@ -163,5 +163,20 @@ mod tests {
 
         db.execute("create table t (id int);").unwrap();
         // let _ = db.query("select * from t;", true);
+    }
+
+    #[test]
+    fn ctas_from_csv() {
+        let sql = "create table people as select * from 'tests/fixtures/people.csv';";
+        let mut db = MonaDB::memory().unwrap();
+        db.execute(sql).unwrap();
+        let mut rows = db
+            .query("select * from people as r order by r.name;", false)
+            .unwrap();
+        let mut n = 0;
+        while rows.next().unwrap().is_some() {
+            n += 1;
+        }
+        assert_eq!(n, 2);
     }
 }

@@ -32,13 +32,13 @@ pub struct Object {
 impl Object {
     /// Parses the stored `sql` back into its table definition.
     fn table_definition(&self) -> Result<TableDefinition> {
-        if let Statement::Create(Create::Table(def)) = MonaDB::parse(&self.sql)? {
-            Ok(def)
-        } else {
-            Err(Error::InternalError(format!(
+        match MonaDB::parse(&self.sql)? {
+            Statement::Create(Create::Table(def)) => Ok(def),
+            Statement::Create(Create::TableAs { def, .. }) => Ok(def),
+            _ => Err(Error::InternalError(format!(
                 "catalog row for table '{}' is not a create table",
                 self.name
-            )))
+            ))),
         }
     }
 }

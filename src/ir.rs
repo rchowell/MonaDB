@@ -1289,6 +1289,20 @@ mod test {
     }
 
     #[test]
+    fn parse_file_io() {
+        let cases = [
+            "select * from 'tests/fixtures/people.csv';",
+            "create table loaded as select * from 'tests/fixtures/people.csv';",
+            "copy dst from 'tests/fixtures/people.csv';",
+            "copy src to 'tests/fixtures/out.csv';",
+            "select * from loaded as r order by r.name;",
+        ];
+        for input in cases {
+            parse(input);
+        }
+    }
+
+    #[test]
     pub fn parse_acceptance_limit() {
         let inputs = vec![
             "select * from T limit 20;",

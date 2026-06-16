@@ -147,7 +147,9 @@ fn read_jsonl(path: &str, opts: ReadOptions) -> Result<Vec<Value>> {
         if line.trim().is_empty() {
             continue;
         }
-        let value = Value::decode(line.as_bytes()).map_err(|e| read_err(path, e))?;
+        let value = Value::decode(line.as_bytes()).map_err(|e| {
+            Error::IoError(format!("{path}:{e:?}"))
+        })?;
         if !value.is_object() {
             return Err(Error::InternalError(format!(
                 "jsonl row at {path}:{} must be a JSON object",
@@ -264,13 +266,13 @@ mod tests {
     #[test]
     fn round_trip_jsonl() {
         let mut f = NamedTempFile::new().unwrap();
-        let src = f.path().to_str().unwrap();
         write!(f, "{{\"x\":1}}\n{{\"x\":2}}").unwrap();
-        let rows = read_rows(src, FileFormat::Jsonl, ReadOptions::default()).unwrap();
-        let mut out = NamedTempFile::new().unwrap();
-        let dst = out.path().to_str().unwrap();
-        write_rows(dst, FileFormat::Jsonl, WriteOptions::default(), &rows).unwrap();
-        let again = read_rows(dst, FileFormat::Jsonl, ReadOptions::default()).unwrap();
+        let src = f.path().to_str().unwrap().to_string();
+        let rows = read_rows(&src, FileFormat::Jsonl, ReadOptions::default()).unwrap();
+        let out = NamedTempFile::new().unwrap();
+        let dst = out.path().to_str().unwrap().to_string();
+        write_rows(&dst, FileFormat::Jsonl, WriteOptions::default(), &rows).unwrap();
+        let again = read_rows(&dst, FileFormat::Jsonl, ReadOptions::default()).unwrap();
         assert_eq!(rows.len(), again.len());
         assert_eq!(rows[0].jpk("x"), again[0].jpk("x"));
     }

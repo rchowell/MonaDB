@@ -74,6 +74,7 @@ extern {
         "pivot"     => Token::Pivot,
         "select"    => Token::Select,
         "table"     => Token::Table,
+        "to"        => Token::To,
         "unknown"   => Token::Unknown,
         "unpivot"   => Token::Unpivot,
         "where"     => Token::Where,
