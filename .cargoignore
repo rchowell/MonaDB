@@ -1,0 +1,11 @@
+site/
+docs/
+examples/
+.github/
+.context/
+.claude/
+.agents/
+homebrew-tap/
+uv.lock
+*.monadb
+todos.db

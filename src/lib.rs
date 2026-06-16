@@ -18,7 +18,8 @@ mod compiler;
 mod cursor;
 mod display;
 mod functions;
-mod lexer;
+pub mod highlight;
+pub mod lexer;
 mod storage;
 mod transaction;
 mod value;
@@ -49,11 +50,11 @@ use crate::{
     binder::Binder,
     catalog::Catalog,
     ir::Statement,
-    lexer::SqlLexer,
     parser::SqlParser,
     vm::{Program, Rows, VM},
 };
 
+pub use crate::lexer::{SqlLexer, Token};
 pub use crate::value::{Params, Value};
 
 /// The user-facing database handle.
@@ -112,7 +113,7 @@ impl MonaDB {
 
     /// Phase 1: Parse input string into our AST (no binding or compilation).
     pub fn parse(sql: &str) -> Result<Statement> {
-        let l = SqlLexer::new(sql);
+        let l = crate::lexer::SqlLexer::new(sql);
         let p = SqlParser::new();
         // Counts positional `?` placeholders, numbering them in source order.
         let param_pos = std::cell::Cell::new(0);

@@ -25,7 +25,20 @@ SQL text → Lexer (logos) → Parser (lalrpop) → IR → Compiler → Vop byte
 ```sh
 cargo build   # regenerates src/parser.rs from src/parser.lalrpop via build.rs
 cargo test
-cargo run     # starts the REPL
+cargo run --features cli --bin mona   # starts the REPL
+```
+
+## Release
+
+See [RELEASING.md](RELEASING.md). Summary:
+
+- Version lives in `Cargo.toml`; PyPI reads it via maturin `dynamic = ["version"]`.
+- Tag `vX.Y.Z` triggers `.github/workflows/release.yml` (crates.io, PyPI, GitHub CLI assets).
+- Homebrew: bump `homebrew-tap/Formula/monadb.rb`, push to `rchowell/homebrew-tap`.
+
+```sh
+cargo publish --dry-run --no-default-features
+maturin build --release --features python
 ```
 
 ## Task Management

@@ -1005,6 +1005,12 @@ impl Rows {
         self.vm.next()
     }
 
+    /// Rows changed by INSERT/UPDATE/DELETE. Meaningful after [`Self::next`]
+    /// returns `None` (the transaction has committed at `Halt`).
+    pub fn mutations(&self) -> u64 {
+        self.vm.affected
+    }
+
     /// Completes the statement and commits its transaction, returning the row
     /// count: rows yielded for a query, rows changed for a mutation (one is
     /// always zero).

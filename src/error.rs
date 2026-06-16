@@ -40,7 +40,8 @@ pub enum Error {
 
 impl Error {
     /// Renders the error against the source `input`. A syntax error shows the
-    /// offending line with a caret and an "expected" hint; others use `Debug`.
+    /// offending line with a caret and an "expected" hint; others use concise
+    /// one-line messages.
     pub fn pretty(&self, input: &str) -> String {
         match self {
             Error::SyntaxError(hint) => {
@@ -75,7 +76,18 @@ impl Error {
                 result.push('\n');
                 result
             }
-            _ => format!("{self:?}"),
+            Error::JsonError(msg) => format!("\nerror: json error: {msg}\n"),
+            Error::IoError(msg) => format!("\nerror: i/o error: {msg}\n"),
+            Error::InternalError(msg) => format!("\nerror: internal error: {msg}\n"),
+            Error::Storage(msg) => format!("\nerror: storage error: {msg}\n"),
+            Error::Unsupported(msg) => format!("\nerror: unsupported: {msg}\n"),
+            Error::Transaction(msg) => format!("\nerror: transaction error: {msg}\n"),
+            Error::Unknown => "\nerror: unknown error\n".to_string(),
+            Error::UnknownTable(name) => format!("\nerror: table '{name}' does not exist\n"),
+            Error::UnknownFunction(name) => format!("\nerror: unknown function '{name}'\n"),
+            Error::UnboundTable(name) => format!("\nerror: unbound table '{name}'\n"),
+            Error::BindError(msg) => format!("\nerror: bind error: {msg}\n"),
+            Error::Schema(msg) => format!("\nerror: schema violation: {msg}\n"),
         }
     }
 }
@@ -169,4 +181,21 @@ pub struct Hint {
     pub message: String,
     pub location: usize,
     pub expected: Vec<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pretty_unknown_table() {
+        let err = Error::UnknownTable("users".to_string());
+        assert_eq!(err.pretty(""), "\nerror: table 'users' does not exist\n");
+    }
+
+    #[test]
+    fn pretty_schema() {
+        let err = Error::Schema("missing key 'id'".to_string());
+        assert!(err.pretty("").contains("schema violation"));
+    }
 }

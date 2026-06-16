@@ -4,8 +4,8 @@
   'use strict';
 
   var PAGE = '#F2F2F2';   // Bone
-  var INK = '#1C1A14';    // Ink
-  var ACCENT = '#F2DF2A'; // Marker
+  var INK = '#1D242E';    // Ink
+  var ACCENT = '#F3E85A'; // Marker
 
   /* ── Canvas helpers ───────────────────────────────────── */
   function ctxFor(canvas, w, h) {
@@ -33,7 +33,7 @@
     oc.fillStyle = PAGE; oc.fillRect(0, 0, w, h);
     oc.fillStyle = INK;
     var fs = Math.min(h * 0.94, w * 0.168);
-    oc.font = '900 ' + fs + "px 'Playfair Display', Georgia, serif";
+    oc.font = '900 ' + fs + "px 'Geist', ui-sans-serif, system-ui, sans-serif";
     oc.textAlign = 'center'; oc.textBaseline = 'middle';
     oc.fillText(text, w / 2, h / 2 + fs * 0.02);
     var img = oc.getImageData(0, 0, Wd, Hd).data;
@@ -289,26 +289,102 @@
     document.querySelectorAll('.lang-content pre > code, .prose-page pre > code').forEach(highlightCodeBlock);
   }
 
-  /* ── Prose font selector ──────────────────────────────── */
-  var PROSE_FONTS = ['courier', 'newsreader', 'spectral', 'eb-garamond', 'playfair', 'cormorant', 'libre-baskerville'];
-  var PROSE_FONT_KEY = 'monadb-prose-font';
-  var PROSE_FONT_DEFAULT = 'courier';
-
-  function applyProseFont(id) {
-    document.documentElement.dataset.proseFont = id;
-    try { localStorage.setItem(PROSE_FONT_KEY, id); } catch (e) {}
+  /* ── Docs sidebar search ─────────────────────────────── */
+  function initDocsSidebarSearch(root) {
+    var input = (root || document).querySelector('[data-docs-sidebar-search]');
+    if (!input || input.dataset.bound) return;
+    input.dataset.bound = 'true';
+    var list = input.closest('[data-docs-sidebar]');
+    if (!list) return;
+    var items = list.querySelectorAll('[data-docs-sidebar-item]');
+    input.addEventListener('input', function () {
+      var q = input.value.trim().toLowerCase();
+      items.forEach(function (li) {
+        var title = li.getAttribute('data-title') || '';
+        li.hidden = q && title.indexOf(q) === -1;
+      });
+    });
+    document.addEventListener('keydown', function (event) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        if (!list.contains(document.activeElement)) {
+          event.preventDefault();
+          input.focus();
+        }
+      }
+    });
   }
 
-  function initProseFont() {
-    var select = document.querySelector('[data-prose-font-select]');
-    if (!select) return;
-    var saved;
-    try { saved = localStorage.getItem(PROSE_FONT_KEY); } catch (e) {}
-    var id = PROSE_FONTS.indexOf(saved) >= 0 ? saved : PROSE_FONT_DEFAULT;
-    select.value = id;
-    applyProseFont(id);
-    select.addEventListener('change', function () {
-      if (PROSE_FONTS.indexOf(select.value) >= 0) applyProseFont(select.value);
+  /* ── Mobile sidebar drawers ───────────────────────────── */
+  function initMobileSidebar() {
+    var backdrop = document.querySelector('[data-mobile-sidebar-backdrop]');
+    var triggers = document.querySelectorAll('[data-mobile-sidebar-trigger]');
+    if (!triggers.length) return;
+
+    var drawer = document.createElement('div');
+    drawer.className = 'mobile-sidebar-drawer';
+    drawer.setAttribute('data-side', 'left');
+    var inner = document.createElement('div');
+    inner.className = 'mobile-sidebar-drawer-inner';
+    drawer.appendChild(inner);
+    document.body.appendChild(drawer);
+
+    var mq = window.matchMedia('(max-width: 820px)');
+    var openId = null;
+
+    function panelFor(id) {
+      if (id === 'nav') {
+        return document.querySelector('.mobile-sidebar-host .docs-sidebar');
+      }
+      return document.querySelector('[data-mobile-sidebar-panel="' + id + '"]');
+    }
+
+    function close() {
+      openId = null;
+      if (backdrop) {
+        backdrop.hidden = true;
+        backdrop.classList.remove('is-open');
+      }
+      drawer.classList.remove('is-open');
+      inner.innerHTML = '';
+      triggers.forEach(function (btn) { btn.setAttribute('aria-expanded', 'false'); });
+      document.body.style.overflow = '';
+    }
+
+    function open(id) {
+      if (!mq.matches) return;
+      var panel = panelFor(id);
+      if (!panel) return;
+      if (openId === id) { close(); return; }
+      openId = id;
+      inner.innerHTML = '';
+      var clone = panel.cloneNode(true);
+      clone.removeAttribute('id');
+      inner.appendChild(clone);
+      initDocsSidebarSearch(clone);
+      drawer.setAttribute('data-side', id === 'toc' ? 'right' : 'left');
+      if (backdrop) {
+        backdrop.hidden = false;
+        backdrop.classList.add('is-open');
+      }
+      drawer.classList.add('is-open');
+      document.body.style.overflow = 'hidden';
+      triggers.forEach(function (btn) {
+        btn.setAttribute('aria-expanded', btn.getAttribute('data-mobile-sidebar-trigger') === id ? 'true' : 'false');
+      });
+    }
+
+    triggers.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        open(btn.getAttribute('data-mobile-sidebar-trigger'));
+      });
+    });
+    if (backdrop) backdrop.addEventListener('click', close);
+    document.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape') close();
+    });
+    mq.addEventListener('change', function () { if (!mq.matches) close(); });
+    inner.addEventListener('click', function (event) {
+      if (event.target.closest('a')) close();
     });
   }
 
@@ -329,9 +405,10 @@
     document.querySelectorAll('[data-copy]').forEach(initCopy);
     initCopyMarkdown();
     highlightProseCode();
-    initProseFont();
+    initDocsSidebarSearch();
+    initMobileSidebar();
     drawAll();
-    // Redraw the wordmark once Playfair has actually loaded.
+    // Redraw the wordmark once Geist has actually loaded.
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(drawAll);
     setTimeout(drawAll, 450);
 

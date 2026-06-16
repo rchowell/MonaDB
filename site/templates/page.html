@@ -6,9 +6,38 @@
 
 {% block content %}
 <div class="prose-layout{% if page.toc %} has-content-nav{% endif %}">
+  {% if page.toc %}
+  <div class="docs-mobile-toc-bar prose-mobile-toc-bar">
+    <button
+      type="button"
+      class="btn btn-ghost btn-sm mobile-sidebar-trigger mobile-sidebar-trigger--labeled"
+      data-mobile-sidebar-trigger="toc"
+      aria-expanded="false"
+      aria-controls="mobile-sidebar-toc"
+    >
+      <span data-icon aria-hidden="true">≡</span>
+      On this page
+    </button>
+  </div>
+  {% endif %}
   <main class="prose-page{% if page.extra.page_class %} {{ page.extra.page_class }}{% endif %}">
     <article class="content-body">{{ page.content | safe }}</article>
   </main>
-  {{ content_nav::render_content_nav(toc=page.toc) }}
+  {% if page.toc %}
+  <nav
+    class="content-nav"
+    id="mobile-sidebar-toc"
+    aria-label="On this page"
+    data-mobile-sidebar-panel="toc"
+  >
+    <div class="content-nav-panel">
+      <div class="content-nav-title">On this page</div>
+      {{ content_nav::render_nav_toc(headers=page.toc) }}
+    </div>
+  </nav>
+  {% endif %}
 </div>
+{% if page.toc %}
+<div class="mobile-sidebar-backdrop" data-mobile-sidebar-backdrop hidden></div>
+{% endif %}
 {% endblock content %}

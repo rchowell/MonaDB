@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-prose-font="courier">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -8,91 +8,77 @@
       name="description"
       content="{% block description %}MonaDB — an embedded database with a query language of its own{% endblock description %}"
     />
-    <script>
-      (function () {
-        var fonts = [
-          "courier",
-          "newsreader",
-          "spectral",
-          "eb-garamond",
-          "playfair",
-          "cormorant",
-          "libre-baskerville",
-        ];
-        try {
-          var saved = localStorage.getItem("monadb-prose-font");
-          if (saved && fonts.indexOf(saved) >= 0)
-            document.documentElement.dataset.proseFont = saved;
-        } catch (e) {}
-      })();
-    </script>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=Courier+Prime:ital,wght@0,400;0,700;1,400&family=Space+Mono:wght@400;700&family=Newsreader:ital,wght@0,400;1,400&family=Spectral:ital,wght@0,400;1,400&family=EB+Garamond:ital,wght@0,400;1,400&family=Cormorant+Garamond:ital,wght@0,400;1,400&family=Libre+Baskerville:ital,wght@0,400;1,400&display=swap"
-      rel="stylesheet"
-    />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/geist@1.3.1/dist/fonts/geist-sans/style.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/geist@1.3.1/dist/fonts/geist-mono/style.css" />
     <link rel="stylesheet" href="{{ get_url(path='style.css') }}" />
     <script src="{{ get_url(path='grain.js') }}" defer></script>
   </head>
   <body>
-    <header
-      class="site-header fixed top-0 left-0 right-0 z-30 bg-page border-b-rule"
-    >
-      <div
-        class="{% if current_path == '/' %}max-w-wrap mx-auto {% endif %}px-8 py-3.5 flex items-center justify-between"
-      >
-        <a class="flex items-center" href="{{ get_url(path='/') }}">
-          <span
-            class="font-display text-[17px] font-black tracking-[0.16em] text-ink"
-            >MonaDB</span
+    {% set is_docs = current_path is containing('/language/') or current_path is containing('/examples/') or current_path is containing('/installation') or current_path is containing('/tutorial') or current_path is containing('/python') %}
+    <header class="site-header{% if is_docs %} app-header{% endif %}">
+      {% if is_docs %}
+      <div class="docs-header-shell">
+        <div class="docs-header-brand">
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm mobile-sidebar-trigger"
+            data-mobile-sidebar-trigger="nav"
+            aria-expanded="false"
+            aria-controls="mobile-sidebar-nav"
+            aria-label="Open navigation"
           >
-        </a>
-        <nav class="flex items-center gap-[22px] max-sm:gap-[14px]">
+            <span aria-hidden="true">☰</span>
+          </button>
+          <a class="site-logo" href="{{ get_url(path='/') }}">MonaDB</a>
+        </div>
+        <div class="docs-header-main">
+          <nav class="docs-header-actions" aria-label="Site">
+            <a
+              class="btn btn-ghost btn-sm max-sm:hidden"
+              href="https://github.com/rchowell/MonaDB"
+              >GitHub</a
+            >
+            <a
+              class="btn btn-primary btn-sm max-sm:hidden"
+              href="{{ get_url(path='@/installation.md') }}"
+              >Install</a
+            >
+          </nav>
+        </div>
+      </div>
+      {% else %}
+      <div class="site-header-inner">
+        <a class="site-logo" href="{{ get_url(path='/') }}">MonaDB</a>
+        <nav class="site-actions" aria-label="Site">
           <a
-            class="font-label text-[10px] tracking-[0.12em] uppercase {% if current_path is containing('/language/') %}text-accent{% else %}text-ink hover:underline{% endif %}"
-            href="{{ get_url(path='@/language/introduction.md') }}"
-            >Language</a
+            class="btn btn-ghost btn-sm"
+            href="{{ get_url(path='@/tutorial.md') }}"
+            >Docs</a
           >
           <a
-            class="font-label text-[10px] tracking-[0.12em] uppercase {% if current_path is containing('/examples/') %}text-accent{% else %}text-ink hover:underline{% endif %}"
-            href="{{ get_url(path='@/examples/literals.md') }}"
-            >Examples</a
-          >
-          <!-- {% if current_path is containing('/language/') or current_path is containing('/examples/') %}
-        <button type="button"
-                class="copy-md-btn font-label text-[10px] tracking-[0.12em] uppercase text-ink hover:underline"
-                data-copy-markdown
-                aria-label="Copy page as markdown">
-          <span data-copy-md-label>Copy MD</span>
-        </button>
-        {% endif %} -->
-          <a
-            class="font-label text-[10px] tracking-[0.12em] uppercase text-ink hover:underline"
+            class="btn btn-ghost btn-sm"
             href="https://github.com/rchowell/MonaDB"
             >GitHub</a
           >
-          <span class="max-sm:hidden">
-            <a
-              class="btn btn-primary btn-sm"
-              href="{{ get_url(path='@/language/introduction.md') }}"
-              >Get Started</a
-            >
-          </span>
+          <a
+            class="btn btn-primary btn-sm max-sm:hidden"
+            href="{{ get_url(path='@/installation.md') }}"
+            >Install</a
+          >
         </nav>
       </div>
+      {% endif %}
     </header>
 
     {% block content %}{% endblock content %}
 
-    <footer class="border-t-rule">
+    <footer class="border-t-rule site-footer">
       <div class="max-w-wrap mx-auto px-8 pt-12 pb-16">
         <div class="grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] gap-8">
           <div>
             <div class="flex items-center gap-[10px] mb-3.5">
               <span class="grain-mark" aria-hidden="true"></span>
-              <span
-                class="font-display text-[15px] font-black tracking-[0.14em]"
+              <span class="font-display text-[15px] font-black tracking-[0.14em]"
                 >MONADB</span
               >
             </div>
@@ -109,23 +95,21 @@
             </div>
             <div class="flex flex-col gap-[9px] font-body text-[13px]">
               <a
-                class="text-ink hover:underline"
+                class="text-ink"
                 href="{{ get_url(path='@/language/introduction.md') }}"
                 >Introduction</a
               >
               <a
-                class="text-ink hover:underline"
+                class="text-ink"
                 href="{{ get_url(path='@/language/statements.md') }}"
                 >Statements</a
               >
               <a
-                class="text-ink hover:underline"
+                class="text-ink"
                 href="{{ get_url(path='@/language/syntax.md') }}"
                 >Syntax</a
               >
-              <a
-                class="text-ink hover:underline"
-                href="{{ get_url(path='@/language/types.md') }}"
+              <a class="text-ink" href="{{ get_url(path='@/language/types.md') }}"
                 >Types</a
               >
             </div>
@@ -138,23 +122,21 @@
             </div>
             <div class="flex flex-col gap-[9px] font-body text-[13px]">
               <a
-                class="text-ink hover:underline"
+                class="text-ink"
                 href="{{ get_url(path='@/language/expressions.md') }}"
                 >Expressions</a
               >
               <a
-                class="text-ink hover:underline"
+                class="text-ink"
                 href="{{ get_url(path='@/language/functions.md') }}"
                 >Functions</a
               >
               <a
-                class="text-ink hover:underline"
-                href="{{ get_url(path='@/examples/literals.md') }}"
+                class="text-ink"
+                href="{{ get_url(path='@/examples/queries.md') }}"
                 >Examples</a
               >
-              <a
-                class="text-ink hover:underline"
-                href="{{ get_url(path='@/design.md') }}"
+              <a class="text-ink" href="{{ get_url(path='@/design.md') }}"
                 >Design</a
               >
             </div>
@@ -166,13 +148,11 @@
               Project
             </div>
             <div class="flex flex-col gap-[9px] font-body text-[13px]">
-              <a
-                class="text-ink hover:underline"
-                href="https://github.com/rchowell/MonaDB"
+              <a class="text-ink" href="https://github.com/rchowell/MonaDB"
                 >GitHub</a
               >
               <a
-                class="text-ink hover:underline"
+                class="text-ink"
                 href="https://github.com/rchowell/MonaDB#readme"
                 >README</a
               >
@@ -183,18 +163,6 @@
           class="flex flex-wrap gap-[14px] items-center justify-between mt-10 pt-[18px] border-t-rule font-label text-[10px] tracking-[0.1em] uppercase text-mist"
         >
           <span>© 2026 MonaDB</span>
-          <label class="prose-font-control">
-            <span class="prose-font-label">Type</span>
-            <select data-prose-font-select aria-label="Prose typeface">
-              <option value="courier">Courier Prime</option>
-              <option value="newsreader">Newsreader</option>
-              <option value="spectral">Spectral</option>
-              <option value="eb-garamond">EB Garamond</option>
-              <option value="playfair">Playfair Display</option>
-              <option value="cormorant">Cormorant Garamond</option>
-              <option value="libre-baskerville">Libre Baskerville</option>
-            </select>
-          </label>
           <span>Seattle, WA</span>
         </div>
       </div>

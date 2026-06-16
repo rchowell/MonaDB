@@ -1,0 +1,60 @@
+{% macro sidebar_link(page) %}
+<li data-docs-sidebar-item data-title="{{ page.title | lower }}">
+  <a
+    href="{{ page.permalink }}"
+    {% if page.permalink == current_url %}class="active"{% endif %}
+  >
+    {{ page.title }}
+  </a>
+</li>
+{% endmacro %}
+
+{% macro render_docs_sidebar() %}
+<aside class="docs-sidebar" id="mobile-sidebar-nav" aria-label="Documentation" data-docs-sidebar data-mobile-sidebar-panel="nav">
+  <div class="docs-sidebar-search-wrap">
+    <label class="docs-sidebar-search" for="docs-sidebar-search">
+      <span class="docs-sidebar-search-icon" aria-hidden="true">⌕</span>
+      <input
+        id="docs-sidebar-search"
+        type="search"
+        placeholder="search"
+        autocomplete="off"
+        spellcheck="false"
+        data-docs-sidebar-search
+      />
+      <kbd class="docs-sidebar-search-kbd" aria-hidden="true">⌘K</kbd>
+    </label>
+  </div>
+
+  <nav class="docs-sidebar-nav">
+    <ul class="docs-sidebar-list docs-sidebar-list--top" data-docs-sidebar-list>
+      {{ docs_sidebar::sidebar_link(page=get_page(path="installation.md")) }}
+      {{ docs_sidebar::sidebar_link(page=get_page(path="tutorial.md")) }}
+      {{ docs_sidebar::sidebar_link(page=get_page(path="python.md")) }}
+    </ul>
+
+    <div class="docs-sidebar-section">
+      <p class="docs-sidebar-section-title">SQL</p>
+      <ul class="docs-sidebar-list" data-docs-sidebar-list>
+        {{ docs_sidebar::sidebar_link(page=get_page(path="language/introduction.md")) }}
+        {{ docs_sidebar::sidebar_link(page=get_page(path="language/statements.md")) }}
+        {{ docs_sidebar::sidebar_link(page=get_page(path="language/syntax.md")) }}
+        {{ docs_sidebar::sidebar_link(page=get_page(path="language/types.md")) }}
+        {{ docs_sidebar::sidebar_link(page=get_page(path="language/expressions.md")) }}
+        {{ docs_sidebar::sidebar_link(page=get_page(path="language/functions.md")) }}
+      </ul>
+    </div>
+
+    <div class="docs-sidebar-section">
+      <p class="docs-sidebar-section-title">Examples</p>
+      <ul class="docs-sidebar-list" data-docs-sidebar-list>
+        {{ docs_sidebar::sidebar_link(page=get_page(path="examples/queries.md")) }}
+        {{ docs_sidebar::sidebar_link(page=get_page(path="examples/writing.md")) }}
+        {{ docs_sidebar::sidebar_link(page=get_page(path="examples/keys.md")) }}
+        {{ docs_sidebar::sidebar_link(page=get_page(path="examples/values.md")) }}
+        {{ docs_sidebar::sidebar_link(page=get_page(path="examples/reshape.md")) }}
+      </ul>
+    </div>
+  </nav>
+</aside>
+{% endmacro %}

@@ -1475,6 +1475,79 @@ select price from unpivot {b: 2, a: 1, c: 3} as price at sym order by sym;
 
 <div class="example">
 
+### An Aggregate
+
+An aggregate folds over the unpivoted value binding.
+
+<p class="example-label">SQL</p>
+
+```sql
+create table T;
+
+select sum(price) from unpivot {a: 10, b: 20, c: 30} as price;
+```
+
+<p class="example-label">Result</p>
+
+```json
+[
+  60
+]
+```
+
+</div>
+
+<div class="example">
+
+### Count Over
+
+Count over an unpivot source counts one row per pair.
+
+<p class="example-label">SQL</p>
+
+```sql
+create table T;
+
+select count(price) from unpivot {a: 1, b: 2, c: 3} as price;
+```
+
+<p class="example-label">Result</p>
+
+```json
+[
+  3
+]
+```
+
+</div>
+
+<div class="example">
+
+### Group By
+
+Group by over an unpivot source groups its value binding.
+
+<p class="example-label">SQL</p>
+
+```sql
+create table T;
+
+select { v: price, n: count(*) } from unpivot {a: 5, b: 5, c: 9} as price group by price;
+```
+
+<p class="example-label">Result</p>
+
+```json
+[
+  { "v": 5, "n": 2 },
+  { "v": 9, "n": 1 }
+]
+```
+
+</div>
+
+<div class="example">
+
 ### The Unpivot
 
 The unpivot value binding requires an alias.
