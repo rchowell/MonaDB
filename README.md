@@ -1,12 +1,29 @@
 # MonaDB
 
-An embedded document database with a small SQL dialect, compiled to stack-based bytecode and stored in LMDB.
-
-No server, no config — use it from Python, Rust, or the interactive `mona` shell.
+An embedded document database with a small SQL dialect. Use it from Python, Rust, or the interactive `mona` shell.
 
 ## Install
 
+### Homebrew
+
+Installing the monadb cli.
+
+```sh
+brew tap rchowell/tap
+brew install monadb
+```
+
+### Rust
+
+Installing the rust library.
+
+```sh
+cargo add monadb
+```
+
 ### Python (PyPI)
+
+Installing the python bindings.
 
 ```sh
 pip install monadb
