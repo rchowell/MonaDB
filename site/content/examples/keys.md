@@ -1,18 +1,22 @@
 +++
-title = "Keys & lookups"
+title = "Primary Keys"
 description = "Key columns, ordering, and keyed get examples."
 weight = 3
 +++
 
-# Keys & lookups
+# Primary Keys
 
 Declaring key columns and fetching rows by key.
 
+<div class="example-section">
+
 ## Keys
+
+</div>
 
 <div class="example">
 
-### Whole Objects
+## Whole Objects
 
 A keyless table stores and returns whole objects.
 
@@ -21,7 +25,7 @@ A keyless table stores and returns whole objects.
 ```sql
 create table t;
 
-insert into t ({x: 1, y: 2, z: 3});
+insert into t ({"x": 1, "y": 2, "z": 3});
 
 select * from t;
 ```
@@ -38,7 +42,7 @@ select * from t;
 
 <div class="example">
 
-### Ones X
+## Ones X
 
 A keyless table accepts any object, including ones with no x.
 
@@ -47,7 +51,7 @@ A keyless table accepts any object, including ones with no x.
 ```sql
 create table t;
 
-insert into t ({y: 2, z: 3});
+insert into t ({"y": 2, "z": 3});
 
 select * from t;
 ```
@@ -64,7 +68,7 @@ select * from t;
 
 <div class="example">
 
-### Surrogate Ids
+## Surrogate Ids
 
 Surrogate ids increment, so rows come back in insertion order.
 
@@ -73,7 +77,7 @@ Surrogate ids increment, so rows come back in insertion order.
 ```sql
 create table t;
 
-insert into t ({x: 3}, {x: 1}, {x: 2});
+insert into t ({"x": 3}, {"x": 1}, {"x": 2});
 
 select * from t;
 ```
@@ -92,7 +96,7 @@ select * from t;
 
 <div class="example">
 
-### Int Key
+## Int Key
 
 Int key with payload round-trips whole object.
 
@@ -101,7 +105,7 @@ Int key with payload round-trips whole object.
 ```sql
 create table t (x int);
 
-insert into t ({x: 1, z: 9});
+insert into t ({"x": 1, "z": 9});
 
 select * from t;
 ```
@@ -118,7 +122,7 @@ select * from t;
 
 <div class="example">
 
-### Rows Inserted
+## Rows Inserted
 
 Rows inserted out of order come back sorted by the int key.
 
@@ -127,7 +131,7 @@ Rows inserted out of order come back sorted by the int key.
 ```sql
 create table t (x int);
 
-insert into t ({x: 3}, {x: 1}, {x: 2});
+insert into t ({"x": 3}, {"x": 1}, {"x": 2});
 
 select * from t;
 ```
@@ -146,7 +150,7 @@ select * from t;
 
 <div class="example">
 
-### Negative Ints
+## Negative Ints
 
 Negative ints sort before zero and positives (sign-flip encoding).
 
@@ -155,7 +159,7 @@ Negative ints sort before zero and positives (sign-flip encoding).
 ```sql
 create table t (x int);
 
-insert into t ({x: 1}, {x: -5}, {x: 0}, {x: -1});
+insert into t ({"x": 1}, {"x": -5}, {"x": 0}, {"x": -1});
 
 select * from t;
 ```
@@ -175,7 +179,7 @@ select * from t;
 
 <div class="example">
 
-### Re-inserting The
+## Re-inserting The
 
 Re-inserting the same key overwrites (last write wins).
 
@@ -184,9 +188,9 @@ Re-inserting the same key overwrites (last write wins).
 ```sql
 create table t (x int);
 
-insert into t ({x: 1, v: 100});
+insert into t ({"x": 1, "v": 100});
 
-insert into t ({x: 1, v: 200});
+insert into t ({"x": 1, "v": 200});
 
 select * from t;
 ```
@@ -203,7 +207,7 @@ select * from t;
 
 <div class="example">
 
-### Inserting Without
+## Inserting Without
 
 Inserting without the key field is a schema error.
 
@@ -212,7 +216,7 @@ Inserting without the key field is a schema error.
 ```sql
 create table t (x int);
 
-insert into t ({z: 9});
+insert into t ({"z": 9});
 ```
 
 Expected error: `schema`
@@ -221,7 +225,7 @@ Expected error: `schema`
 
 <div class="example">
 
-### Wrong Type
+## Wrong Type
 
 A string where an int key is declared is a schema error.
 
@@ -230,7 +234,7 @@ A string where an int key is declared is a schema error.
 ```sql
 create table t (x int);
 
-insert into t ({x: "a"});
+insert into t ({"x": "a"});
 ```
 
 Expected error: `schema`
@@ -239,7 +243,7 @@ Expected error: `schema`
 
 <div class="example">
 
-### Non Integral
+## Non Integral
 
 A non-integral number for an int key is a schema error.
 
@@ -248,7 +252,7 @@ A non-integral number for an int key is a schema error.
 ```sql
 create table t (x int);
 
-insert into t ({x: 1.5});
+insert into t ({"x": 1.5});
 ```
 
 Expected error: `schema`
@@ -257,7 +261,7 @@ Expected error: `schema`
 
 <div class="example">
 
-### String Key
+## String Key
 
 String key with payload round-trips whole object.
 
@@ -266,7 +270,7 @@ String key with payload round-trips whole object.
 ```sql
 create table t (x string);
 
-insert into t ({x: "a", z: 9});
+insert into t ({"x": "a", "z": 9});
 
 select * from t;
 ```
@@ -283,7 +287,7 @@ select * from t;
 
 <div class="example">
 
-### Rows Come
+## Rows Come
 
 Rows come back in lexicographic key order.
 
@@ -292,7 +296,7 @@ Rows come back in lexicographic key order.
 ```sql
 create table t (x string);
 
-insert into t ({x: "c"}, {x: "a"}, {x: "b"});
+insert into t ({"x": "c"}, {"x": "a"}, {"x": "b"});
 
 select * from t;
 ```
@@ -311,7 +315,7 @@ select * from t;
 
 <div class="example">
 
-### Inserting Without
+## Inserting Without
 
 Inserting without the key field is a schema error.
 
@@ -320,7 +324,7 @@ Inserting without the key field is a schema error.
 ```sql
 create table t (x string);
 
-insert into t ({z: 9});
+insert into t ({"z": 9});
 ```
 
 Expected error: `schema`
@@ -329,7 +333,7 @@ Expected error: `schema`
 
 <div class="example">
 
-### Wrong Type
+## Wrong Type
 
 A number where a string key is declared is a schema error.
 
@@ -338,7 +342,7 @@ A number where a string key is declared is a schema error.
 ```sql
 create table t (x string);
 
-insert into t ({x: 1});
+insert into t ({"x": 1});
 ```
 
 Expected error: `schema`
@@ -347,7 +351,7 @@ Expected error: `schema`
 
 <div class="example">
 
-### Composite (int,
+## Composite (int,
 
 Composite (int, string) key round-trips whole object.
 
@@ -356,7 +360,7 @@ Composite (int, string) key round-trips whole object.
 ```sql
 create table t (a int, b string);
 
-insert into t ({a: 1, b: "x", z: 9});
+insert into t ({"a": 1, "b": "x", "z": 9});
 
 select * from t;
 ```
@@ -373,7 +377,7 @@ select * from t;
 
 <div class="example">
 
-### Sort By
+## Sort By
 
 Sort by first component, tie-break on the second.
 
@@ -382,7 +386,7 @@ Sort by first component, tie-break on the second.
 ```sql
 create table t (a int, b string);
 
-insert into t ({a: 2, b: "a"}, {a: 1, b: "y"}, {a: 1, b: "x"});
+insert into t ({"a": 2, "b": "a"}, {"a": 1, "b": "y"}, {"a": 1, "b": "x"});
 
 select * from t;
 ```
@@ -401,7 +405,7 @@ select * from t;
 
 <div class="example">
 
-### Missing The
+## Missing The
 
 Missing the first key field is a schema error.
 
@@ -410,7 +414,7 @@ Missing the first key field is a schema error.
 ```sql
 create table t (a int, b string);
 
-insert into t ({b: "x"});
+insert into t ({"b": "x"});
 ```
 
 Expected error: `schema`
@@ -419,7 +423,7 @@ Expected error: `schema`
 
 <div class="example">
 
-### Missing The
+## Missing The
 
 Missing the second key field is a schema error.
 
@@ -428,7 +432,7 @@ Missing the second key field is a schema error.
 ```sql
 create table t (a int, b string);
 
-insert into t ({a: 1});
+insert into t ({"a": 1});
 ```
 
 Expected error: `schema`
@@ -437,7 +441,7 @@ Expected error: `schema`
 
 <div class="example">
 
-### Wrong Type
+## Wrong Type
 
 Wrong type for the first key field is a schema error.
 
@@ -446,7 +450,7 @@ Wrong type for the first key field is a schema error.
 ```sql
 create table t (a int, b string);
 
-insert into t ({a: "q", b: "x"});
+insert into t ({"a": "q", "b": "x"});
 ```
 
 Expected error: `schema`
@@ -455,7 +459,7 @@ Expected error: `schema`
 
 <div class="example">
 
-### Wrong Type
+## Wrong Type
 
 Wrong type for the second key field is a schema error.
 
@@ -464,7 +468,7 @@ Wrong type for the second key field is a schema error.
 ```sql
 create table t (a int, b string);
 
-insert into t ({a: 1, b: 2});
+insert into t ({"a": 1, "b": 2});
 ```
 
 Expected error: `schema`
@@ -473,7 +477,7 @@ Expected error: `schema`
 
 <div class="example">
 
-### Composite (string,
+## Composite (string,
 
 Composite (string, int) key round-trips whole object.
 
@@ -482,7 +486,7 @@ Composite (string, int) key round-trips whole object.
 ```sql
 create table t (a string, b int);
 
-insert into t ({a: "x", b: 1, z: 9});
+insert into t ({"a": "x", "b": 1, "z": 9});
 
 select * from t;
 ```
@@ -499,7 +503,7 @@ select * from t;
 
 <div class="example">
 
-### Sort By
+## Sort By
 
 Sort by string first, tie-break on the int.
 
@@ -508,7 +512,7 @@ Sort by string first, tie-break on the int.
 ```sql
 create table t (a string, b int);
 
-insert into t ({a: "b", b: 1}, {a: "a", b: 2}, {a: "a", b: 1});
+insert into t ({"a": "b", "b": 1}, {"a": "a", "b": 2}, {"a": "a", "b": 1});
 
 select * from t;
 ```
@@ -527,7 +531,7 @@ select * from t;
 
 <div class="example">
 
-### Missing The
+## Missing The
 
 Missing the int component is a schema error.
 
@@ -536,7 +540,7 @@ Missing the int component is a schema error.
 ```sql
 create table t (a string, b int);
 
-insert into t ({a: "x"});
+insert into t ({"a": "x"});
 ```
 
 Expected error: `schema`
@@ -545,7 +549,7 @@ Expected error: `schema`
 
 <div class="example">
 
-### Type Second
+## Type Second
 
 A string where the int component is declared is a schema error.
 
@@ -554,7 +558,7 @@ A string where the int component is declared is a schema error.
 ```sql
 create table t (a string, b int);
 
-insert into t ({a: "x", b: "y"});
+insert into t ({"a": "x", "b": "y"});
 ```
 
 Expected error: `schema`
@@ -563,7 +567,7 @@ Expected error: `schema`
 
 <div class="example">
 
-### Composite (int,
+## Composite (int,
 
 Composite (int, int) key round-trips whole object.
 
@@ -572,7 +576,7 @@ Composite (int, int) key round-trips whole object.
 ```sql
 create table t (a int, b int);
 
-insert into t ({a: 1, b: 2, z: 9});
+insert into t ({"a": 1, "b": 2, "z": 9});
 
 select * from t;
 ```
@@ -589,7 +593,7 @@ select * from t;
 
 <div class="example">
 
-### Sort By
+## Sort By
 
 Sort by first int, tie-break on the second int.
 
@@ -598,7 +602,7 @@ Sort by first int, tie-break on the second int.
 ```sql
 create table t (a int, b int);
 
-insert into t ({a: 2, b: 1}, {a: 1, b: 2}, {a: 1, b: 1});
+insert into t ({"a": 2, "b": 1}, {"a": 1, "b": 2}, {"a": 1, "b": 1});
 
 select * from t;
 ```
@@ -617,7 +621,7 @@ select * from t;
 
 <div class="example">
 
-### Missing A
+## Missing A
 
 Missing a key component is a schema error.
 
@@ -626,7 +630,7 @@ Missing a key component is a schema error.
 ```sql
 create table t (a int, b int);
 
-insert into t ({a: 1});
+insert into t ({"a": 1});
 ```
 
 Expected error: `schema`
@@ -635,7 +639,7 @@ Expected error: `schema`
 
 <div class="example">
 
-### Composite (string,
+## Composite (string,
 
 Composite (string, string) key round-trips whole object.
 
@@ -644,7 +648,7 @@ Composite (string, string) key round-trips whole object.
 ```sql
 create table t (a string, b string);
 
-insert into t ({a: "x", b: "y", z: 9});
+insert into t ({"a": "x", "b": "y", "z": 9});
 
 select * from t;
 ```
@@ -661,7 +665,7 @@ select * from t;
 
 <div class="example">
 
-### Sort By
+## Sort By
 
 Sort by first string, tie-break on the second.
 
@@ -670,7 +674,7 @@ Sort by first string, tie-break on the second.
 ```sql
 create table t (a string, b string);
 
-insert into t ({a: "b", b: "a"}, {a: "a", b: "b"}, {a: "a", b: "a"});
+insert into t ({"a": "b", "b": "a"}, {"a": "a", "b": "b"}, {"a": "a", "b": "a"});
 
 select * from t;
 ```
@@ -689,7 +693,7 @@ select * from t;
 
 <div class="example">
 
-### Before Ab
+## Before Ab
 
 A shorter first component sorts before a longer one that shares its prefix, regardless of the second component — proves the string terminator. ("a","z") must sort before ("ab","a").
 
@@ -698,7 +702,7 @@ A shorter first component sorts before a longer one that shares its prefix, rega
 ```sql
 create table t (a string, b string);
 
-insert into t ({a: "ab", b: "a"}, {a: "a", b: "z"});
+insert into t ({"a": "ab", "b": "a"}, {"a": "a", "b": "z"});
 
 select * from t;
 ```
@@ -716,7 +720,7 @@ select * from t;
 
 <div class="example">
 
-### Missing A
+## Missing A
 
 Missing a key component is a schema error.
 
@@ -725,7 +729,7 @@ Missing a key component is a schema error.
 ```sql
 create table t (a string, b string);
 
-insert into t ({a: "x"});
+insert into t ({"a": "x"});
 ```
 
 Expected error: `schema`
@@ -734,7 +738,7 @@ Expected error: `schema`
 
 <div class="example">
 
-### Float Key
+## Float Key
 
 A float key column is rejected at create.
 
@@ -750,7 +754,7 @@ Expected error: `static`
 
 <div class="example">
 
-### Bool Key
+## Bool Key
 
 A bool key column is rejected at create.
 
@@ -764,11 +768,15 @@ Expected error: `static`
 
 </div>
 
+<div class="example-section">
+
 ## Keyed lookup
+
+</div>
 
 <div class="example">
 
-### Indexing By
+## Indexing By
 
 Indexing by an existing int key returns the whole row.
 
@@ -777,7 +785,7 @@ Indexing by an existing int key returns the whole row.
 ```sql
 create table t (id int);
 
-insert into t ({id: 1, v: "a"});
+insert into t ({"id": 1, "v": "a"});
 
 select t[1];
 ```
@@ -794,7 +802,7 @@ select t[1];
 
 <div class="example">
 
-### Nil Row
+## Nil Row
 
 A missing key yields null (dict-get → nil), one row.
 
@@ -803,7 +811,7 @@ A missing key yields null (dict-get → nil), one row.
 ```sql
 create table t (id int);
 
-insert into t ({id: 1, v: "a"});
+insert into t ({"id": 1, "v": "a"});
 
 select t[99];
 ```
@@ -820,7 +828,7 @@ select t[99];
 
 <div class="example">
 
-### Indexing An
+## Indexing An
 
 Indexing an empty table yields null.
 
@@ -844,7 +852,7 @@ select t[1];
 
 <div class="example">
 
-### Get String Key
+## Get String Key
 
 A string-keyed table indexes by a string literal.
 
@@ -855,7 +863,7 @@ create table t (id int);
 
 create table s (id string);
 
-insert into s ({id: "x", v: 9});
+insert into s ({"id": "x", "v": 9});
 
 select s["x"];
 ```
@@ -872,7 +880,7 @@ select s["x"];
 
 <div class="example">
 
-### Re-inserting A
+## Re-inserting A
 
 Re-inserting a key overwrites; the lookup sees the latest value.
 
@@ -881,9 +889,9 @@ Re-inserting a key overwrites; the lookup sees the latest value.
 ```sql
 create table t (id int);
 
-insert into t ({id: 1, v: 100});
+insert into t ({"id": 1, "v": 100});
 
-insert into t ({id: 1, v: 200});
+insert into t ({"id": 1, "v": 200});
 
 select t[1];
 ```
@@ -900,7 +908,7 @@ select t[1];
 
 <div class="example">
 
-### The Looked-up
+## The Looked-up
 
 The looked-up row is a value and can be indexed further.
 
@@ -909,7 +917,7 @@ The looked-up row is a value and can be indexed further.
 ```sql
 create table t (id int);
 
-insert into t ({id: 1, v: "a"});
+insert into t ({"id": 1, "v": "a"});
 
 select t[1].v;
 ```
@@ -926,7 +934,7 @@ select t[1].v;
 
 <div class="example">
 
-### The Lookup
+## The Lookup
 
 The lookup picks exactly one row out of many, ignoring the rest.
 
@@ -935,7 +943,7 @@ The lookup picks exactly one row out of many, ignoring the rest.
 ```sql
 create table t (id int);
 
-insert into t ({id: 1, v: "a"}, {id: 2, v: "b"}, {id: 3, v: "c"});
+insert into t ({"id": 1, "v": "a"}, {"id": 2, "v": "b"}, {"id": 3, "v": "c"});
 
 select t[2];
 ```
@@ -952,7 +960,7 @@ select t[2];
 
 <div class="example">
 
-### Get Wrong Type
+## Get Wrong Type
 
 A string key against an int-keyed table is a schema error.
 
@@ -970,7 +978,7 @@ Expected error: `schema`
 
 <div class="example">
 
-### Get Keyless
+## Get Keyless
 
 A keyless table cannot be indexed by key.
 
@@ -990,7 +998,7 @@ Expected error: `static`
 
 <div class="example">
 
-### Get Composite Arity
+## Get Composite Arity
 
 A key tuple longer than the key-column count is a static error.
 
@@ -1010,7 +1018,7 @@ Expected error: `static`
 
 <div class="example">
 
-### Matching Row
+## Matching Row
 
 A full composite key returns the one matching row.
 
@@ -1021,7 +1029,7 @@ create table t (id int);
 
 create table c (a string, b int);
 
-insert into c ({a: "x", b: 7, v: "hit"});
+insert into c ({"a": "x", "b": 7, "v": "hit"});
 
 select c["x", 7];
 ```
@@ -1038,7 +1046,7 @@ select c["x", 7];
 
 <div class="example">
 
-### Key Order
+## Key Order
 
 A leading-prefix key returns the matching rows as an array in key order.
 
@@ -1049,7 +1057,7 @@ create table t (id int);
 
 create table c (a string, b int);
 
-insert into c ({a: "x", b: 2, v: "q"}, {a: "x", b: 1, v: "p"}, {a: "y", b: 9, v: "r"});
+insert into c ({"a": "x", "b": 2, "v": "q"}, {"a": "x", "b": 1, "v": "p"}, {"a": "y", "b": 9, "v": "r"});
 
 select c["x"];
 ```
@@ -1066,7 +1074,7 @@ select c["x"];
 
 <div class="example">
 
-### Empty Array
+## Empty Array
 
 A partial key matching no rows yields an empty array.
 
@@ -1077,7 +1085,7 @@ create table t (id int);
 
 create table c (a string, b int);
 
-insert into c ({a: "x", b: 1, v: "p"});
+insert into c ({"a": "x", "b": 1, "v": "p"});
 
 select c["z"];
 ```
@@ -1094,7 +1102,7 @@ select c["z"];
 
 <div class="example">
 
-### Matching Prefix
+## Matching Prefix
 
 A two-column prefix of a three-column key scans only the matching prefix.
 
@@ -1105,7 +1113,7 @@ create table t (id int);
 
 create table k (a string, b int, c int);
 
-insert into k ({a: "x", b: 7, c: 2, v: "n"}, {a: "x", b: 7, c: 1, v: "m"}, {a: "x", b: 8, c: 9, v: "o"});
+insert into k ({"a": "x", "b": 7, "c": 2, "v": "n"}, {"a": "x", "b": 7, "c": 1, "v": "m"}, {"a": "x", "b": 8, "c": 9, "v": "o"});
 
 select k["x", 7];
 ```
@@ -1122,7 +1130,7 @@ select k["x", 7];
 
 <div class="example">
 
-### The Sub-sequence
+## The Sub-sequence
 
 The sub-sequence array composes — index into it.
 
@@ -1133,7 +1141,7 @@ create table t (id int);
 
 create table c (a string, b int);
 
-insert into c ({a: "x", b: 1, v: "p"}, {a: "x", b: 2, v: "q"});
+insert into c ({"a": "x", "b": 1, "v": "p"}, {"a": "x", "b": 2, "v": "q"});
 
 select c["x"][0];
 ```
@@ -1150,7 +1158,7 @@ select c["x"][0];
 
 <div class="example">
 
-### The Sub-sequence
+## The Sub-sequence
 
 The sub-sequence array composes — scan it as a value source.
 
@@ -1161,7 +1169,7 @@ create table t (id int);
 
 create table c (a string, b int);
 
-insert into c ({a: "x", b: 1, v: "p"}, {a: "x", b: 2, v: "q"}, {a: "y", b: 9, v: "r"});
+insert into c ({"a": "x", "b": 1, "v": "p"}, {"a": "x", "b": 2, "v": "q"}, {"a": "y", "b": 9, "v": "r"});
 
 select r from c["x"] as r;
 ```
@@ -1179,7 +1187,7 @@ select r from c["x"] as r;
 
 <div class="example">
 
-### Get Composite Miss
+## Get Composite Miss
 
 A full composite key with no matching row yields null.
 
@@ -1190,7 +1198,7 @@ create table t (id int);
 
 create table c (a string, b int);
 
-insert into c ({a: "x", b: 7});
+insert into c ({"a": "x", "b": 7});
 
 select c["x", 8];
 ```
@@ -1207,7 +1215,7 @@ select c["x", 8];
 
 <div class="example">
 
-### Indexing A
+## Indexing A
 
 Indexing a name that is neither a binding nor a table is unbound.
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Generates site/content/examples/ from tests/suites/*.yaml — five consolidated pages.
+ * Generates site/content/examples/ from tests/suites/*.yaml — consolidated example pages.
  * Run from the site/ directory: node scripts/gen-examples.mjs
  */
 
@@ -57,7 +57,7 @@ const CONSOLIDATED_PAGES = [
   },
   {
     slug: "keys",
-    title: "Keys & lookups",
+    title: "Primary Keys",
     description: "Key columns, ordering, and keyed get examples.",
     weight: 3,
     intro: "Declaring key columns and fetching rows by key.",
@@ -65,7 +65,7 @@ const CONSOLIDATED_PAGES = [
   },
   {
     slug: "values",
-    title: "Values & functions",
+    title: "Values & Functions",
     description: "Literals, predicates, casts, and built-in functions.",
     weight: 4,
     intro: "Expressions evaluated in isolation or inside larger queries.",
@@ -78,12 +78,22 @@ const CONSOLIDATED_PAGES = [
     literals: true,
   },
   {
-    slug: "reshape",
-    title: "Pivot & reshape",
-    description: "Pivot, unpivot, and parameter binding examples.",
+    slug: "pivot",
+    title: "Pivot & Unpivot",
+    description: "Pivot and unpivot examples — reshape row streams into tuples and back.",
     weight: 5,
-    intro: "Reshaping row streams and binding host parameters.",
-    files: ["18-pivot.yaml", "17-unpivot.yaml", "20-params.yaml"],
+    intro:
+      "Pivot folds a binding stream into a single tuple; unpivot ranges over attribute-value pairs of a tuple — dual operations for reshaping data.",
+    files: ["18-pivot.yaml", "17-unpivot.yaml"],
+  },
+  {
+    slug: "params",
+    title: "Parameters",
+    description: "Query parameter binding examples.",
+    weight: 6,
+    intro:
+      "Placeholders (`?`, `$N`, `$name`) stand in for values supplied alongside the SQL text and are substituted before compilation.",
+    files: ["20-params.yaml"],
   },
 ];
 
@@ -105,7 +115,16 @@ function renderPage(page) {
   if (page.literals) {
     const literalsSuite = loadSuite(suitesDir, "01-literals.yaml");
     const { body: literalsBody } = renderLiteralsPage(literalsSuite);
-    lines.push(literalsBody, "");
+    lines.push(
+      '<div class="example-section">',
+      "",
+      "## Literals",
+      "",
+      "</div>",
+      "",
+      literalsBody,
+      "",
+    );
     const rest = page.files.filter((f) => f !== "01-literals.yaml");
     if (rest.length > 0) {
       lines.push(

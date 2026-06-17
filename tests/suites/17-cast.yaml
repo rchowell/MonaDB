@@ -127,7 +127,7 @@ tests:
         result: [6]
       - sql: select int(2.9) + 1;
         result: [3]
-      - sql: "select int({a: 2.9}.a);"
+      - sql: "select int({\"a\": 2.9}.a);"
         result: [2]
       - sql: select int(float('2.7'));
         result: [2]
@@ -204,7 +204,7 @@ tests:
       # string() converts scalars only — arrays/objects are not convertible
       - sql: "select string([1, 2]);"
         error: runtime
-      - sql: "select string({a: 1});"
+      - sql: "select string({\"a\": 1});"
         error: runtime
 
   #----------------------------------------------------------------------------

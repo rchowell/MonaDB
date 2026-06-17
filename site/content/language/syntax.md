@@ -21,18 +21,33 @@ select          -- reserved; cannot be used as a bare identifier
 3.14            -- float
 -1              -- negative number
 'hello'         -- single-quoted string
-"hello"         -- double-quoted string
-'it''s fine'    -- embedded single quote
-"say ""hi"""    -- embedded double quote
-'\n'            -- two-character string, not a newline
+"hello"         -- double-quoted string (equivalent)
+'it\'s'         -- escaped single quote
+"say \"hi\""    -- escaped double quote
+'a\nb'          -- newline escape
+'a\\b'          -- escaped backslash
+'\u263A'        -- unicode escape (☺)
 true            -- boolean
 false           -- boolean
 null            -- null
-{ x: 1, y: 2 }  -- object
-{ ...t, z: 3 }  -- object with spread
+{"x": 1, "y": 2}  -- object with string keys
+{...t, "z": 3}  -- object with spread
 [1, 2, 3]       -- array
 [1, 2, ]        -- array with trailing comma
 ```
+
+String literals use either `'...'` or `"..."` (interchangeable, JSON-style). Backslash escapes:
+
+- `\"` — double quote
+- `\'` — single quote
+- `\\` — backslash
+- `\n` — newline
+- `\t` — tab
+- `\r` — carriage return
+- `\0` — null byte
+- `\uXXXX` — unicode scalar (4 hex digits; surrogates paired JSON-style)
+
+The opposite delimiter needs no escape inside a string.
 
 ## Comments
 
@@ -48,18 +63,28 @@ The following words are reserved and may not appear as bare identifiers:
 
 | Keyword | Role |
 |---------|------|
+| `all` | Subquery quantifier |
 | `and` | Logical conjunction |
+| `any` | Type name |
+| `array` | Type name |
 | `as` | Source alias in `from` |
 | `asc` | Ascending sort order |
+| `at` | Attribute name in `pivot` / `unpivot` |
 | `between` | Range predicate |
-| `by` | `order by` clause |
+| `bool` | Type name |
+| `by` | `order by` / `group by` clause |
 | `clear` | `clear` statement |
+| `copy` | `copy` statement |
 | `create` | `create table` statement |
 | `delete` | `delete` statement |
 | `desc` | Descending sort order |
 | `drop` | `drop table` statement |
+| `exists` | Subquery existence test |
 | `false` | Boolean literal |
+| `float` | Type name |
 | `from` | `from` clause |
+| `group` | `group by` clause |
+| `having` | `having` clause |
 | `in` | Membership predicate |
 | `insert` | `insert` statement |
 | `into` | `insert into` target |
@@ -68,11 +93,16 @@ The following words are reserved and may not appear as bare identifiers:
 | `limit` | `limit` clause |
 | `not` | Logical negation |
 | `null` | Null literal |
+| `number` | Type name |
+| `object` | Type name |
 | `or` | Logical disjunction |
 | `order` | `order by` clause |
+| `pivot` | `pivot` clause |
 | `select` | `select` clause |
 | `string` | String key-column type |
-| `table` | `create table` / `drop table` |
+| `table` | `create table` / `drop table` / `clear table` |
+| `to` | `copy … to` target path |
 | `true` | Boolean literal |
 | `unknown` | `is unknown` test |
+| `unpivot` | `unpivot` source |
 | `where` | `where` clause |

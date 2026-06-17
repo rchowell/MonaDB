@@ -88,15 +88,14 @@ class Connection:
     def table(self, name: str, keys: Any = None) -> Table:
         """Return a :class:`~monadb.table.Table` handle for ``name``.
 
+        This is the only way to obtain a table handle on a connection.
+
         Pass ``keys`` when the table already exists and its key columns were not
         declared via :meth:`~monadb.table.Table.create` on this connection.
         """
         if keys is not None:
             self._keys[name] = (keys,) if isinstance(keys, str) else tuple(keys)
         return Table(self, name)
-
-    def __getitem__(self, name: str) -> Table:
-        return self.table(name)
 
     def key_columns(self, name: str) -> Optional[Tuple[str, ...]]:
         """Return known key columns for ``name``, or ``None`` if unknown."""

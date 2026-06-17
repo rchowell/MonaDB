@@ -43,4 +43,4 @@ todo> quit
 | `list`    | `for row in todos: ...`                                |
 | `done`    | `todos.get(id)` then `todos.insert(...)` with `done` flipped |
 | `rm`      | `todos.delete(id=N)`                                   |
-| `clear`   | `con.execute("delete from todos;")`                    |
+| `clear`   | `db.execute("delete from todos;")`                    |

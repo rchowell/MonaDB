@@ -11,7 +11,7 @@ tests:
     description: constant true keeps all rows
     steps:
       - sql: |
-          insert into T ({x: 1}, {x: 2});
+          insert into T ({"x": 1}, {"x": 2});
       - sql: select * from T where true;
         result:
           - {x: 1}
@@ -21,7 +21,7 @@ tests:
     description: constant false drops all rows
     steps:
       - sql: |
-          insert into T ({x: 1});
+          insert into T ({"x": 1});
       - sql: select * from T where false;
         result: []
 
@@ -29,7 +29,7 @@ tests:
     description: null predicate is not-true and drops all rows
     steps:
       - sql: |
-          insert into T ({x: 1});
+          insert into T ({"x": 1});
       - sql: select * from T where null;
         result: []
 
@@ -37,7 +37,7 @@ tests:
     description: numeric greater-than filters by oid insertion order
     steps:
       - sql: |
-          insert into T ({x: 1}, {x: 2}, {x: 3});
+          insert into T ({"x": 1}, {"x": 2}, {"x": 3});
       - sql: select * from T where T.x > 1;
         result:
           - {x: 2}
@@ -47,7 +47,7 @@ tests:
     description: numeric equality matches a single row
     steps:
       - sql: |
-          insert into T ({x: 1}, {x: 2}, {x: 3});
+          insert into T ({"x": 1}, {"x": 2}, {"x": 3});
       - sql: select * from T where T.x = 2;
         result:
           - {x: 2}
@@ -56,7 +56,7 @@ tests:
     description: numeric inequality excludes matching value
     steps:
       - sql: |
-          insert into T ({x: 1}, {x: 2}, {x: 3});
+          insert into T ({"x": 1}, {"x": 2}, {"x": 3});
       - sql: select * from T where T.x != 1;
         result:
           - {x: 2}
@@ -68,7 +68,7 @@ tests:
       - create table S;
     steps:
       - sql: |
-          insert into S ({name: 'alice'}, {name: 'bob'});
+          insert into S ({"name": 'alice'}, {"name": 'bob'});
       - sql: select * from S where S.name = 'bob';
         result:
           - {name: "bob"}
@@ -77,7 +77,7 @@ tests:
     description: boolean equality in where
     steps:
       - sql: |
-          insert into T ({flag: true}, {flag: false});
+          insert into T ({"flag": true}, {"flag": false});
       - sql: select * from T where T.flag = true;
         result:
           - {flag: true}
@@ -86,7 +86,7 @@ tests:
     description: predicate may use an explicit from alias
     steps:
       - sql: |
-          insert into T ({x: 0}, {x: 1});
+          insert into T ({"x": 0}, {"x": 1});
       - sql: select * from T as t where t.x > 0;
         result:
           - {x: 1}
@@ -95,7 +95,7 @@ tests:
     description: null member compares equal to null
     steps:
       - sql: |
-          insert into T ({x: null});
+          insert into T ({"x": null});
       - sql: select * from T where T.x = null;
         result:
           - {x: null}
@@ -104,7 +104,7 @@ tests:
     description: null member fails inequality against non-null
     steps:
       - sql: |
-          insert into T ({x: null});
+          insert into T ({"x": null});
       - sql: select * from T where T.x != 1;
         result: []
 
@@ -129,7 +129,7 @@ tests:
     description: only rows with present matching field pass equality
     steps:
       - sql: |
-          insert into T ({x: 1}, {});
+          insert into T ({"x": 1}, {});
       - sql: select * from T where T.x = 1;
         result:
           - {x: 1}
@@ -138,7 +138,7 @@ tests:
     description: scalar projection with where (moved from from-clause suite)
     steps:
       - sql: |
-          insert into T ({x: 1}, {x: 2}, {x: 3});
+          insert into T ({"x": 1}, {"x": 2}, {"x": 3});
       - sql: select T.x from T where T.x > 1;
         result: [2, 3]
 

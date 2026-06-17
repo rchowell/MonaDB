@@ -8,11 +8,15 @@ weight = 1
 
 Reading and transforming data — select shapes output, from iterates sources, and subsequent clauses filter, sort, group, or nest results.
 
+<div class="example-section">
+
 ## Select
+
+</div>
 
 <div class="example">
 
-### Envelope Object
+## Envelope Object
 
 Select . emits the binding tuple as an envelope object.
 
@@ -21,7 +25,7 @@ Select . emits the binding tuple as an envelope object.
 ```sql
 create table T;
 
-insert into T ({x: 1});
+insert into T ({"x": 1});
 
 select . from T as t;
 ```
@@ -38,7 +42,7 @@ select . from T as t;
 
 <div class="example">
 
-### Bindings Flat
+## Bindings Flat
 
 Select * spreads bindings flat.
 
@@ -47,7 +51,7 @@ Select * spreads bindings flat.
 ```sql
 create table T;
 
-insert into T ({x: 1, y: 2});
+insert into T ({"x": 1, "y": 2});
 
 select * from T as t;
 ```
@@ -64,7 +68,7 @@ select * from T as t;
 
 <div class="example">
 
-### Per Row
+## Per Row
 
 Select <path-expr> emits a scalar per row.
 
@@ -73,7 +77,7 @@ Select <path-expr> emits a scalar per row.
 ```sql
 create table T;
 
-insert into T ({x: 1}, {x: 2});
+insert into T ({"x": 1}, {"x": 2});
 
 select t.x from T as t order by t.x;
 ```
@@ -91,7 +95,7 @@ select t.x from T as t order by t.x;
 
 <div class="example">
 
-### Per Row
+## Per Row
 
 Select <literal-expr> emits the literal once per row.
 
@@ -100,7 +104,7 @@ Select <literal-expr> emits the literal once per row.
 ```sql
 create table T;
 
-insert into T ({x: 1}, {x: 2});
+insert into T ({"x": 1}, {"x": 2});
 
 select 7 from T as t order by t.x;
 ```
@@ -118,7 +122,7 @@ select 7 from T as t order by t.x;
 
 <div class="example">
 
-### Per Row
+## Per Row
 
 Select <object-expr> emits the object once per row.
 
@@ -127,9 +131,9 @@ Select <object-expr> emits the object once per row.
 ```sql
 create table T;
 
-insert into T ({x: 1});
+insert into T ({"x": 1});
 
-"select {a: t.x} from T as t;"
+select {"a": t.x} from T as t;
 ```
 
 <p class="example-label">Result</p>
@@ -144,7 +148,7 @@ insert into T ({x: 1});
 
 <div class="example">
 
-### Named Field
+## Named Field
 
 Select <expr> as <name> emits an object with the named field.
 
@@ -153,7 +157,7 @@ Select <expr> as <name> emits an object with the named field.
 ```sql
 create table T;
 
-insert into T ({x: 10});
+insert into T ({"x": 10});
 
 select t.x as a from T as t;
 ```
@@ -170,7 +174,7 @@ select t.x as a from T as t;
 
 <div class="example">
 
-### Named Member
+## Named Member
 
 A list of items emits an object with each named member.
 
@@ -179,7 +183,7 @@ A list of items emits an object with each named member.
 ```sql
 create table T;
 
-insert into T ({x: 1, y: 2});
+insert into T ({"x": 1, "y": 2});
 
 select t.x as a, t.y as b from T as t;
 ```
@@ -196,7 +200,7 @@ select t.x as a, t.y as b from T as t;
 
 <div class="example">
 
-### List Items
+## List Items
 
 List items may be arbitrary expressions, not only paths.
 
@@ -205,7 +209,7 @@ List items may be arbitrary expressions, not only paths.
 ```sql
 create table T;
 
-insert into T ({x: 1});
+insert into T ({"x": 1});
 
 select 1 as a, 'hi' as b from T as t;
 ```
@@ -222,7 +226,7 @@ select 1 as a, 'hi' as b from T as t;
 
 <div class="example">
 
-### From <ident>
+## From <ident>
 
 From <ident> uses the table name as the implicit alias.
 
@@ -231,7 +235,7 @@ From <ident> uses the table name as the implicit alias.
 ```sql
 create table T;
 
-insert into T ({x: 1});
+insert into T ({"x": 1});
 
 select T.x from T;
 ```
@@ -248,7 +252,7 @@ select T.x from T;
 
 <div class="example">
 
-### From <ident>
+## From <ident>
 
 From <ident> as <ident> binds the source under an explicit alias.
 
@@ -257,7 +261,7 @@ From <ident> as <ident> binds the source under an explicit alias.
 ```sql
 create table T;
 
-insert into T ({x: 7});
+insert into T ({"x": 7});
 
 select t.x from T as t;
 ```
@@ -274,7 +278,7 @@ select t.x from T as t;
 
 <div class="example">
 
-### From <ident>
+## From <ident>
 
 From <ident> <ident> binds the source under an alias without 'as'.
 
@@ -283,7 +287,7 @@ From <ident> <ident> binds the source under an alias without 'as'.
 ```sql
 create table T;
 
-insert into T ({x: 9});
+insert into T ({"x": 9});
 
 select t.x from T t;
 ```
@@ -300,7 +304,7 @@ select t.x from T t;
 
 <div class="example">
 
-### An Array
+## An Array
 
 An array literal builds an array from its element expressions.
 
@@ -309,7 +313,7 @@ An array literal builds an array from its element expressions.
 ```sql
 create table T;
 
-insert into T ({x: 7});
+insert into T ({"x": 7});
 
 select [1, 2, t.x] as a from T as t;
 ```
@@ -326,7 +330,7 @@ select [1, 2, t.x] as a from T as t;
 
 <div class="example">
 
-### Array Literals
+## Array Literals
 
 Array literals may nest.
 
@@ -335,7 +339,7 @@ Array literals may nest.
 ```sql
 create table T;
 
-insert into T ({x: 1});
+insert into T ({"x": 1});
 
 select [[1, 2], [3]] as a from T as t;
 ```
@@ -352,7 +356,7 @@ select [[1, 2], [3]] as a from T as t;
 
 <div class="example">
 
-### Single Row
+## Single Row
 
 Select <expr> with no From clause yields the value as a single row.
 
@@ -376,7 +380,7 @@ select 1;
 
 <div class="example">
 
-### Nothing Spread
+## Nothing Spread
 
 Select * requires a From clause (nothing to spread).
 
@@ -394,7 +398,7 @@ Expected error: `static`
 
 <div class="example">
 
-### Tuple Envelope
+## Tuple Envelope
 
 Select . requires a From clause (no binding tuple to envelope).
 
@@ -410,11 +414,15 @@ Expected error: `static`
 
 </div>
 
+<div class="example-section">
+
 ## From
+
+</div>
 
 <div class="example">
 
-### Scanning An
+## Scanning An
 
 Scanning an empty table yields no rows.
 
@@ -436,7 +444,7 @@ select * from T;
 
 <div class="example">
 
-### Insertion Order
+## Insertion Order
 
 A table scan returns all rows in insertion order.
 
@@ -445,7 +453,7 @@ A table scan returns all rows in insertion order.
 ```sql
 create table T;
 
-insert into T ({x: 1}, {x: 2}, {x: 3});
+insert into T ({"x": 1}, {"x": 2}, {"x": 3});
 
 select * from T;
 ```
@@ -464,7 +472,7 @@ select * from T;
 
 <div class="example">
 
-### Omitting As
+## Omitting As
 
 Omitting `as` uses the table name as the alias.
 
@@ -473,7 +481,7 @@ Omitting `as` uses the table name as the alias.
 ```sql
 create table T;
 
-insert into T ({x: 42});
+insert into T ({"x": 42});
 
 select T.x from T;
 ```
@@ -490,7 +498,7 @@ select T.x from T;
 
 <div class="example">
 
-### An Explicit
+## An Explicit
 
 An explicit `as` alias names the binding.
 
@@ -499,7 +507,7 @@ An explicit `as` alias names the binding.
 ```sql
 create table T;
 
-insert into T ({x: 10});
+insert into T ({"x": 10});
 
 select t.x from T as t;
 ```
@@ -516,7 +524,7 @@ select t.x from T as t;
 
 <div class="example">
 
-### Row Unwrapped
+## Row Unwrapped
 
 Select * over one source emits the row unwrapped.
 
@@ -525,7 +533,7 @@ Select * over one source emits the row unwrapped.
 ```sql
 create table T;
 
-insert into T ({x: 1, y: 2});
+insert into T ({"x": 1, "y": 2});
 
 select * from T as t;
 ```
@@ -542,7 +550,7 @@ select * from T as t;
 
 <div class="example">
 
-### Its Alias
+## Its Alias
 
 Select . wraps the binding under its alias.
 
@@ -551,7 +559,7 @@ Select . wraps the binding under its alias.
 ```sql
 create table T;
 
-insert into T ({x: 1});
+insert into T ({"x": 1});
 
 select . from T as t;
 ```
@@ -568,7 +576,7 @@ select . from T as t;
 
 <div class="example">
 
-### Two Comma
+## Two Comma
 
 Two comma sources form a Cartesian product, merged by select *.
 
@@ -579,9 +587,9 @@ create table T;
 
 create table S;
 
-insert into S ({b: 10}, {b: 20});
+insert into S ({"b": 10}, {"b": 20});
 
-insert into T ({a: 1}, {a: 2});
+insert into T ({"a": 1}, {"a": 2});
 
 select * from T as t, S as s;
 ```
@@ -601,7 +609,7 @@ select * from T as t, S as s;
 
 <div class="example">
 
-### From Cross Projection
+## From Cross Projection
 
 A projection list may reference both cross-joined bindings.
 
@@ -612,9 +620,9 @@ create table T;
 
 create table S;
 
-insert into S ({b: 10}, {b: 20});
+insert into S ({"b": 10}, {"b": 20});
 
-insert into T ({a: 1}, {a: 2});
+insert into T ({"a": 1}, {"a": 2});
 
 select t.a as a, s.b as b from T as t, S as s;
 ```
@@ -634,7 +642,7 @@ select t.a as a, s.b as b from T as t, S as s;
 
 <div class="example">
 
-### Dot Envelope
+## Dot Envelope
 
 Select . over two sources keys each binding by its alias.
 
@@ -645,9 +653,9 @@ create table T;
 
 create table S;
 
-insert into S ({b: 10});
+insert into S ({"b": 10});
 
-insert into T ({a: 1});
+insert into T ({"a": 1});
 
 select . from T as t, S as s;
 ```
@@ -664,7 +672,7 @@ select . from T as t, S as s;
 
 <div class="example">
 
-### Both Bindings
+## Both Bindings
 
 A where predicate filters the product across both bindings.
 
@@ -675,9 +683,9 @@ create table T;
 
 create table S;
 
-insert into S ({b: 10}, {b: 20});
+insert into S ({"b": 10}, {"b": 20});
 
-insert into T ({a: 1}, {a: 2});
+insert into T ({"a": 1}, {"a": 2});
 
 select t.a as a, s.b as b from T as t, S as s where t.a = 1;
 ```
@@ -695,7 +703,7 @@ select t.a as a, s.b as b from T as t, S as s where t.a = 1;
 
 <div class="example">
 
-### An Empty
+## An Empty
 
 An empty inner source makes the whole product empty.
 
@@ -706,7 +714,7 @@ create table T;
 
 create table S;
 
-insert into T ({a: 1}, {a: 2});
+insert into T ({"a": 1}, {"a": 2});
 
 select * from T as t, S as s;
 ```
@@ -721,7 +729,7 @@ select * from T as t, S as s;
 
 <div class="example">
 
-### Referencing An
+## Referencing An
 
 Referencing an undeclared table is a static error.
 
@@ -739,7 +747,7 @@ Expected error: `static`
 
 <div class="example">
 
-### Referencing An
+## Referencing An
 
 Referencing an alias not in scope is a static error.
 
@@ -757,7 +765,7 @@ Expected error: `static`
 
 <div class="example">
 
-### Earlier Binding
+## Earlier Binding
 
 A later source may unnest a collection path on an earlier binding.
 
@@ -766,7 +774,7 @@ A later source may unnest a collection path on an earlier binding.
 ```sql
 create table T;
 
-insert into T ({items: [1, 2, 3]});
+insert into T ({"items": [1, 2, 3]});
 
 select t.items as items, item as item from T as t, t.items as item;
 ```
@@ -785,7 +793,7 @@ select t.items as items, item as item from T as t, t.items as item;
 
 <div class="example">
 
-### Star Scalar
+## Star Scalar
 
 Select * keeps a non-object (scalar) lateral binding under its alias.
 
@@ -794,7 +802,7 @@ Select * keeps a non-object (scalar) lateral binding under its alias.
 ```sql
 create table T;
 
-insert into T ({items: [1, 2, 3]});
+insert into T ({"items": [1, 2, 3]});
 
 select * from T as t, t.items as item;
 ```
@@ -813,7 +821,7 @@ select * from T as t, t.items as item;
 
 <div class="example">
 
-### The Unnested
+## The Unnested
 
 The unnested element binds under its alias in the envelope.
 
@@ -822,7 +830,7 @@ The unnested element binds under its alias in the envelope.
 ```sql
 create table T;
 
-insert into T ({items: [1, 2]});
+insert into T ({"items": [1, 2]});
 
 select . from T as t, t.items as item;
 ```
@@ -840,7 +848,7 @@ select . from T as t, t.items as item;
 
 <div class="example">
 
-### Unnest Flattens
+## Unnest Flattens
 
 Unnest flattens across every outer row in order.
 
@@ -849,7 +857,7 @@ Unnest flattens across every outer row in order.
 ```sql
 create table T;
 
-insert into T ({k: 1, items: [10, 11]}, {k: 2, items: [20]});
+insert into T ({"k": 1, "items": [10, 11]}, {"k": 2, "items": [20]});
 
 select t.k as k, item as v from T as t, t.items as item;
 ```
@@ -868,7 +876,7 @@ select t.k as k, item as v from T as t, t.items as item;
 
 <div class="example">
 
-### An Empty
+## An Empty
 
 An empty collection contributes no rows for that outer binding.
 
@@ -877,7 +885,7 @@ An empty collection contributes no rows for that outer binding.
 ```sql
 create table T;
 
-insert into T ({items: []});
+insert into T ({"items": []});
 
 select item as v from T as t, t.items as item;
 ```
@@ -892,7 +900,7 @@ select item as v from T as t, t.items as item;
 
 <div class="example">
 
-### Missing Path
+## Missing Path
 
 A missing path is treated as empty (inner-join-like).
 
@@ -901,7 +909,7 @@ A missing path is treated as empty (inner-join-like).
 ```sql
 create table T;
 
-insert into T ({x: 1});
+insert into T ({"x": 1});
 
 select item as v from T as t, t.items as item;
 ```
@@ -916,7 +924,7 @@ select item as v from T as t, t.items as item;
 
 <div class="example">
 
-### Non Array
+## Non Array
 
 A non-array source value contributes no rows.
 
@@ -925,7 +933,7 @@ A non-array source value contributes no rows.
 ```sql
 create table T;
 
-insert into T ({items: 5});
+insert into T ({"items": 5});
 
 select item as v from T as t, t.items as item;
 ```
@@ -940,7 +948,7 @@ select item as v from T as t, t.items as item;
 
 <div class="example">
 
-### An Array
+## An Array
 
 An array literal may serve as a From source, scanned element-wise.
 
@@ -966,7 +974,7 @@ select x from [1, 2, 3] as x;
 
 <div class="example">
 
-### Self Reference
+## Self Reference
 
 A lateral source may not reference its own alias.
 
@@ -984,7 +992,7 @@ Expected error: `static`
 
 <div class="example">
 
-### Requires Alias
+## Requires Alias
 
 A lateral collection source requires an alias.
 
@@ -1002,7 +1010,7 @@ Expected error: `static`
 
 <div class="example">
 
-### An Empty
+## An Empty
 
 An empty array literal source yields no rows.
 
@@ -1024,7 +1032,7 @@ select x from [] as x;
 
 <div class="example">
 
-### Its Alias
+## Its Alias
 
 Select . wraps each scanned element under its alias.
 
@@ -1049,7 +1057,7 @@ select . from [1, 2] as x;
 
 <div class="example">
 
-### Into Them
+## Into Them
 
 A value source iterates object elements and may path into them.
 
@@ -1058,7 +1066,7 @@ A value source iterates object elements and may path into them.
 ```sql
 create table T;
 
-select x.a as a from [{a: 1}, {a: 2}] as x;
+select x.a as a from [{"a": 1}, {"a": 2}] as x;
 ```
 
 <p class="example-label">Result</p>
@@ -1074,7 +1082,57 @@ select x.a as a from [{a: 1}, {a: 2}] as x;
 
 <div class="example">
 
-### Non Array
+## Literal Csv
+
+A file-path string literal desugars to read_csv.
+
+<p class="example-label">SQL</p>
+
+```sql
+create table T;
+
+select * from 'tests/fixtures/people.csv' order by people.name;
+```
+
+<p class="example-label">Result</p>
+
+```json
+[
+  { "name": "alice", "age": 30 },
+  { "name": "bob", "age": 25 }
+]
+```
+
+</div>
+
+<div class="example">
+
+## Read_csv In
+
+Read_csv in FROM with an explicit alias.
+
+<p class="example-label">SQL</p>
+
+```sql
+create table T;
+
+select r.name as name from read_csv('tests/fixtures/people.csv') as r order by r.name;
+```
+
+<p class="example-label">Result</p>
+
+```json
+[
+  { "name": "alice" },
+  { "name": "bob" }
+]
+```
+
+</div>
+
+<div class="example">
+
+## Non Array
 
 A non-array value source contributes no rows.
 
@@ -1096,7 +1154,7 @@ select x from 5 as x;
 
 <div class="example">
 
-### Table Row
+## Table Row
 
 A value source re-iterates for every outer table row.
 
@@ -1105,7 +1163,7 @@ A value source re-iterates for every outer table row.
 ```sql
 create table T;
 
-insert into T ({a: 1}, {a: 2});
+insert into T ({"a": 1}, {"a": 2});
 
 select . from T as t, [10, 20] as n;
 ```
@@ -1125,7 +1183,7 @@ select . from T as t, [10, 20] as n;
 
 <div class="example">
 
-### Unnest An
+## Unnest An
 
 Unnest an array of objects and path into each element.
 
@@ -1134,7 +1192,7 @@ Unnest an array of objects and path into each element.
 ```sql
 create table T;
 
-insert into T ({s: [{x: 1}, {x: 2}]}, {s: [{x: 3}]});
+insert into T ({"s": [{"x": 1}, {"x": 2}]}, {"s": [{"x": 3}]});
 
 select s.x as x from T as t, t.s as s;
 ```
@@ -1151,11 +1209,15 @@ select s.x as x from T as t, t.s as s;
 
 </div>
 
+<div class="example-section">
+
 ## Where
+
+</div>
 
 <div class="example">
 
-### Constant True
+## Constant True
 
 Constant true keeps all rows.
 
@@ -1164,7 +1226,7 @@ Constant true keeps all rows.
 ```sql
 create table T;
 
-insert into T ({x: 1}, {x: 2});
+insert into T ({"x": 1}, {"x": 2});
 
 select * from T where true;
 ```
@@ -1182,7 +1244,7 @@ select * from T where true;
 
 <div class="example">
 
-### Constant False
+## Constant False
 
 Constant false drops all rows.
 
@@ -1191,7 +1253,7 @@ Constant false drops all rows.
 ```sql
 create table T;
 
-insert into T ({x: 1});
+insert into T ({"x": 1});
 
 select * from T where false;
 ```
@@ -1206,7 +1268,7 @@ select * from T where false;
 
 <div class="example">
 
-### Null Predicate
+## Null Predicate
 
 Null predicate is not-true and drops all rows.
 
@@ -1215,7 +1277,7 @@ Null predicate is not-true and drops all rows.
 ```sql
 create table T;
 
-insert into T ({x: 1});
+insert into T ({"x": 1});
 
 select * from T where null;
 ```
@@ -1230,7 +1292,7 @@ select * from T where null;
 
 <div class="example">
 
-### Numeric Greater-than
+## Numeric Greater-than
 
 Numeric greater-than filters by oid insertion order.
 
@@ -1239,7 +1301,7 @@ Numeric greater-than filters by oid insertion order.
 ```sql
 create table T;
 
-insert into T ({x: 1}, {x: 2}, {x: 3});
+insert into T ({"x": 1}, {"x": 2}, {"x": 3});
 
 select * from T where T.x > 1;
 ```
@@ -1257,7 +1319,7 @@ select * from T where T.x > 1;
 
 <div class="example">
 
-### Numeric Equality
+## Numeric Equality
 
 Numeric equality matches a single row.
 
@@ -1266,7 +1328,7 @@ Numeric equality matches a single row.
 ```sql
 create table T;
 
-insert into T ({x: 1}, {x: 2}, {x: 3});
+insert into T ({"x": 1}, {"x": 2}, {"x": 3});
 
 select * from T where T.x = 2;
 ```
@@ -1283,7 +1345,7 @@ select * from T where T.x = 2;
 
 <div class="example">
 
-### Numeric Inequality
+## Numeric Inequality
 
 Numeric inequality excludes matching value.
 
@@ -1292,7 +1354,7 @@ Numeric inequality excludes matching value.
 ```sql
 create table T;
 
-insert into T ({x: 1}, {x: 2}, {x: 3});
+insert into T ({"x": 1}, {"x": 2}, {"x": 3});
 
 select * from T where T.x != 1;
 ```
@@ -1310,7 +1372,7 @@ select * from T where T.x != 1;
 
 <div class="example">
 
-### String Equality
+## String Equality
 
 String equality in where.
 
@@ -1321,7 +1383,7 @@ create table T;
 
 create table S;
 
-insert into S ({name: 'alice'}, {name: 'bob'});
+insert into S ({"name": 'alice'}, {"name": 'bob'});
 
 select * from S where S.name = 'bob';
 ```
@@ -1338,7 +1400,7 @@ select * from S where S.name = 'bob';
 
 <div class="example">
 
-### Boolean Equality
+## Boolean Equality
 
 Boolean equality in where.
 
@@ -1347,7 +1409,7 @@ Boolean equality in where.
 ```sql
 create table T;
 
-insert into T ({flag: true}, {flag: false});
+insert into T ({"flag": true}, {"flag": false});
 
 select * from T where T.flag = true;
 ```
@@ -1364,7 +1426,7 @@ select * from T where T.flag = true;
 
 <div class="example">
 
-### Predicate May
+## Predicate May
 
 Predicate may use an explicit from alias.
 
@@ -1373,7 +1435,7 @@ Predicate may use an explicit from alias.
 ```sql
 create table T;
 
-insert into T ({x: 0}, {x: 1});
+insert into T ({"x": 0}, {"x": 1});
 
 select * from T as t where t.x > 0;
 ```
@@ -1390,7 +1452,7 @@ select * from T as t where t.x > 0;
 
 <div class="example">
 
-### Null Member
+## Null Member
 
 Null member compares equal to null.
 
@@ -1399,7 +1461,7 @@ Null member compares equal to null.
 ```sql
 create table T;
 
-insert into T ({x: null});
+insert into T ({"x": null});
 
 select * from T where T.x = null;
 ```
@@ -1416,7 +1478,7 @@ select * from T where T.x = null;
 
 <div class="example">
 
-### Null Member
+## Null Member
 
 Null member fails inequality against non-null.
 
@@ -1425,7 +1487,7 @@ Null member fails inequality against non-null.
 ```sql
 create table T;
 
-insert into T ({x: null});
+insert into T ({"x": null});
 
 select * from T where T.x != 1;
 ```
@@ -1440,7 +1502,7 @@ select * from T where T.x != 1;
 
 <div class="example">
 
-### Absent Field
+## Absent Field
 
 Absent field reads as null and matches null.
 
@@ -1466,7 +1528,7 @@ select * from T where T.x = null;
 
 <div class="example">
 
-### Absent Field
+## Absent Field
 
 Absent field reads as null and fails ordering comparison.
 
@@ -1490,7 +1552,7 @@ select * from T where T.x > 0;
 
 <div class="example">
 
-### Only Rows
+## Only Rows
 
 Only rows with present matching field pass equality.
 
@@ -1499,7 +1561,7 @@ Only rows with present matching field pass equality.
 ```sql
 create table T;
 
-insert into T ({x: 1}, {});
+insert into T ({"x": 1}, {});
 
 select * from T where T.x = 1;
 ```
@@ -1516,7 +1578,7 @@ select * from T where T.x = 1;
 
 <div class="example">
 
-### Scalar Projection
+## Scalar Projection
 
 Scalar projection with where (moved from from-clause suite).
 
@@ -1525,7 +1587,7 @@ Scalar projection with where (moved from from-clause suite).
 ```sql
 create table T;
 
-insert into T ({x: 1}, {x: 2}, {x: 3});
+insert into T ({"x": 1}, {"x": 2}, {"x": 3});
 
 select T.x from T where T.x > 1;
 ```
@@ -1541,11 +1603,15 @@ select T.x from T where T.x > 1;
 
 </div>
 
+<div class="example-section">
+
 ## Order by
+
+</div>
 
 <div class="example">
 
-### Order By
+## Order By
 
 Order by sorts ascending by default.
 
@@ -1554,7 +1620,7 @@ Order by sorts ascending by default.
 ```sql
 create table T;
 
-insert into T ({x: 3}, {x: 1}, {x: 2});
+insert into T ({"x": 3}, {"x": 1}, {"x": 2});
 
 select t.x from T as t order by t.x;
 ```
@@ -1573,7 +1639,7 @@ select t.x from T as t order by t.x;
 
 <div class="example">
 
-### Explicit Asc
+## Explicit Asc
 
 Explicit asc matches the default.
 
@@ -1582,7 +1648,7 @@ Explicit asc matches the default.
 ```sql
 create table T;
 
-insert into T ({x: 3}, {x: 1}, {x: 2});
+insert into T ({"x": 3}, {"x": 1}, {"x": 2});
 
 select t.x from T as t order by t.x asc;
 ```
@@ -1601,7 +1667,7 @@ select t.x from T as t order by t.x asc;
 
 <div class="example">
 
-### Desc Sorts Descending
+## Desc Sorts Descending
 
 Desc sorts descending.
 
@@ -1610,7 +1676,7 @@ Desc sorts descending.
 ```sql
 create table T;
 
-insert into T ({x: 3}, {x: 1}, {x: 2});
+insert into T ({"x": 3}, {"x": 1}, {"x": 2});
 
 select t.x from T as t order by t.x desc;
 ```
@@ -1629,7 +1695,7 @@ select t.x from T as t order by t.x desc;
 
 <div class="example">
 
-### Order By
+## Order By
 
 Order by reorders whole rows under select *.
 
@@ -1638,7 +1704,7 @@ Order by reorders whole rows under select *.
 ```sql
 create table T;
 
-insert into T ({x: 3}, {x: 1}, {x: 2});
+insert into T ({"x": 3}, {"x": 1}, {"x": 2});
 
 select * from T as t order by t.x;
 ```
@@ -1657,7 +1723,7 @@ select * from T as t order by t.x;
 
 <div class="example">
 
-### Multiple Keys
+## Multiple Keys
 
 Multiple keys sort left-to-right with per-key direction.
 
@@ -1666,7 +1732,7 @@ Multiple keys sort left-to-right with per-key direction.
 ```sql
 create table T;
 
-insert into T ({a: 1, b: 2}, {a: 1, b: 1}, {a: 2, b: 5});
+insert into T ({"a": 1, "b": 2}, {"a": 1, "b": 1}, {"a": 2, "b": 5});
 
 select * from T as t order by t.a, t.b desc;
 ```
@@ -1685,7 +1751,7 @@ select * from T as t order by t.a, t.b desc;
 
 <div class="example">
 
-### Null Sorts
+## Null Sorts
 
 Null sorts after all values in ascending order.
 
@@ -1694,7 +1760,7 @@ Null sorts after all values in ascending order.
 ```sql
 create table T;
 
-insert into T ({x: 2}, {x: null}, {x: 1});
+insert into T ({"x": 2}, {"x": null}, {"x": 1});
 
 select t.x from T as t order by t.x;
 ```
@@ -1713,7 +1779,7 @@ select t.x from T as t order by t.x;
 
 <div class="example">
 
-### Null Sorts
+## Null Sorts
 
 Null sorts before all values in descending order.
 
@@ -1722,7 +1788,7 @@ Null sorts before all values in descending order.
 ```sql
 create table T;
 
-insert into T ({x: 2}, {x: null}, {x: 1});
+insert into T ({"x": 2}, {"x": null}, {"x": 1});
 
 select t.x from T as t order by t.x desc;
 ```
@@ -1741,7 +1807,7 @@ select t.x from T as t order by t.x desc;
 
 <div class="example">
 
-### Ints And
+## Ints And
 
 Ints and floats interleave by numeric value.
 
@@ -1750,7 +1816,7 @@ Ints and floats interleave by numeric value.
 ```sql
 create table T;
 
-insert into T ({x: 2}, {x: 1.5}, {x: 1});
+insert into T ({"x": 2}, {"x": 1.5}, {"x": 1});
 
 select t.x from T as t order by t.x;
 ```
@@ -1769,7 +1835,7 @@ select t.x from T as t order by t.x;
 
 <div class="example">
 
-### Strings Sort Lexicographically
+## Strings Sort Lexicographically
 
 Strings sort lexicographically.
 
@@ -1778,7 +1844,7 @@ Strings sort lexicographically.
 ```sql
 create table T;
 
-insert into T ({s: "banana"}, {s: "apple"}, {s: "cherry"});
+insert into T ({"s": "banana"}, {"s": "apple"}, {"s": "cherry"});
 
 select t.s from T as t order by t.s;
 ```
@@ -1797,7 +1863,7 @@ select t.s from T as t order by t.s;
 
 <div class="example">
 
-### Order By
+## Order By
 
 Order by then limit yields the top N.
 
@@ -1806,7 +1872,7 @@ Order by then limit yields the top N.
 ```sql
 create table T;
 
-insert into T ({x: 3}, {x: 1}, {x: 2}, {x: 5}, {x: 4});
+insert into T ({"x": 3}, {"x": 1}, {"x": 2}, {"x": 5}, {"x": 4});
 
 select t.x from T as t order by t.x desc limit 2;
 ```
@@ -1824,7 +1890,7 @@ select t.x from T as t order by t.x desc limit 2;
 
 <div class="example">
 
-### Order Sorts
+## Order Sorts
 
 Order sorts the post-where stream.
 
@@ -1833,7 +1899,7 @@ Order sorts the post-where stream.
 ```sql
 create table T;
 
-insert into T ({x: 3}, {x: 1}, {x: 2}, {x: 4});
+insert into T ({"x": 3}, {"x": 1}, {"x": 2}, {"x": 4});
 
 select t.x from T as t where t.x > 1 order by t.x;
 ```
@@ -1852,7 +1918,7 @@ select t.x from T as t where t.x > 1 order by t.x;
 
 <div class="example">
 
-### Order By
+## Order By
 
 Order by sorts the cross product of two sources.
 
@@ -1863,9 +1929,9 @@ create table T;
 
 create table S;
 
-insert into T ({x: 2}, {x: 1});
+insert into T ({"x": 2}, {"x": 1});
 
-insert into S ({y: 9});
+insert into S ({"y": 9});
 
 select * from T as t, S as s order by t.x;
 ```
@@ -1881,11 +1947,15 @@ select * from T as t, S as s order by t.x;
 
 </div>
 
+<div class="example-section">
+
 ## Limit
+
+</div>
 
 <div class="example">
 
-### Limit N
+## Limit N
 
 Limit N takes the first N rows in scan order.
 
@@ -1894,7 +1964,7 @@ Limit N takes the first N rows in scan order.
 ```sql
 create table T;
 
-insert into T ({x: 1}, {x: 2}, {x: 3}, {x: 4}, {x: 5});
+insert into T ({"x": 1}, {"x": 2}, {"x": 3}, {"x": 4}, {"x": 5});
 
 select * from T limit 2;
 ```
@@ -1912,7 +1982,7 @@ select * from T limit 2;
 
 <div class="example">
 
-### Limit 0
+## Limit 0
 
 Limit 0 emits no rows.
 
@@ -1921,7 +1991,7 @@ Limit 0 emits no rows.
 ```sql
 create table T;
 
-insert into T ({x: 1}, {x: 2});
+insert into T ({"x": 1}, {"x": 2});
 
 select * from T limit 0;
 ```
@@ -1936,7 +2006,7 @@ select * from T limit 0;
 
 <div class="example">
 
-### Limit Greater
+## Limit Greater
 
 Limit greater than the row count returns all rows.
 
@@ -1945,7 +2015,7 @@ Limit greater than the row count returns all rows.
 ```sql
 create table T;
 
-insert into T ({x: 1}, {x: 2});
+insert into T ({"x": 1}, {"x": 2});
 
 select * from T limit 10;
 ```
@@ -1963,7 +2033,7 @@ select * from T limit 10;
 
 <div class="example">
 
-### Limit N..
+## Limit N..
 
 Limit N.. skips the first N rows and keeps the rest.
 
@@ -1972,7 +2042,7 @@ Limit N.. skips the first N rows and keeps the rest.
 ```sql
 create table T;
 
-insert into T ({x: 1}, {x: 2}, {x: 3}, {x: 4}, {x: 5});
+insert into T ({"x": 1}, {"x": 2}, {"x": 3}, {"x": 4}, {"x": 5});
 
 select * from T limit 2..;
 ```
@@ -1991,7 +2061,7 @@ select * from T limit 2..;
 
 <div class="example">
 
-### Skipping Past
+## Skipping Past
 
 Skipping past the end yields no rows.
 
@@ -2000,7 +2070,7 @@ Skipping past the end yields no rows.
 ```sql
 create table T;
 
-insert into T ({x: 1}, {x: 2}, {x: 3});
+insert into T ({"x": 1}, {"x": 2}, {"x": 3});
 
 select * from T limit 5..;
 ```
@@ -2015,7 +2085,7 @@ select * from T limit 5..;
 
 <div class="example">
 
-### Limit 0..
+## Limit 0..
 
 Limit 0.. skips nothing and returns all rows.
 
@@ -2024,7 +2094,7 @@ Limit 0.. skips nothing and returns all rows.
 ```sql
 create table T;
 
-insert into T ({x: 1}, {x: 2}, {x: 3});
+insert into T ({"x": 1}, {"x": 2}, {"x": 3});
 
 select * from T limit 0..;
 ```
@@ -2043,7 +2113,7 @@ select * from T limit 0..;
 
 <div class="example">
 
-### Limit N..M
+## Limit N..M
 
 Limit N..M is half-open over indices [N, M).
 
@@ -2052,7 +2122,7 @@ Limit N..M is half-open over indices [N, M).
 ```sql
 create table T;
 
-insert into T ({x: 1}, {x: 2}, {x: 3}, {x: 4}, {x: 5});
+insert into T ({"x": 1}, {"x": 2}, {"x": 3}, {"x": 4}, {"x": 5});
 
 select * from T limit 1..3;
 ```
@@ -2070,7 +2140,7 @@ select * from T limit 1..3;
 
 <div class="example">
 
-### Limit Slice Empty
+## Limit Slice Empty
 
 A slice with M == N emits nothing.
 
@@ -2079,7 +2149,7 @@ A slice with M == N emits nothing.
 ```sql
 create table T;
 
-insert into T ({x: 1}, {x: 2}, {x: 3}, {x: 4}, {x: 5});
+insert into T ({"x": 1}, {"x": 2}, {"x": 3}, {"x": 4}, {"x": 5});
 
 select * from T limit 3..3;
 ```
@@ -2094,7 +2164,7 @@ select * from T limit 3..3;
 
 <div class="example">
 
-### Last Row
+## Last Row
 
 A slice whose end runs past the data takes through the last row.
 
@@ -2103,7 +2173,7 @@ A slice whose end runs past the data takes through the last row.
 ```sql
 create table T;
 
-insert into T ({x: 1}, {x: 2}, {x: 3}, {x: 4});
+insert into T ({"x": 1}, {"x": 2}, {"x": 3}, {"x": 4});
 
 select * from T limit 1..10;
 ```
@@ -2122,7 +2192,7 @@ select * from T limit 1..10;
 
 <div class="example">
 
-### Limit Slices
+## Limit Slices
 
 Limit slices the post-where stream, not the raw scan.
 
@@ -2131,7 +2201,7 @@ Limit slices the post-where stream, not the raw scan.
 ```sql
 create table T;
 
-insert into T ({x: 1}, {x: 2}, {x: 3}, {x: 4});
+insert into T ({"x": 1}, {"x": 2}, {"x": 3}, {"x": 4});
 
 select * from T where T.x > 1 limit 2;
 ```
@@ -2149,7 +2219,7 @@ select * from T where T.x > 1 limit 2;
 
 <div class="example">
 
-### Limit Applies
+## Limit Applies
 
 Limit applies to a scalar projection.
 
@@ -2158,7 +2228,7 @@ Limit applies to a scalar projection.
 ```sql
 create table T;
 
-insert into T ({x: 1}, {x: 2}, {x: 3});
+insert into T ({"x": 1}, {"x": 2}, {"x": 3});
 
 select T.x from T limit 2;
 ```
@@ -2174,11 +2244,15 @@ select T.x from T limit 2;
 
 </div>
 
+<div class="example-section">
+
 ## Aggregate
+
+</div>
 
 <div class="example">
 
-### Count(*) Counts
+## Count(*) Counts
 
 Count(*) counts every row.
 
@@ -2187,7 +2261,7 @@ Count(*) counts every row.
 ```sql
 create table T;
 
-insert into T ({x: 1}, {x: 2}, {x: 3});
+insert into T ({"x": 1}, {"x": 2}, {"x": 3});
 
 select count(*) from T as t;
 ```
@@ -2204,7 +2278,7 @@ select count(*) from T as t;
 
 <div class="example">
 
-### Count(expr) Counts
+## Count(expr) Counts
 
 Count(expr) counts only rows where expr is non-null.
 
@@ -2213,7 +2287,7 @@ Count(expr) counts only rows where expr is non-null.
 ```sql
 create table T;
 
-insert into T ({x: 1}, {x: 2}, {x: null});
+insert into T ({"x": 1}, {"x": 2}, {"x": null});
 
 select count(t.x) from T as t;
 ```
@@ -2230,7 +2304,7 @@ select count(t.x) from T as t;
 
 <div class="example">
 
-### Count(*) Includes
+## Count(*) Includes
 
 Count(*) includes rows with a null column, unlike count(expr).
 
@@ -2239,7 +2313,7 @@ Count(*) includes rows with a null column, unlike count(expr).
 ```sql
 create table T;
 
-insert into T ({x: 1}, {x: null});
+insert into T ({"x": 1}, {"x": null});
 
 select count(*) from T as t;
 ```
@@ -2256,7 +2330,7 @@ select count(*) from T as t;
 
 <div class="example">
 
-### Sum Of Integers
+## Sum Of Integers
 
 Sum of integers.
 
@@ -2265,7 +2339,7 @@ Sum of integers.
 ```sql
 create table T;
 
-insert into T ({x: 1}, {x: 2}, {x: 3});
+insert into T ({"x": 1}, {"x": 2}, {"x": 3});
 
 select sum(t.x) from T as t;
 ```
@@ -2282,7 +2356,7 @@ select sum(t.x) from T as t;
 
 <div class="example">
 
-### Sum Of
+## Sum Of
 
 Sum of floats (and mixed int/float) is a float.
 
@@ -2291,7 +2365,7 @@ Sum of floats (and mixed int/float) is a float.
 ```sql
 create table T;
 
-insert into T ({x: 1.5}, {x: 2}, {x: 0.25});
+insert into T ({"x": 1.5}, {"x": 2}, {"x": 0.25});
 
 select sum(t.x) from T as t;
 ```
@@ -2308,7 +2382,7 @@ select sum(t.x) from T as t;
 
 <div class="example">
 
-### Sum Skips
+## Sum Skips
 
 Sum skips null inputs.
 
@@ -2317,7 +2391,7 @@ Sum skips null inputs.
 ```sql
 create table T;
 
-insert into T ({x: 10}, {x: null}, {x: 5});
+insert into T ({"x": 10}, {"x": null}, {"x": 5});
 
 select sum(t.x) from T as t;
 ```
@@ -2334,7 +2408,7 @@ select sum(t.x) from T as t;
 
 <div class="example">
 
-### An Integer
+## An Integer
 
 An integer sum that overflows i64 promotes to a float (sqlite-faithful).
 
@@ -2343,7 +2417,7 @@ An integer sum that overflows i64 promotes to a float (sqlite-faithful).
 ```sql
 create table T;
 
-insert into T ({x: 9223372036854775807}, {x: 9223372036854775807});
+insert into T ({"x": 9223372036854775807}, {"x": 9223372036854775807});
 
 select sum(t.x) from T as t;
 ```
@@ -2360,7 +2434,7 @@ select sum(t.x) from T as t;
 
 <div class="example">
 
-### Overflow Errors
+## Overflow Errors
 
 A float sum that overflows to non-finite is a runtime error, not a silent null.
 
@@ -2369,7 +2443,7 @@ A float sum that overflows to non-finite is a runtime error, not a silent null.
 ```sql
 create table T;
 
-insert into T ({x: 1e308}, {x: 1e308});
+insert into T ({"x": 1e308}, {"x": 1e308});
 
 select sum(t.x) from T as t;
 ```
@@ -2380,7 +2454,7 @@ Expected error: `runtime`
 
 <div class="example">
 
-### Min Of Integers
+## Min Of Integers
 
 Min of integers.
 
@@ -2389,7 +2463,7 @@ Min of integers.
 ```sql
 create table T;
 
-insert into T ({x: 3}, {x: 1}, {x: 2});
+insert into T ({"x": 3}, {"x": 1}, {"x": 2});
 
 select min(t.x) from T as t;
 ```
@@ -2406,7 +2480,7 @@ select min(t.x) from T as t;
 
 <div class="example">
 
-### Max Of Integers
+## Max Of Integers
 
 Max of integers.
 
@@ -2415,7 +2489,7 @@ Max of integers.
 ```sql
 create table T;
 
-insert into T ({x: 3}, {x: 1}, {x: 2});
+insert into T ({"x": 3}, {"x": 1}, {"x": 2});
 
 select max(t.x) from T as t;
 ```
@@ -2432,7 +2506,7 @@ select max(t.x) from T as t;
 
 <div class="example">
 
-### Min Of
+## Min Of
 
 Min of strings is lexicographic.
 
@@ -2441,7 +2515,7 @@ Min of strings is lexicographic.
 ```sql
 create table T;
 
-insert into T ({s: "banana"}, {s: "apple"}, {s: "cherry"});
+insert into T ({"s": "banana"}, {"s": "apple"}, {"s": "cherry"});
 
 select min(t.s) from T as t;
 ```
@@ -2458,7 +2532,7 @@ select min(t.s) from T as t;
 
 <div class="example">
 
-### Max Of
+## Max Of
 
 Max of strings is lexicographic.
 
@@ -2467,7 +2541,7 @@ Max of strings is lexicographic.
 ```sql
 create table T;
 
-insert into T ({s: "banana"}, {s: "apple"}, {s: "cherry"});
+insert into T ({"s": "banana"}, {"s": "apple"}, {"s": "cherry"});
 
 select max(t.s) from T as t;
 ```
@@ -2484,7 +2558,7 @@ select max(t.s) from T as t;
 
 <div class="example">
 
-### Min/max Skip
+## Min/max Skip
 
 Min/max skip null inputs.
 
@@ -2493,7 +2567,7 @@ Min/max skip null inputs.
 ```sql
 create table T;
 
-insert into T ({x: 2}, {x: null}, {x: 5});
+insert into T ({"x": 2}, {"x": null}, {"x": 5});
 
 select min(t.x) from T as t;
 ```
@@ -2510,7 +2584,7 @@ select min(t.x) from T as t;
 
 <div class="example">
 
-### Avg Returns
+## Avg Returns
 
 Avg returns a float mean.
 
@@ -2519,7 +2593,7 @@ Avg returns a float mean.
 ```sql
 create table T;
 
-insert into T ({x: 1}, {x: 2});
+insert into T ({"x": 1}, {"x": 2});
 
 select avg(t.x) from T as t;
 ```
@@ -2536,7 +2610,7 @@ select avg(t.x) from T as t;
 
 <div class="example">
 
-### Avg Divides
+## Avg Divides
 
 Avg divides the sum by the non-null count only.
 
@@ -2545,7 +2619,7 @@ Avg divides the sum by the non-null count only.
 ```sql
 create table T;
 
-insert into T ({x: 2}, {x: null}, {x: 4});
+insert into T ({"x": 2}, {"x": null}, {"x": 4});
 
 select avg(t.x) from T as t;
 ```
@@ -2562,7 +2636,7 @@ select avg(t.x) from T as t;
 
 <div class="example">
 
-### Count(*) Over
+## Count(*) Over
 
 Count(*) over an empty table is 0 (one row).
 
@@ -2586,7 +2660,7 @@ select count(*) from T as t;
 
 <div class="example">
 
-### Sum Over
+## Sum Over
 
 Sum over an empty table is null (one row).
 
@@ -2610,7 +2684,7 @@ select sum(t.x) from T as t;
 
 <div class="example">
 
-### Min Over
+## Min Over
 
 Min over an empty table is null (one row).
 
@@ -2634,7 +2708,7 @@ select min(t.x) from T as t;
 
 <div class="example">
 
-### Max Over
+## Max Over
 
 Max over an empty table is null (one row).
 
@@ -2658,7 +2732,7 @@ select max(t.x) from T as t;
 
 <div class="example">
 
-### Avg Over
+## Avg Over
 
 Avg over an empty table is null (one row).
 
@@ -2682,7 +2756,7 @@ select avg(t.x) from T as t;
 
 <div class="example">
 
-### Aggregates Over
+## Aggregates Over
 
 Aggregates over an all-null column — count(expr) 0, others null.
 
@@ -2691,7 +2765,7 @@ Aggregates over an all-null column — count(expr) 0, others null.
 ```sql
 create table T;
 
-insert into T ({x: null}, {x: null});
+insert into T ({"x": null}, {"x": null});
 
 select count(t.x) from T as t;
 ```
@@ -2709,7 +2783,7 @@ select count(t.x) from T as t;
 ```sql
 create table T;
 
-insert into T ({x: null}, {x: null});
+insert into T ({"x": null}, {"x": null});
 
 select count(t.x) from T as t;
 
@@ -2729,7 +2803,7 @@ select sum(t.x) from T as t;
 ```sql
 create table T;
 
-insert into T ({x: null}, {x: null});
+insert into T ({"x": null}, {"x": null});
 
 select count(t.x) from T as t;
 
@@ -2751,7 +2825,7 @@ select max(t.x) from T as t;
 ```sql
 create table T;
 
-insert into T ({x: null}, {x: null});
+insert into T ({"x": null}, {"x": null});
 
 select count(t.x) from T as t;
 
@@ -2774,7 +2848,7 @@ select avg(t.x) from T as t;
 
 <div class="example">
 
-### Aggregation Runs
+## Aggregation Runs
 
 Aggregation runs over the post-where stream.
 
@@ -2783,7 +2857,7 @@ Aggregation runs over the post-where stream.
 ```sql
 create table T;
 
-insert into T ({x: 1}, {x: 2}, {x: 3});
+insert into T ({"x": 1}, {"x": 2}, {"x": 3});
 
 select count(*) from T as t where t.x > 1;
 ```
@@ -2800,7 +2874,7 @@ select count(*) from T as t where t.x > 1;
 
 <div class="example">
 
-### Several Aggregates
+## Several Aggregates
 
 Several aggregates project into one object row.
 
@@ -2809,9 +2883,9 @@ Several aggregates project into one object row.
 ```sql
 create table T;
 
-insert into T ({x: 1}, {x: 2}, {x: 3});
+insert into T ({"x": 1}, {"x": 2}, {"x": 3});
 
-select { c: count(*), s: sum(t.x), m: max(t.x) } from T as t;
+select { "c": count(*), "s": sum(t.x), "m": max(t.x) } from T as t;
 ```
 
 <p class="example-label">Result</p>
@@ -2826,7 +2900,7 @@ select { c: count(*), s: sum(t.x), m: max(t.x) } from T as t;
 
 <div class="example">
 
-### Arithmetic Over
+## Arithmetic Over
 
 Arithmetic over an aggregate is allowed (the agg is folded, then combined).
 
@@ -2835,7 +2909,7 @@ Arithmetic over an aggregate is allowed (the agg is folded, then combined).
 ```sql
 create table T;
 
-insert into T ({x: 1}, {x: 2}, {x: 3});
+insert into T ({"x": 1}, {"x": 2}, {"x": 3});
 
 select sum(t.x) + 1 from T as t;
 ```
@@ -2852,7 +2926,7 @@ select sum(t.x) + 1 from T as t;
 
 <div class="example">
 
-### Limit Applies
+## Limit Applies
 
 Limit applies to the single aggregate row.
 
@@ -2861,7 +2935,7 @@ Limit applies to the single aggregate row.
 ```sql
 create table T;
 
-insert into T ({x: 1}, {x: 2});
+insert into T ({"x": 1}, {"x": 2});
 
 select count(*) from T as t limit 0;
 ```
@@ -2876,7 +2950,7 @@ select count(*) from T as t limit 0;
 
 <div class="example">
 
-### An Aggregate
+## An Aggregate
 
 An aggregate in WHERE is a static (bind) error.
 
@@ -2894,7 +2968,7 @@ Expected error: `static`
 
 <div class="example">
 
-### An Aggregate
+## An Aggregate
 
 An aggregate nested inside another is a static (bind) error.
 
@@ -2912,7 +2986,7 @@ Expected error: `static`
 
 <div class="example">
 
-### Only Count
+## Only Count
 
 Only count accepts the star form; sum(*) is a static error.
 
@@ -2930,7 +3004,7 @@ Expected error: `static`
 
 <div class="example">
 
-### Column Rejected
+## Column Rejected
 
 A bare column reference alongside an aggregate is unsupported (no GROUP BY).
 
@@ -2939,7 +3013,7 @@ A bare column reference alongside an aggregate is unsupported (no GROUP BY).
 ```sql
 create table T;
 
-select { c: count(*), x: t.x } from T as t;
+select { "c": count(*), "x": t.x } from T as t;
 ```
 
 Expected error: `static`
@@ -2948,7 +3022,7 @@ Expected error: `static`
 
 <div class="example">
 
-### Min Over
+## Min Over
 
 Min over incomparable types (int vs string) is a runtime error.
 
@@ -2957,7 +3031,7 @@ Min over incomparable types (int vs string) is a runtime error.
 ```sql
 create table T;
 
-insert into T ({v: 1}, {v: "a"});
+insert into T ({"v": 1}, {"v": "a"});
 
 select min(t.v) from T as t;
 ```
@@ -2966,11 +3040,15 @@ Expected error: `runtime`
 
 </div>
 
+<div class="example-section">
+
 ## group
+
+</div>
 
 <div class="example">
 
-### Count(*) Per
+## Count(*) Per
 
 Count(*) per group, one row per distinct key in key order.
 
@@ -2979,9 +3057,9 @@ Count(*) per group, one row per distinct key in key order.
 ```sql
 create table T;
 
-insert into T ({g: "a"}, {g: "b"}, {g: "a"}, {g: "a"}, {g: "b"});
+insert into T ({"g": "a"}, {"g": "b"}, {"g": "a"}, {"g": "a"}, {"g": "b"});
 
-select { g: t.g, n: count(*) } from T as t group by t.g;
+select { "g": t.g, "n": count(*) } from T as t group by t.g;
 ```
 
 <p class="example-label">Result</p>
@@ -2997,7 +3075,7 @@ select { g: t.g, n: count(*) } from T as t group by t.g;
 
 <div class="example">
 
-### The Expr
+## The Expr
 
 The `expr as name` list projection form works under grouping.
 
@@ -3006,7 +3084,7 @@ The `expr as name` list projection form works under grouping.
 ```sql
 create table T;
 
-insert into T ({g: "a"}, {g: "b"}, {g: "a"});
+insert into T ({"g": "a"}, {"g": "b"}, {"g": "a"});
 
 select t.g as g, count(*) as n from T as t group by t.g;
 ```
@@ -3024,7 +3102,7 @@ select t.g as g, count(*) as n from T as t group by t.g;
 
 <div class="example">
 
-### Integer Group
+## Integer Group
 
 Integer group keys come out in ascending key order.
 
@@ -3033,9 +3111,9 @@ Integer group keys come out in ascending key order.
 ```sql
 create table T;
 
-insert into T ({k: 3}, {k: 1}, {k: 2}, {k: 1}, {k: 3});
+insert into T ({"k": 3}, {"k": 1}, {"k": 2}, {"k": 1}, {"k": 3});
 
-select { k: t.k, n: count(*) } from T as t group by t.k;
+select { "k": t.k, "n": count(*) } from T as t group by t.k;
 ```
 
 <p class="example-label">Result</p>
@@ -3052,7 +3130,7 @@ select { k: t.k, n: count(*) } from T as t group by t.k;
 
 <div class="example">
 
-### Every Aggregate
+## Every Aggregate
 
 Every aggregate folds independently within each group.
 
@@ -3061,9 +3139,9 @@ Every aggregate folds independently within each group.
 ```sql
 create table T;
 
-insert into T ({g: "a", v: 10}, {g: "a", v: 20}, {g: "b", v: 5});
+insert into T ({"g": "a", "v": 10}, {"g": "a", "v": 20}, {"g": "b", "v": 5});
 
-select { g: t.g, s: sum(t.v), a: avg(t.v), mn: min(t.v), mx: max(t.v) } from T as t group by t.g;
+select { "g": t.g, "s": sum(t.v), "a": avg(t.v), "mn": min(t.v), "mx": max(t.v) } from T as t group by t.g;
 ```
 
 <p class="example-label">Result</p>
@@ -3079,7 +3157,7 @@ select { g: t.g, s: sum(t.v), a: avg(t.v), mn: min(t.v), mx: max(t.v) } from T a
 
 <div class="example">
 
-### Count(expr) Skips
+## Count(expr) Skips
 
 Count(expr) skips nulls inside each group.
 
@@ -3088,9 +3166,9 @@ Count(expr) skips nulls inside each group.
 ```sql
 create table T;
 
-insert into T ({g: "a", v: 1}, {g: "a", v: null}, {g: "b", v: 2});
+insert into T ({"g": "a", "v": 1}, {"g": "a", "v": null}, {"g": "b", "v": 2});
 
-select { g: t.g, n: count(t.v) } from T as t group by t.g;
+select { "g": t.g, "n": count(t.v) } from T as t group by t.g;
 ```
 
 <p class="example-label">Result</p>
@@ -3106,7 +3184,7 @@ select { g: t.g, n: count(t.v) } from T as t group by t.g;
 
 <div class="example">
 
-### Grouping On
+## Grouping On
 
 Grouping on two keys orders by the first then the second.
 
@@ -3115,9 +3193,9 @@ Grouping on two keys orders by the first then the second.
 ```sql
 create table T;
 
-insert into T ({a: 1, b: 1}, {a: 1, b: 2}, {a: 1, b: 1}, {a: 2, b: 1});
+insert into T ({"a": 1, "b": 1}, {"a": 1, "b": 2}, {"a": 1, "b": 1}, {"a": 2, "b": 1});
 
-select { a: t.a, b: t.b, n: count(*) } from T as t group by t.a, t.b;
+select { "a": t.a, "b": t.b, "n": count(*) } from T as t group by t.a, t.b;
 ```
 
 <p class="example-label">Result</p>
@@ -3134,7 +3212,7 @@ select { a: t.a, b: t.b, n: count(*) } from T as t group by t.a, t.b;
 
 <div class="example">
 
-### An Arbitrary
+## An Arbitrary
 
 An arbitrary key expression groups, and the same expression projects it.
 
@@ -3143,9 +3221,9 @@ An arbitrary key expression groups, and the same expression projects it.
 ```sql
 create table T;
 
-insert into T ({x: 1, y: 1}, {x: 2, y: 0}, {x: 0, y: 3});
+insert into T ({"x": 1, "y": 1}, {"x": 2, "y": 0}, {"x": 0, "y": 3});
 
-select { s: t.x + t.y, n: count(*) } from T as t group by t.x + t.y;
+select { "s": t.x + t.y, "n": count(*) } from T as t group by t.x + t.y;
 ```
 
 <p class="example-label">Result</p>
@@ -3161,7 +3239,7 @@ select { s: t.x + t.y, n: count(*) } from T as t group by t.x + t.y;
 
 <div class="example">
 
-### Grouping With
+## Grouping With
 
 Grouping with no aggregate behaves like DISTINCT over the key.
 
@@ -3170,7 +3248,7 @@ Grouping with no aggregate behaves like DISTINCT over the key.
 ```sql
 create table T;
 
-insert into T ({c: "x"}, {c: "y"}, {c: "x"}, {c: "x"});
+insert into T ({"c": "x"}, {"c": "y"}, {"c": "x"}, {"c": "x"});
 
 select t.c from T as t group by t.c;
 ```
@@ -3188,7 +3266,7 @@ select t.c from T as t group by t.c;
 
 <div class="example">
 
-### Rows Whose
+## Rows Whose
 
 Rows whose key is null form a single group, sorted last.
 
@@ -3197,9 +3275,9 @@ Rows whose key is null form a single group, sorted last.
 ```sql
 create table T;
 
-insert into T ({g: "a", v: 1}, {g: "a", v: 2}, {v: 3});
+insert into T ({"g": "a", "v": 1}, {"g": "a", "v": 2}, {"v": 3});
 
-select { g: t.g, n: count(*) } from T as t group by t.g;
+select { "g": t.g, "n": count(*) } from T as t group by t.g;
 ```
 
 <p class="example-label">Result</p>
@@ -3215,7 +3293,7 @@ select { g: t.g, n: count(*) } from T as t group by t.g;
 
 <div class="example">
 
-### An Empty
+## An Empty
 
 An empty input yields zero groups (contrast ungrouped count -> one row).
 
@@ -3224,7 +3302,7 @@ An empty input yields zero groups (contrast ungrouped count -> one row).
 ```sql
 create table T;
 
-select { g: t.g, n: count(*) } from T as t group by t.g;
+select { "g": t.g, "n": count(*) } from T as t group by t.g;
 ```
 
 <p class="example-label">Result</p>
@@ -3237,7 +3315,7 @@ select { g: t.g, n: count(*) } from T as t group by t.g;
 
 <div class="example">
 
-### WHERE Filters
+## WHERE Filters
 
 WHERE filters rows before they are grouped.
 
@@ -3246,9 +3324,9 @@ WHERE filters rows before they are grouped.
 ```sql
 create table T;
 
-insert into T ({g: "a", v: 1}, {g: "a", v: 5}, {g: "b", v: 2});
+insert into T ({"g": "a", "v": 1}, {"g": "a", "v": 5}, {"g": "b", "v": 2});
 
-select { g: t.g, n: count(*) } from T as t where t.v > 1 group by t.g;
+select { "g": t.g, "n": count(*) } from T as t where t.v > 1 group by t.g;
 ```
 
 <p class="example-label">Result</p>
@@ -3264,7 +3342,7 @@ select { g: t.g, n: count(*) } from T as t where t.v > 1 group by t.g;
 
 <div class="example">
 
-### HAVING Filters
+## HAVING Filters
 
 HAVING filters whole groups by an aggregate predicate.
 
@@ -3273,9 +3351,9 @@ HAVING filters whole groups by an aggregate predicate.
 ```sql
 create table T;
 
-insert into T ({g: "a"}, {g: "a"}, {g: "b"});
+insert into T ({"g": "a"}, {"g": "a"}, {"g": "b"});
 
-select { g: t.g, n: count(*) } from T as t group by t.g having count(*) > 1;
+select { "g": t.g, "n": count(*) } from T as t group by t.g having count(*) > 1;
 ```
 
 <p class="example-label">Result</p>
@@ -3290,7 +3368,7 @@ select { g: t.g, n: count(*) } from T as t group by t.g having count(*) > 1;
 
 <div class="example">
 
-### HAVING May
+## HAVING May
 
 HAVING may reference a group key (read as the group's value).
 
@@ -3299,7 +3377,7 @@ HAVING may reference a group key (read as the group's value).
 ```sql
 create table T;
 
-insert into T ({g: "a"}, {g: "b"});
+insert into T ({"g": "a"}, {"g": "b"});
 
 select t.g from T as t group by t.g having t.g = "b";
 ```
@@ -3316,7 +3394,7 @@ select t.g from T as t group by t.g having t.g = "b";
 
 <div class="example">
 
-### LIMIT Takes
+## LIMIT Takes
 
 LIMIT takes the first N groups in key order.
 
@@ -3325,7 +3403,7 @@ LIMIT takes the first N groups in key order.
 ```sql
 create table T;
 
-insert into T ({g: "a"}, {g: "b"}, {g: "c"});
+insert into T ({"g": "a"}, {"g": "b"}, {"g": "c"});
 
 select t.g from T as t group by t.g limit 2;
 ```
@@ -3343,7 +3421,7 @@ select t.g from T as t group by t.g limit 2;
 
 <div class="example">
 
-### LIMIT N..M
+## LIMIT N..M
 
 LIMIT N..M skips then takes over the grouped stream.
 
@@ -3352,7 +3430,7 @@ LIMIT N..M skips then takes over the grouped stream.
 ```sql
 create table T;
 
-insert into T ({g: "a"}, {g: "b"}, {g: "c"});
+insert into T ({"g": "a"}, {"g": "b"}, {"g": "c"});
 
 select t.g from T as t group by t.g limit 1..3;
 ```
@@ -3370,7 +3448,7 @@ select t.g from T as t group by t.g limit 1..3;
 
 <div class="example">
 
-### LIMIT Counts
+## LIMIT Counts
 
 LIMIT counts only groups that survived HAVING.
 
@@ -3379,9 +3457,9 @@ LIMIT counts only groups that survived HAVING.
 ```sql
 create table T;
 
-insert into T ({g: "a"}, {g: "a"}, {g: "b"}, {g: "c"}, {g: "c"});
+insert into T ({"g": "a"}, {"g": "a"}, {"g": "b"}, {"g": "c"}, {"g": "c"});
 
-select { g: t.g, n: count(*) } from T as t group by t.g having count(*) > 1 limit 1;
+select { "g": t.g, "n": count(*) } from T as t group by t.g having count(*) > 1 limit 1;
 ```
 
 <p class="example-label">Result</p>
@@ -3396,7 +3474,7 @@ select { g: t.g, n: count(*) } from T as t group by t.g having count(*) > 1 limi
 
 <div class="example">
 
-### Projection Rejected
+## Projection Rejected
 
 A projected column that is neither grouped nor aggregated is a static error.
 
@@ -3405,7 +3483,7 @@ A projected column that is neither grouped nor aggregated is a static error.
 ```sql
 create table T;
 
-select { g: t.g, v: t.v } from T as t group by t.g;
+select { "g": t.g, "v": t.v } from T as t group by t.g;
 ```
 
 Expected error: `static`
@@ -3414,7 +3492,7 @@ Expected error: `static`
 
 <div class="example">
 
-### Group Rejected
+## Group Rejected
 
 Select * has no defined columns under grouping — static error.
 
@@ -3432,7 +3510,7 @@ Expected error: `static`
 
 <div class="example">
 
-### Group Rejected
+## Group Rejected
 
 Select . (the binding tuple) is undefined under grouping — static error.
 
@@ -3450,7 +3528,7 @@ Expected error: `static`
 
 <div class="example">
 
-### An Aggregate
+## An Aggregate
 
 An aggregate in a GROUP BY key is a static error.
 
@@ -3468,7 +3546,7 @@ Expected error: `static`
 
 <div class="example">
 
-### ORDER BY
+## ORDER BY
 
 ORDER BY over a grouped query is not supported yet — static error.
 
@@ -3486,7 +3564,7 @@ Expected error: `static`
 
 <div class="example">
 
-### Having Rejected
+## Having Rejected
 
 A bare non-grouped column in HAVING is a static error.
 
@@ -3502,11 +3580,15 @@ Expected error: `static`
 
 </div>
 
+<div class="example-section">
+
 ## subquery
+
+</div>
 
 <div class="example">
 
-### Scalar Uncorrelated Count
+## Scalar Uncorrelated Count
 
 A scalar subquery in projection with no outer from.
 
@@ -3517,7 +3599,7 @@ create table T;
 
 create table S;
 
-insert into T ({x: 1}, {x: 2}, {x: 3});
+insert into T ({"x": 1}, {"x": 2}, {"x": 3});
 
 select (select count(*) from T as t);
 ```
@@ -3534,7 +3616,7 @@ select (select count(*) from T as t);
 
 <div class="example">
 
-### Scalar Aliased Member
+## Scalar Aliased Member
 
 A scalar subquery aliased into a projection member.
 
@@ -3545,7 +3627,7 @@ create table T;
 
 create table S;
 
-insert into T ({x: 1}, {x: 2}, {x: 3});
+insert into T ({"x": 1}, {"x": 2}, {"x": 3});
 
 select (select count(*) from T as t) as n;
 ```
@@ -3562,7 +3644,7 @@ select (select count(*) from T as t) as n;
 
 <div class="example">
 
-### Is null
+## Is null
 
 A scalar subquery over an empty bag coerces to null.
 
@@ -3588,7 +3670,7 @@ select (select t.x from T as t);
 
 <div class="example">
 
-### An Aggregate
+## An Aggregate
 
 An aggregate scalar subquery over an empty table is null.
 
@@ -3614,7 +3696,7 @@ select (select max(t.x) from T as t);
 
 <div class="example">
 
-### Many Rows
+## Many Rows
 
 A scalar subquery returning more than one row is a runtime error.
 
@@ -3625,7 +3707,7 @@ create table T;
 
 create table S;
 
-insert into T ({x: 1}, {x: 2});
+insert into T ({"x": 1}, {"x": 2});
 
 select (select t.x from T as t);
 ```
@@ -3636,7 +3718,7 @@ Expected error: `runtime`
 
 <div class="example">
 
-### Scalar In Where
+## Scalar In Where
 
 A scalar subquery as a where comparand.
 
@@ -3647,9 +3729,9 @@ create table T;
 
 create table S;
 
-insert into T ({x: 1}, {x: 2}, {x: 3});
+insert into T ({"x": 1}, {"x": 2}, {"x": 3});
 
-insert into S ({v: 2}, {v: 3});
+insert into S ({"v": 2}, {"v": 3});
 
 select t.x from T as t where t.x = (select max(s.v) from S as s);
 ```
@@ -3666,7 +3748,7 @@ select t.x from T as t where t.x = (select max(s.v) from S as s);
 
 <div class="example">
 
-### Scalar Correlated
+## Scalar Correlated
 
 A correlated scalar subquery re-runs per outer row.
 
@@ -3677,9 +3759,9 @@ create table T;
 
 create table S;
 
-insert into T ({x: 1}, {x: 2});
+insert into T ({"x": 1}, {"x": 2});
 
-insert into S ({g: 1}, {g: 1}, {g: 2});
+insert into S ({"g": 1}, {"g": 1}, {"g": 2});
 
 select t.x as x, (select count(*) from S as s where s.g = t.x) as n from T as t;
 ```
@@ -3697,7 +3779,7 @@ select t.x as x, (select count(*) from S as s where s.g = t.x) as n from T as t;
 
 <div class="example">
 
-### Scalar Single Row
+## Scalar Single Row
 
 A non-aggregate scalar subquery over exactly one row is that value.
 
@@ -3708,7 +3790,7 @@ create table T;
 
 create table S;
 
-insert into T ({x: 7});
+insert into T ({"x": 7});
 
 select (select t.x from T as t);
 ```
@@ -3725,7 +3807,7 @@ select (select t.x from T as t);
 
 <div class="example">
 
-### Scalar In Expr
+## Scalar In Expr
 
 A scalar subquery composes as an operand of an arithmetic expression.
 
@@ -3736,9 +3818,9 @@ create table T;
 
 create table S;
 
-insert into T ({x: 10}, {x: 20});
+insert into T ({"x": 10}, {"x": 20});
 
-insert into S ({v: 5});
+insert into S ({"v": 5});
 
 select t.x + (select max(s.v) from S as s) as y from T as t;
 ```
@@ -3756,7 +3838,7 @@ select t.x + (select max(s.v) from S as s) as y from T as t;
 
 <div class="example">
 
-### Outer Query
+## Outer Query
 
 A derived table filters then projects in the outer query.
 
@@ -3767,7 +3849,7 @@ create table T;
 
 create table S;
 
-insert into T ({x: 1}, {x: 2}, {x: 3});
+insert into T ({"x": 1}, {"x": 2}, {"x": 3});
 
 select d.x from (select t.x as x from T as t where t.x > 1) as d;
 ```
@@ -3785,7 +3867,7 @@ select d.x from (select t.x as x from T as t where t.x > 1) as d;
 
 <div class="example">
 
-### Derived Star
+## Derived Star
 
 Select * over a derived table.
 
@@ -3796,7 +3878,7 @@ create table T;
 
 create table S;
 
-insert into T ({x: 1, y: 2});
+insert into T ({"x": 1, "y": 2});
 
 select * from (select t.x as x, t.y as y from T as t) as d;
 ```
@@ -3813,7 +3895,7 @@ select * from (select t.x as x, t.y as y from T as t) as d;
 
 <div class="example">
 
-### Derived Correlated Lateral
+## Derived Correlated Lateral
 
 A lateral derived table references an earlier from binding.
 
@@ -3824,9 +3906,9 @@ create table T;
 
 create table S;
 
-insert into T ({x: 1}, {x: 2});
+insert into T ({"x": 1}, {"x": 2});
 
-insert into S ({g: 1, v: 10}, {g: 1, v: 11}, {g: 2, v: 20});
+insert into S ({"g": 1, "v": 10}, {"g": 1, "v": 11}, {"g": 2, "v": 20});
 
 select t.x as x, d.n as n from T as t, (select s.v as n from S as s where s.g = t.x) as d;
 ```
@@ -3845,7 +3927,7 @@ select t.x as x, d.n as n from T as t, (select s.v as n from S as s where s.g = 
 
 <div class="example">
 
-### Derived Group By
+## Derived Group By
 
 A derived table containing group by (sink through cc_group).
 
@@ -3856,7 +3938,7 @@ create table T;
 
 create table S;
 
-insert into T ({g: "a"}, {g: "b"}, {g: "a"});
+insert into T ({"g": "a"}, {"g": "b"}, {"g": "a"});
 
 select d.g as g, d.n as n from (select t.g as g, count(*) as n from T as t group by t.g) as d;
 ```
@@ -3874,7 +3956,7 @@ select d.g as g, d.n as n from (select t.g as g, count(*) as n from T as t group
 
 <div class="example">
 
-### Derived Order Limit
+## Derived Order Limit
 
 A derived table containing order by + limit (sink through cc_order).
 
@@ -3885,7 +3967,7 @@ create table T;
 
 create table S;
 
-insert into T ({x: 1}, {x: 2}, {x: 3});
+insert into T ({"x": 1}, {"x": 2}, {"x": 3});
 
 select d.x from (select t.x as x from T as t order by t.x desc limit 2) as d;
 ```
@@ -3903,7 +3985,7 @@ select d.x from (select t.x as x from T as t order by t.x desc limit 2) as d;
 
 <div class="example">
 
-### Derived Requires Alias
+## Derived Requires Alias
 
 A derived-table source requires an alias.
 
@@ -3923,7 +4005,7 @@ Expected error: `static`
 
 <div class="example">
 
-### An Uncorrelated
+## An Uncorrelated
 
 An uncorrelated derived table cross-joined with a base table.
 
@@ -3934,9 +4016,9 @@ create table T;
 
 create table S;
 
-insert into T ({x: 1}, {x: 2});
+insert into T ({"x": 1}, {"x": 2});
 
-insert into S ({v: 2}, {v: 3});
+insert into S ({"v": 2}, {"v": 3});
 
 select t.x as x, d.v as v from T as t, (select s.v as v from S as s where s.v = 2) as d;
 ```
@@ -3954,7 +4036,7 @@ select t.x as x, d.v as v from T as t, (select s.v as v from S as s where s.v = 
 
 <div class="example">
 
-### Nested Derived
+## Nested Derived
 
 A derived table whose source is itself a derived table.
 
@@ -3965,7 +4047,7 @@ create table T;
 
 create table S;
 
-insert into T ({x: 1}, {x: 2}, {x: 3});
+insert into T ({"x": 1}, {"x": 2}, {"x": 3});
 
 select dd.x from (select d.x as x from (select t.x as x from T as t where t.x > 1) as d) as dd;
 ```
@@ -3983,7 +4065,7 @@ select dd.x from (select d.x as x from (select t.x as x from T as t where t.x > 
 
 <div class="example">
 
-### Membership Against
+## Membership Against
 
 Membership against a subquery bag.
 
@@ -3994,9 +4076,9 @@ create table T;
 
 create table S;
 
-insert into T ({x: 1}, {x: 2}, {x: 3});
+insert into T ({"x": 1}, {"x": 2}, {"x": 3});
 
-insert into S ({v: 2}, {v: 3});
+insert into S ({"v": 2}, {"v": 3});
 
 select t.x from T as t where t.x in (select s.v from S as s);
 ```
@@ -4014,7 +4096,7 @@ select t.x from T as t where t.x in (select s.v from S as s);
 
 <div class="example">
 
-### Non-membership Against
+## Non-membership Against
 
 Non-membership against a subquery bag.
 
@@ -4025,9 +4107,9 @@ create table T;
 
 create table S;
 
-insert into T ({x: 1}, {x: 2}, {x: 3});
+insert into T ({"x": 1}, {"x": 2}, {"x": 3});
 
-insert into S ({v: 2}, {v: 3});
+insert into S ({"v": 2}, {"v": 3});
 
 select t.x from T as t where t.x not in (select s.v from S as s);
 ```
@@ -4044,7 +4126,7 @@ select t.x from T as t where t.x not in (select s.v from S as s);
 
 <div class="example">
 
-### In Over
+## In Over
 
 In over an empty bag matches nothing.
 
@@ -4055,7 +4137,7 @@ create table T;
 
 create table S;
 
-insert into T ({x: 1}, {x: 2});
+insert into T ({"x": 1}, {"x": 2});
 
 select t.x from T as t where t.x in (select s.v from S as s);
 ```
@@ -4070,7 +4152,7 @@ select t.x from T as t where t.x in (select s.v from S as s);
 
 <div class="example">
 
-### Not In
+## Not In
 
 Not in over an empty bag matches everything.
 
@@ -4081,7 +4163,7 @@ create table T;
 
 create table S;
 
-insert into T ({x: 1}, {x: 2});
+insert into T ({"x": 1}, {"x": 2});
 
 select t.x from T as t where t.x not in (select s.v from S as s);
 ```
@@ -4099,7 +4181,7 @@ select t.x from T as t where t.x not in (select s.v from S as s);
 
 <div class="example">
 
-### Not In
+## Not In
 
 Not in with a null element is unknown (3VL), excluding the row.
 
@@ -4110,9 +4192,9 @@ create table T;
 
 create table S;
 
-insert into T ({x: 1}, {x: 2});
+insert into T ({"x": 1}, {"x": 2});
 
-insert into S ({v: 2}, {v: null});
+insert into S ({"v": 2}, {"v": null});
 
 select t.x from T as t where t.x not in (select s.v from S as s);
 ```
@@ -4127,7 +4209,7 @@ select t.x from T as t where t.x not in (select s.v from S as s);
 
 <div class="example">
 
-### In null Operand
+## In null Operand
 
 A null left operand of in is unknown (3VL), excluding the row.
 
@@ -4138,9 +4220,9 @@ create table T;
 
 create table S;
 
-insert into T ({x: null}, {x: 2});
+insert into T ({"x": null}, {"x": 2});
 
-insert into S ({v: 2}, {v: 3});
+insert into S ({"v": 2}, {"v": 3});
 
 select t.x from T as t where t.x in (select s.v from S as s);
 ```
@@ -4157,7 +4239,7 @@ select t.x from T as t where t.x in (select s.v from S as s);
 
 <div class="example">
 
-### Exists Over
+## Exists Over
 
 Exists over a correlated subquery.
 
@@ -4168,9 +4250,9 @@ create table T;
 
 create table S;
 
-insert into T ({x: 1}, {x: 2});
+insert into T ({"x": 1}, {"x": 2});
 
-insert into S ({g: 1});
+insert into S ({"g": 1});
 
 select t.x from T as t where exists (select s.g from S as s where s.g = t.x);
 ```
@@ -4187,7 +4269,7 @@ select t.x from T as t where exists (select s.g from S as s where s.g = t.x);
 
 <div class="example">
 
-### Not Exists
+## Not Exists
 
 Not exists over a correlated subquery.
 
@@ -4198,9 +4280,9 @@ create table T;
 
 create table S;
 
-insert into T ({x: 1}, {x: 2});
+insert into T ({"x": 1}, {"x": 2});
 
-insert into S ({g: 1});
+insert into S ({"g": 1});
 
 select t.x from T as t where not exists (select s.g from S as s where s.g = t.x);
 ```
@@ -4217,7 +4299,7 @@ select t.x from T as t where not exists (select s.g from S as s where s.g = t.x)
 
 <div class="example">
 
-### Exists Over
+## Exists Over
 
 Exists over a non-empty uncorrelated subquery is true for all rows.
 
@@ -4228,9 +4310,9 @@ create table T;
 
 create table S;
 
-insert into T ({x: 1}, {x: 2});
+insert into T ({"x": 1}, {"x": 2});
 
-insert into S ({g: 9});
+insert into S ({"g": 9});
 
 select t.x from T as t where exists (select s.g from S as s);
 ```
@@ -4248,7 +4330,7 @@ select t.x from T as t where exists (select s.g from S as s);
 
 <div class="example">
 
-### Exists Over
+## Exists Over
 
 Exists over an empty subquery is false.
 
@@ -4259,7 +4341,7 @@ create table T;
 
 create table S;
 
-insert into T ({x: 1}, {x: 2});
+insert into T ({"x": 1}, {"x": 2});
 
 select t.x from T as t where exists (select s.g from S as s);
 ```
@@ -4274,7 +4356,7 @@ select t.x from T as t where exists (select s.g from S as s);
 
 <div class="example">
 
-### X >
+## X >
 
 X > any (bag) is true when x exceeds the minimum.
 
@@ -4285,9 +4367,9 @@ create table T;
 
 create table S;
 
-insert into T ({x: 1}, {x: 5}, {x: 10});
+insert into T ({"x": 1}, {"x": 5}, {"x": 10});
 
-insert into S ({v: 3}, {v: 8});
+insert into S ({"v": 3}, {"v": 8});
 
 select t.x from T as t where t.x > any (select s.v from S as s);
 ```
@@ -4305,7 +4387,7 @@ select t.x from T as t where t.x > any (select s.v from S as s);
 
 <div class="example">
 
-### X >
+## X >
 
 X > all (bag) is true when x exceeds the maximum.
 
@@ -4316,9 +4398,9 @@ create table T;
 
 create table S;
 
-insert into T ({x: 1}, {x: 5}, {x: 10});
+insert into T ({"x": 1}, {"x": 5}, {"x": 10});
 
-insert into S ({v: 3}, {v: 8});
+insert into S ({"v": 3}, {"v": 8});
 
 select t.x from T as t where t.x > all (select s.v from S as s);
 ```
@@ -4335,7 +4417,7 @@ select t.x from T as t where t.x > all (select s.v from S as s);
 
 <div class="example">
 
-### X =
+## X =
 
 X = any (bag) is equivalent to in.
 
@@ -4346,9 +4428,9 @@ create table T;
 
 create table S;
 
-insert into T ({x: 1}, {x: 2}, {x: 3});
+insert into T ({"x": 1}, {"x": 2}, {"x": 3});
 
-insert into S ({v: 2}, {v: 3});
+insert into S ({"v": 2}, {"v": 3});
 
 select t.x from T as t where t.x = any (select s.v from S as s);
 ```
@@ -4366,7 +4448,7 @@ select t.x from T as t where t.x = any (select s.v from S as s);
 
 <div class="example">
 
-### Any Over
+## Any Over
 
 Any over an empty bag is false.
 
@@ -4377,7 +4459,7 @@ create table T;
 
 create table S;
 
-insert into T ({x: 1}, {x: 2});
+insert into T ({"x": 1}, {"x": 2});
 
 select t.x from T as t where t.x > any (select s.v from S as s);
 ```
@@ -4392,7 +4474,7 @@ select t.x from T as t where t.x > any (select s.v from S as s);
 
 <div class="example">
 
-### All Over
+## All Over
 
 All over an empty bag is true.
 
@@ -4403,7 +4485,7 @@ create table T;
 
 create table S;
 
-insert into T ({x: 1}, {x: 2});
+insert into T ({"x": 1}, {"x": 2});
 
 select t.x from T as t where t.x > all (select s.v from S as s);
 ```
@@ -4421,7 +4503,7 @@ select t.x from T as t where t.x > all (select s.v from S as s);
 
 <div class="example">
 
-### All With
+## All With
 
 All with a null element is unknown (3VL), excluding the row.
 
@@ -4432,9 +4514,9 @@ create table T;
 
 create table S;
 
-insert into T ({x: 1}, {x: 10});
+insert into T ({"x": 1}, {"x": 10});
 
-insert into S ({v: 3}, {v: null});
+insert into S ({"v": 3}, {"v": null});
 
 select t.x from T as t where t.x > all (select s.v from S as s);
 ```
@@ -4449,7 +4531,7 @@ select t.x from T as t where t.x > all (select s.v from S as s);
 
 <div class="example">
 
-### X <
+## X <
 
 X < all (bag) is true when x is below the minimum.
 
@@ -4460,9 +4542,9 @@ create table T;
 
 create table S;
 
-insert into T ({x: 1}, {x: 5}, {x: 10});
+insert into T ({"x": 1}, {"x": 5}, {"x": 10});
 
-insert into S ({v: 3}, {v: 8});
+insert into S ({"v": 3}, {"v": 8});
 
 select t.x from T as t where t.x < all (select s.v from S as s);
 ```
@@ -4479,7 +4561,7 @@ select t.x from T as t where t.x < all (select s.v from S as s);
 
 <div class="example">
 
-### X !=
+## X !=
 
 X != all (bag) is equivalent to not in.
 
@@ -4490,9 +4572,9 @@ create table T;
 
 create table S;
 
-insert into T ({x: 1}, {x: 2}, {x: 3});
+insert into T ({"x": 1}, {"x": 2}, {"x": 3});
 
-insert into S ({v: 2}, {v: 3});
+insert into S ({"v": 2}, {"v": 3});
 
 select t.x from T as t where t.x != all (select s.v from S as s);
 ```
@@ -4509,7 +4591,7 @@ select t.x from T as t where t.x != all (select s.v from S as s);
 
 <div class="example">
 
-### Match Wins
+## Match Wins
 
 A real match makes = any true even when the bag holds a null.
 
@@ -4520,9 +4602,9 @@ create table T;
 
 create table S;
 
-insert into T ({x: 1}, {x: 2}, {x: 3});
+insert into T ({"x": 1}, {"x": 2}, {"x": 3});
 
-insert into S ({v: 2}, {v: null});
+insert into S ({"v": 2}, {"v": null});
 
 select t.x from T as t where t.x = any (select s.v from S as s);
 ```
@@ -4539,7 +4621,7 @@ select t.x from T as t where t.x = any (select s.v from S as s);
 
 <div class="example">
 
-### Order Limit
+## Order Limit
 
 A subquery with order by + limit on the right of in.
 
@@ -4550,9 +4632,9 @@ create table T;
 
 create table S;
 
-insert into T ({x: 1}, {x: 2}, {x: 3});
+insert into T ({"x": 1}, {"x": 2}, {"x": 3});
 
-insert into S ({v: 3}, {v: 2}, {v: 1});
+insert into S ({"v": 3}, {"v": 2}, {"v": 1});
 
 select t.x from T as t where t.x in (select s.v from S as s order by s.v limit 1);
 ```
@@ -4569,7 +4651,7 @@ select t.x from T as t where t.x in (select s.v from S as s order by s.v limit 1
 
 <div class="example">
 
-### Nested Subquery
+## Nested Subquery
 
 A subquery whose predicate contains another subquery.
 
@@ -4582,11 +4664,11 @@ create table S;
 
 create table U;
 
-insert into T ({x: 1});
+insert into T ({"x": 1});
 
-insert into S ({g: 5});
+insert into S ({"g": 5});
 
-insert into U ({w: 5});
+insert into U ({"w": 5});
 
 select t.x from T as t where exists (select s.g from S as s where s.g in (select u.w from U as u));
 ```
@@ -4603,7 +4685,7 @@ select t.x from T as t where exists (select s.g from S as s where s.g in (select
 
 <div class="example">
 
-### Param In Subquery
+## Param In Subquery
 
 A query parameter resolves inside a subquery.
 
@@ -4614,9 +4696,9 @@ create table T;
 
 create table S;
 
-insert into T ({x: 2});
+insert into T ({"x": 2});
 
-insert into S ({v: 1}, {v: 2});
+insert into S ({"v": 1}, {"v": 2});
 
 select t.x from T as t where t.x in (select s.v from S as s where s.v > ?);
 ```
@@ -4633,7 +4715,7 @@ select t.x from T as t where t.x in (select s.v from S as s where s.v > ?);
 
 <div class="example">
 
-### An Outer
+## An Outer
 
 An outer aggregate and a scalar subquery with its own aggregate stay at separate query levels — the inner count is not folded into the outer.
 
@@ -4644,9 +4726,9 @@ create table T;
 
 create table S;
 
-insert into T ({x: 1}, {x: 2});
+insert into T ({"x": 1}, {"x": 2});
 
-insert into S ({v: 1}, {v: 2}, {v: 3});
+insert into S ({"v": 1}, {"v": 2}, {"v": 3});
 
 select count(*) as c, (select count(*) from S as s) as d from T as t;
 ```
@@ -4663,7 +4745,7 @@ select count(*) as c, (select count(*) from S as s) as d from T as t;
 
 <div class="example">
 
-### Grouped Projection
+## Grouped Projection
 
 A scalar subquery as a member of a grouped projection (known gap).
 
@@ -4674,9 +4756,9 @@ create table T;
 
 create table S;
 
-insert into T ({g: "a"}, {g: "a"}, {g: "b"});
+insert into T ({"g": "a"}, {"g": "a"}, {"g": "b"});
 
-insert into S ({v: 1}, {v: 2});
+insert into S ({"v": 1}, {"v": 2});
 
 select t.g as g, count(*) as n, (select count(*) from S as s) as d from T as t group by t.g;
 ```
@@ -4694,7 +4776,7 @@ select t.g as g, count(*) as n, (select count(*) from S as s) as d from T as t g
 
 <div class="example">
 
-### Subquery In Having
+## Subquery In Having
 
 A scalar subquery as a having comparand (known gap).
 
@@ -4705,9 +4787,9 @@ create table T;
 
 create table S;
 
-insert into T ({g: "a"}, {g: "a"}, {g: "b"});
+insert into T ({"g": "a"}, {"g": "a"}, {"g": "b"});
 
-insert into S ({v: 1}, {v: 2});
+insert into S ({"v": 1}, {"v": 2});
 
 select t.g as g, count(*) as n from T as t group by t.g having count(*) >= (select count(*) from S as s);
 ```
@@ -4724,7 +4806,7 @@ select t.g as g, count(*) as n from T as t group by t.g having count(*) >= (sele
 
 <div class="example">
 
-### An Inner
+## An Inner
 
 An inner subquery correlates to the binding of a middle subquery.
 
@@ -4737,11 +4819,11 @@ create table S;
 
 create table U;
 
-insert into T ({x: 1}, {x: 2});
+insert into T ({"x": 1}, {"x": 2});
 
-insert into S ({g: 1});
+insert into S ({"g": 1});
 
-insert into U ({w: 1});
+insert into U ({"w": 1});
 
 select t.x from T as t where exists (select s.g from S as s where s.g = t.x and exists (select u.w from U as u where u.w = s.g));
 ```

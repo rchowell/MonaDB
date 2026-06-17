@@ -11,7 +11,7 @@ tests:
     description: order by sorts ascending by default
     steps:
       - sql: |
-          insert into T ({x: 3}, {x: 1}, {x: 2});
+          insert into T ({"x": 3}, {"x": 1}, {"x": 2});
       - sql: select t.x from T as t order by t.x;
         result: [1, 2, 3]
 
@@ -19,7 +19,7 @@ tests:
     description: explicit asc matches the default
     steps:
       - sql: |
-          insert into T ({x: 3}, {x: 1}, {x: 2});
+          insert into T ({"x": 3}, {"x": 1}, {"x": 2});
       - sql: select t.x from T as t order by t.x asc;
         result: [1, 2, 3]
 
@@ -27,7 +27,7 @@ tests:
     description: desc sorts descending
     steps:
       - sql: |
-          insert into T ({x: 3}, {x: 1}, {x: 2});
+          insert into T ({"x": 3}, {"x": 1}, {"x": 2});
       - sql: select t.x from T as t order by t.x desc;
         result: [3, 2, 1]
 
@@ -35,7 +35,7 @@ tests:
     description: order by reorders whole rows under select *
     steps:
       - sql: |
-          insert into T ({x: 3}, {x: 1}, {x: 2});
+          insert into T ({"x": 3}, {"x": 1}, {"x": 2});
       - sql: select * from T as t order by t.x;
         result:
           - {x: 1}
@@ -46,7 +46,7 @@ tests:
     description: multiple keys sort left-to-right with per-key direction
     steps:
       - sql: |
-          insert into T ({a: 1, b: 2}, {a: 1, b: 1}, {a: 2, b: 5});
+          insert into T ({"a": 1, "b": 2}, {"a": 1, "b": 1}, {"a": 2, "b": 5});
       - sql: select * from T as t order by t.a, t.b desc;
         result:
           - {a: 1, b: 2}
@@ -57,7 +57,7 @@ tests:
     description: null sorts after all values in ascending order
     steps:
       - sql: |
-          insert into T ({x: 2}, {x: null}, {x: 1});
+          insert into T ({"x": 2}, {"x": null}, {"x": 1});
       - sql: select t.x from T as t order by t.x;
         result: [1, 2, null]
 
@@ -65,7 +65,7 @@ tests:
     description: null sorts before all values in descending order
     steps:
       - sql: |
-          insert into T ({x: 2}, {x: null}, {x: 1});
+          insert into T ({"x": 2}, {"x": null}, {"x": 1});
       - sql: select t.x from T as t order by t.x desc;
         result: [null, 2, 1]
 
@@ -73,7 +73,7 @@ tests:
     description: ints and floats interleave by numeric value
     steps:
       - sql: |
-          insert into T ({x: 2}, {x: 1.5}, {x: 1});
+          insert into T ({"x": 2}, {"x": 1.5}, {"x": 1});
       - sql: select t.x from T as t order by t.x;
         result: [1, 1.5, 2]
 
@@ -81,7 +81,7 @@ tests:
     description: strings sort lexicographically
     steps:
       - sql: |
-          insert into T ({s: "banana"}, {s: "apple"}, {s: "cherry"});
+          insert into T ({"s": "banana"}, {"s": "apple"}, {"s": "cherry"});
       - sql: select t.s from T as t order by t.s;
         result: ["apple", "banana", "cherry"]
 
@@ -89,7 +89,7 @@ tests:
     description: order by then limit yields the top N
     steps:
       - sql: |
-          insert into T ({x: 3}, {x: 1}, {x: 2}, {x: 5}, {x: 4});
+          insert into T ({"x": 3}, {"x": 1}, {"x": 2}, {"x": 5}, {"x": 4});
       - sql: select t.x from T as t order by t.x desc limit 2;
         result: [5, 4]
 
@@ -97,7 +97,7 @@ tests:
     description: order sorts the post-where stream
     steps:
       - sql: |
-          insert into T ({x: 3}, {x: 1}, {x: 2}, {x: 4});
+          insert into T ({"x": 3}, {"x": 1}, {"x": 2}, {"x": 4});
       - sql: select t.x from T as t where t.x > 1 order by t.x;
         result: [2, 3, 4]
 
@@ -107,9 +107,9 @@ tests:
       - create table S;
     steps:
       - sql: |
-          insert into T ({x: 2}, {x: 1});
+          insert into T ({"x": 2}, {"x": 1});
       - sql: |
-          insert into S ({y: 9});
+          insert into S ({"y": 9});
       - sql: select * from T as t, S as s order by t.x;
         result:
           - {x: 1, y: 9}

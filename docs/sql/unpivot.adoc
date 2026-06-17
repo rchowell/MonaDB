@@ -1,31 +1,29 @@
-= Unpivot Clause
+= Unpivot
 
-The _Unpivot Clause_ is a from-source that ranges over the attribute-value
-pairs of a tuple. Where a value source iterates the _elements_ of an array,
-`unpivot` iterates the _members_ of an object: each pair binds its value under
-the `as` alias and, optionally, its attribute name under the `at` alias. It is
-the dual of the Pivot Clause.
+Unpivot is a from-source that ranges over the attribute-value pairs of an object. Each pair binds its value under `as` and its attribute name under optional `at`. Dual of pivot.
 
-A non-object expression contributes no rows, matching the from clause's
-inner-join-like treatment of absent or non-collection values.
+== Syntax
 
-.Syntax
 [source,sql]
 ----
-unpivot <expr> [as <value>] [at <name>]
+unpivot expr as value [at name]
 ----
 
 == Examples
 
 [source,sql]
 ----
--- members to rows, value bound by AS, attribute name by AT
-select sym as sym, price as price
-from unpivot {amzn: 1900, goog: 1120} as price at sym;
--- [{sym: "amzn", price: 1900}, {sym: "goog", price: 1120}]
+select sym, price
+from unpivot {"amzn": 1900, "goog": 1120} as price at sym;
+-- [{"sym": "amzn", "price": 1900}, {"sym": "goog", "price": 1120}]
 
--- lateral: unpivot a table row's columns
-select sym as sym, price as price
+select sym, price
 from closing as c, unpivot c as price at sym
 where sym != 'date';
 ----
+
+== Rules
+
+- The value alias is required; the `at` name is optional.
+- Non-object `expr` yields no rows (inner-join semantics).
+- Each object member produces one row.

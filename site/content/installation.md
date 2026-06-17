@@ -16,7 +16,7 @@ pip install monadb
 
 ```python
 >>> import monadb
->>> monadb.connect()
+>>> db = monadb.connect()
 ```
 
 Requires Python 3.9 or later.

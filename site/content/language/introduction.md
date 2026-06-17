@@ -60,4 +60,4 @@ Tables may declare key columns or omit them entirely. See [Schemas](@/language/s
 
 ## How to Read This Reference
 
-The remaining sections cover the language in bottom-up order: [Syntax](@/language/syntax.md) and identifiers first, then [Types](@/language/types.md) and [Schemas](@/language/schemas.md), then [Statements](@/language/statements.md) that compose them, then [Expressions](@/language/expressions.md). [Functions](@/language/functions.md) covers the built-in scalar library. Start with [Statements](@/language/statements.md) if you want to write queries immediately.
+The remaining sections cover the language in bottom-up order: [Syntax](@/language/syntax.md) and identifiers first, then [Types](@/language/types.md) and [Schemas](@/language/schemas.md), then [Statements](@/language/statements/select.md) that compose them, then [Expressions](@/language/expressions.md). [Functions](@/language/functions.md) covers the built-in scalar library. Start with [Select](@/language/statements/select.md) if you want to write queries immediately.

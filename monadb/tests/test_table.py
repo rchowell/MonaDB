@@ -6,29 +6,29 @@ import monadb
 
 
 def test_create_insert_get_delete():
-    con = monadb.connect()
-    foo = con["foo"]
+    db = monadb.connect()
+    foo = db.table("foo")
     foo.create(x=int, y=str)
     foo.insert([{"x": 1, "y": "a"}, {"x": 2, "y": "b"}, {"x": 3, "y": "c"}])
 
     assert foo.get(x=1) == [{"x": 1, "y": "a"}]
 
     foo.delete(x=1)
-    assert con.execute("select * from foo;").fetchall() == [
+    assert db.execute("select * from foo;").fetchall() == [
         {"x": 2, "y": "b"},
         {"x": 3, "y": "c"},
     ]
 
 
 def test_insert_single_dict():
-    t = monadb.connect()["t"]
+    t = monadb.connect().table("t")
     t.create(k=int)
     t.insert({"k": 1, "v": "solo"})
     assert t.get(1) == {"k": 1, "v": "solo"}
 
 
 def test_get_full_vs_partial_key():
-    c = monadb.connect()["c"]
+    c = monadb.connect().table("c")
     c.create(a=str, b=int)
     c.insert([{"a": "x", "b": 7}, {"a": "x", "b": 8}, {"a": "z", "b": 1}])
 
@@ -39,31 +39,31 @@ def test_get_full_vs_partial_key():
 
 
 def test_delete_requires_predicate():
-    t = monadb.connect()["t"]
+    t = monadb.connect().table("t")
     t.create(k=int)
     with pytest.raises(TypeError):
         t.delete()
 
 
 def test_keyless_table():
-    con = monadb.connect()
-    log = con["log"]
+    db = monadb.connect()
+    log = db.table("log")
     log.create()
     log.insert([{"msg": "a"}, {"msg": "b"}])
-    assert con.execute("select * from log;").fetchall() == [{"msg": "a"}, {"msg": "b"}]
+    assert db.execute("select * from log;").fetchall() == [{"msg": "a"}, {"msg": "b"}]
 
 
 def test_table_handle_verbs():
-    con = monadb.connect()
-    foo = con.table("foo")
+    db = monadb.connect()
+    foo = db.table("foo")
     foo.create(k=int)
     foo.insert([{"k": 1, "v": "a"}])
     assert foo.get(k=1) == {"k": 1, "v": "a"}
-    assert con["foo"].name == "foo"
+    assert db.table("foo").name == "foo"
 
 
 def test_handle_getitem_point_and_prefix():
-    c = monadb.connect()["c"]
+    c = monadb.connect().table("c")
     c.create(a=str, b=int)
     c.insert([{"a": "x", "b": 7}, {"a": "x", "b": 8}])
     assert c["x", 7] == {"a": "x", "b": 7}
@@ -73,7 +73,7 @@ def test_handle_getitem_point_and_prefix():
 
 
 def test_handle_contains_iter_len():
-    t = monadb.connect()["t"]
+    t = monadb.connect().table("t")
     t.create(k=int)
     t.insert([{"k": 1}, {"k": 2}, {"k": 3}])
     assert len(t) == 3
@@ -83,7 +83,7 @@ def test_handle_contains_iter_len():
 
 
 def test_handle_delitem_and_setitem():
-    t = monadb.connect()["t"]
+    t = monadb.connect().table("t")
     t.create(k=int)
     t.insert([{"k": 1, "v": "a"}, {"k": 2, "v": "b"}])
 
@@ -96,12 +96,18 @@ def test_handle_delitem_and_setitem():
 
 
 def test_dunders_need_known_keys():
-    con = monadb.connect()
-    con.execute("create table pre (k int);")
-    pre = con.table("pre")
+    db = monadb.connect()
+    db.execute("create table pre (k int);")
+    pre = db.table("pre")
     with pytest.raises(TypeError):
         del pre[1]
-    pre2 = con.table("pre", keys="k")
+    pre2 = db.table("pre", keys="k")
     pre2.insert({"k": 5})
     del pre2[5]
     assert 5 not in pre2
+
+
+def test_connection_not_subscriptable():
+    db = monadb.connect()
+    with pytest.raises(TypeError):
+        _ = db["foo"]

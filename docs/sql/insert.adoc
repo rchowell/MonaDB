@@ -1,40 +1,35 @@
 = Insert Statement
 
-An insert statement begins with the familiar SQL-style `INSERT INTO <table>` followed by a values list. The values list is a comma-separated list surrounded by parentheses.
-
-.Example
-[source,sql]
-----
-insert into points ({ x: 1, y: 2 });
-
-insert into points (
-    { x: 1, y: 2 },
-    { x: 3, y: 4 },
-);
-
-insert into numbers (1, 2, 3);
-
-insert into tuples ([1,2], [3,4]);
-----
+An insert statement adds one or more values to a table. Sources are an explicit values list or a query.
 
 == Syntax
 
 [source,mckeeman]
 ----
-insert
-    "insert" "into" insert_target insert_source
-
-insert_target
-    table_name
-
-insert_source
-    insert_values
-    insert_query
-
-insert_values
-    "(" expr_list ")"
+insert_stmt
+    "insert" "into" identifier "(" expr_list ")"
+    "insert" "into" identifier select_stmt
 
 expr_list
     expr
     expr "," expr_list
 ----
+
+== Examples
+
+[source,sql]
+----
+insert into points ({"x": 1, "y": 2});
+
+insert into points (
+    {"x": 1, "y": 2},
+    {"x": 3, "y": 4}
+);
+
+insert into archive select * from events where ts < 1700000000;
+----
+
+== Rules
+
+- Each value must satisfy the table's schema. Schema mismatch is an error.
+- Duplicate full key replaces the row (LMDB `put` semantics).

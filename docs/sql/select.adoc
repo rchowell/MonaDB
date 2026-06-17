@@ -1,123 +1,93 @@
 = Select Statement
 
-The Select Statement _maps_ the input bindings and applies the constructor; the constructor may be an object or a list of select items.
-
-.TODOS
-* [ ] where clause
-
-.Examples
-[source,sql]
-----
-select 1 + 1;
-
--- equivalences
-
-select { p.x } from points as p;
-select p.x as x from points as p;
-
-select { p.x, p.y } from points as p;
-select p.x as x, p.y as y from points as p;
-select { x: p.x, y: p.y } from points as p;
-
-select * from t;
-select { ...t } from t;
-
-select * from t, s;
-select { ...t, ...s } from t, s;
-----
+The select statement is the final projection. It runs once per binding tuple and emits one output value per tuple.
 
 == Syntax
 
 [source,mckeeman]
 ----
-select_statement
-    "select" select_constructor
-    "select" select_constructor select_body
+select_stmt
+    "select" select_ctor query_body_opt
 
-select_constructor
+select_ctor
     "."
     "*"
-    select_expr
-    select_list
-
-select_expr
     expr
+    select_list
 
 select_list
     select_item
     select_item "," select_list
 
 select_item
-    expr "as" ident
+    expr
+    expr "as" identifier
 
-select_path
-    expr_var
-    expr_jpk
+query_body_opt
+    ""
+    query_body
+
+query_body
+    from_clause with_clause_opt where_clause_opt group_clause_opt order_clause_opt limit_clause_opt
 ----
 
-== Proposals
+== Constructors
 
-.select/delete one
-[source,sql]
-----
--- select one
-select T@<id>;
-
--- with constructor
-select upper(t.name) from T@<id> as t;
-
--- delete one
-delete T@<id>;
-----
-
-== Spread Operator
+`select .` emits the binding tuple as an object with one entry per binding:
 
 [source,sql]
 ----
-select * from T     -- map vars.*   / spread
-select . from T     -- map vars     / identity
+insert into T ({"x": 1, "y": 2});
+select . from T as t;
+-- output: [{"t": {"x": 1, "y": 2}}]
 ----
 
-.Equivalences
-[source]
-----
-*           <=> { ... }
-a.*         <=> { ...a }
-a.*, b.*    <=> { ...a, ...b }
-----
+`select *` emits the flat spread of all bindings (equivalent to `select {...}`):
 
-.Example 1
 [source,sql]
 ----
--- input: T = [ { x: 1, y: 2 } ]
-
-select * from T as t;           -- vars { t: t }
-select t.* from T as t;         -- ..
-select { ...t } from T as t;    -- vars { x: t.x, y: t.y }
-
--- output: [ { x: 1, y: 2 } ]
+insert into T ({"x": 1, "y": 2});
+select * from T as t;
+-- output: [{"x": 1, "y": 2}]
 ----
 
-.Example 2
-[source]
-----
--- input: T = [ { x: 1, y: 2 } ]
+`select expr` emits a single expression value:
 
-select . from T as t with *;         -- vars { x: t.x, y: t.y }
-select . from T as t with t.*;       -- ..
-select . from T as t with { ...t };  -- ..
-
--- output: [ { x: 1, y: 2 } ]
-----
-
-.Example 3
 [source,sql]
 ----
--- input: T = [ { x: 1, y: 2 } ]
+select 1 + 1;
+-- output: [2]
 
-select * from T as t;           -- vars { t: t }
-select t.* from T as t;         -- ..
-select { ...t } from T as t;    -- vars { x: t.x, y: t.y }
+select t.x + 1 from T as t;
+-- output: [2]
+----
 
--- output: [ { x: 1, y: 2 } ]
+`select item, item, ...` emits an object with listed items as members. An item can be:
+
+- `expr as name` — introduce an output key
+- `expr` — if a path like `t.x`, the last segment becomes the key
+
+[source,sql]
+----
+select t.x as a, t.y as b from T as t;
+-- output: [{"a": 1, "b": 2}]
+
+select t.x, t.y from T as t;
+-- output: [{"x": 1, "y": 2}]
+
+select {"x": t.x, "y": t.y} from T as t;
+-- output: [{"x": 1, "y": 2}]
+----
+
+== No from clause
+
+With no `from` clause, the query produces exactly one output:
+
+[source,sql]
+----
+select 1 + 1;
+-- output: [2]
+
+select {"a": 1, "b": 2};
+-- output: [{"a": 1, "b": 2}]
 ----

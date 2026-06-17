@@ -6,9 +6,10 @@
 {% block description %}{{ page.description }}{% endblock description %}
 
 {% block content %}
-{% set reference_slugs = ["statements", "functions"] %}
+{% set reference_slugs = ["functions"] %}
 {% set is_language = current_path is containing('/language/') %}
 {% set is_examples = current_path is containing('/examples/') %}
+{% set is_statements = current_path is containing('/language/statements/') and not current_path is ending_with('/language/statements/') %}
 {% set show_page_title = is_language or page.slug in ["installation", "tutorial", "python"] %}
 <div class="docs-shell">
   <div class="mobile-sidebar-host">
@@ -30,7 +31,7 @@
         </button>
       </div>
       {% endif %}
-      <main class="lang-content{% if is_language %} lang-content--{{ page.slug }}{% if page.slug in reference_slugs %} lang-reference{% endif %}{% if page.slug == "statements" %} lang-content--statements examples-content{% endif %}{% endif %}{% if is_examples %} examples-content{% endif %}">
+      <main class="lang-content{% if is_language %} lang-content--{{ page.slug }}{% if page.slug in reference_slugs or is_statements %} lang-reference{% endif %}{% if is_statements %} lang-content--statements examples-content{% endif %}{% endif %}{% if is_examples %} examples-content{% endif %}">
         <article class="content-body">
           {% if show_page_title %}
           <h1>{{ page.title }}</h1>

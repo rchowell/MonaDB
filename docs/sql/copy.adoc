@@ -1,56 +1,39 @@
-= COPY
+= Copy
 
-Bulk import from or export to CSV, TSV, or JSONL files. Paths are resolved relative to the process working directory.
+Copy imports from or exports to CSV, TSV, or JSONL files. Paths are resolved relative to the process working directory.
 
-.Import
+== Syntax
+
+[source,sql]
+----
+copy table from string [options]
+copy table to string [options]
+copy (select_stmt) to string [options]
+
+options
+    "{" "}"
+----
+
+== Examples
+
+Import:
+
 [source,sql]
 ----
 copy items from 'items.csv'
-copy items from 'items.tsv' { header: false }
 copy items from 'items.jsonl'
+copy items from 'items.tsv' {"header": false}
 ----
 
-.Export
+Export:
+
 [source,sql]
 ----
 copy items to 'items.jsonl'
 copy items to 'items.csv'
-copy items to 'items.tsv' { header: false }
-copy (select * from items as i) to 'subset.csv'
+copy (select * from items as i where i.active) to 'active.csv'
 ----
 
-.Syntax
-[source]
-----
-copy_statement
-    "copy" copy_import
-    "copy" copy_export
+== Options
 
-copy_import
-    table_name "from" copy_target
-
-copy_export
-    copy_source "to" copy_target
-
-copy_source
-    table_name
-    "(" select_statement ")"
-
-copy_target
-    string
-    string copy_options
-
-copy_options
-    "{"  "}"
-----
-
-== FAQ
-
-Q: How can I read data from a file?
-A: `COPY <table> FROM <file>` or `SELECT * FROM '<file>'` / `SELECT * FROM read_csv('<file>')`.
-
-Q: How can I write data to a file?
-A: `COPY <data> TO <file>`.
-
-Q: How do I specify additional encoding options?
-A: Pass a trailing object literal, e.g. `{ header: false, delimiter: ',' }`.
+Pass `{"header": false}` to skip the header row (CSV/TSV only). Default is `true`.

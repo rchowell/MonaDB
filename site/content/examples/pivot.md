@@ -1,18 +1,22 @@
 +++
 title = "Pivot & Unpivot"
-description = "Pivot, unpivot, and parameter binding examples."
+description = "Pivot and unpivot examples — reshape row streams into tuples and back."
 weight = 5
 +++
 
 # Pivot & Unpivot
 
-Reshaping row streams and binding host parameters.
+Pivot folds a binding stream into a single tuple; unpivot ranges over attribute-value pairs of a tuple — dual operations for reshaping data.
+
+<div class="example-section">
 
 ## Pivot
 
+</div>
+
 <div class="example">
 
-### Pivot Builds
+## Pivot Builds
 
 Pivot builds one object with an attribute per input row.
 
@@ -23,7 +27,7 @@ create table T;
 
 create table prices;
 
-insert into prices ({sym: "amzn", price: 1900}, {sym: "goog", price: 1120});
+insert into prices ({"sym": "amzn", "price": 1900}, {"sym": "goog", "price": 1120});
 
 pivot p.price at p.sym from prices as p;
 ```
@@ -40,7 +44,7 @@ pivot p.price at p.sym from prices as p;
 
 <div class="example">
 
-### Pivot Inverts
+## Pivot Inverts
 
 Pivot inverts unpivot over the same value.
 
@@ -49,7 +53,7 @@ Pivot inverts unpivot over the same value.
 ```sql
 create table T;
 
-pivot price at sym from unpivot {a: 1, b: 2, c: 3} as price at sym;
+pivot price at sym from unpivot {"a": 1, "b": 2, "c": 3} as price at sym;
 ```
 
 <p class="example-label">Result</p>
@@ -64,7 +68,7 @@ pivot price at sym from unpivot {a: 1, b: 2, c: 3} as price at sym;
 
 <div class="example">
 
-### Pivot Over
+## Pivot Over
 
 Pivot over an empty stream yields a single empty object.
 
@@ -90,7 +94,7 @@ pivot p.price at p.sym from empty_t as p;
 
 <div class="example">
 
-### Wins Duplicate
+## Wins Duplicate
 
 A repeated attribute name is last-wins.
 
@@ -101,7 +105,7 @@ create table T;
 
 create table d;
 
-insert into d ({k: "x", v: 1}, {k: "x", v: 2});
+insert into d ({"k": "x", "v": 1}, {"k": "x", "v": 2});
 
 pivot e.v at e.k from d as e;
 ```
@@ -118,7 +122,7 @@ pivot e.v at e.k from d as e;
 
 <div class="example">
 
-### String Name
+## String Name
 
 A row whose AT name is not a string contributes no attribute.
 
@@ -129,7 +133,7 @@ create table T;
 
 create table m;
 
-insert into m ({k: "ok", v: 1}, {k: 5, v: 2});
+insert into m ({"k": "ok", "v": 1}, {"k": 5, "v": 2});
 
 pivot e.v at e.k from m as e;
 ```
@@ -146,7 +150,7 @@ pivot e.v at e.k from m as e;
 
 <div class="example">
 
-### Where Filters
+## Where Filters
 
 Where filters which rows contribute attributes.
 
@@ -157,7 +161,7 @@ create table T;
 
 create table prices;
 
-insert into prices ({sym: "a", price: 1}, {sym: "b", price: 2}, {sym: "c", price: 3});
+insert into prices ({"sym": "a", "price": 1}, {"sym": "b", "price": 2}, {"sym": "c", "price": 3});
 
 pivot p.price at p.sym from prices as p where p.price > 1;
 ```
@@ -174,7 +178,7 @@ pivot p.price at p.sym from prices as p where p.price > 1;
 
 <div class="example">
 
-### Pivot With
+## Pivot With
 
 Pivot with order by is not supported in v1.
 
@@ -192,11 +196,15 @@ Expected error: `static`
 
 </div>
 
+<div class="example-section">
+
 ## Unpivot
+
+</div>
 
 <div class="example">
 
-### Unpivot Yields
+## Unpivot Yields
 
 Unpivot yields one binding per attribute-value pair, the value bound by AS.
 
@@ -205,7 +213,7 @@ Unpivot yields one binding per attribute-value pair, the value bound by AS.
 ```sql
 create table T;
 
-select price from unpivot {amzn: 1900, goog: 1120} as price;
+select price from unpivot {"amzn": 1900, "goog": 1120} as price;
 ```
 
 <p class="example-label">Result</p>
@@ -221,7 +229,7 @@ select price from unpivot {amzn: 1900, goog: 1120} as price;
 
 <div class="example">
 
-### AT Binds
+## AT Binds
 
 AT binds the attribute name of each pair.
 
@@ -230,7 +238,7 @@ AT binds the attribute name of each pair.
 ```sql
 create table T;
 
-select sym as sym, price as price from unpivot {amzn: 1900, goog: 1120} as price at sym;
+select sym as sym, price as price from unpivot {"amzn": 1900, "goog": 1120} as price at sym;
 ```
 
 <p class="example-label">Result</p>
@@ -246,7 +254,7 @@ select sym as sym, price as price from unpivot {amzn: 1900, goog: 1120} as price
 
 <div class="example">
 
-### Pairs Are
+## Pairs Are
 
 Pairs are produced in object member order.
 
@@ -255,7 +263,7 @@ Pairs are produced in object member order.
 ```sql
 create table T;
 
-select sym as sym from unpivot {c: 3, a: 1, b: 2} as price at sym;
+select sym as sym from unpivot {"c": 3, "a": 1, "b": 2} as price at sym;
 ```
 
 <p class="example-label">Result</p>
@@ -272,7 +280,7 @@ select sym as sym from unpivot {c: 3, a: 1, b: 2} as price at sym;
 
 <div class="example">
 
-### AT May
+## AT May
 
 AT may be omitted, binding only the value.
 
@@ -281,7 +289,7 @@ AT may be omitted, binding only the value.
 ```sql
 create table T;
 
-select price from unpivot {a: 10, b: 20} as price;
+select price from unpivot {"a": 10, "b": 20} as price;
 ```
 
 <p class="example-label">Result</p>
@@ -297,7 +305,7 @@ select price from unpivot {a: 10, b: 20} as price;
 
 <div class="example">
 
-### Unpivot Dot Envelope
+## Unpivot Dot Envelope
 
 Select . envelopes the value and attribute bindings under their aliases.
 
@@ -306,7 +314,7 @@ Select . envelopes the value and attribute bindings under their aliases.
 ```sql
 create table T;
 
-select . from unpivot {a: 1, b: 2} as v at k;
+select . from unpivot {"a": 1, "b": 2} as v at k;
 ```
 
 <p class="example-label">Result</p>
@@ -322,7 +330,7 @@ select . from unpivot {a: 1, b: 2} as v at k;
 
 <div class="example">
 
-### Their Aliases
+## Their Aliases
 
 Select * spreads the scalar bindings under their aliases.
 
@@ -331,7 +339,7 @@ Select * spreads the scalar bindings under their aliases.
 ```sql
 create table T;
 
-select * from unpivot {a: 1, b: 2} as v at k;
+select * from unpivot {"a": 1, "b": 2} as v at k;
 ```
 
 <p class="example-label">Result</p>
@@ -347,7 +355,7 @@ select * from unpivot {a: 1, b: 2} as v at k;
 
 <div class="example">
 
-### On Name
+## On Name
 
 A where predicate may filter on the attribute name.
 
@@ -356,7 +364,7 @@ A where predicate may filter on the attribute name.
 ```sql
 create table T;
 
-select price from unpivot {a: 1, b: 2, c: 3} as price at sym where sym != 'b';
+select price from unpivot {"a": 1, "b": 2, "c": 3} as price at sym where sym != 'b';
 ```
 
 <p class="example-label">Result</p>
@@ -372,7 +380,7 @@ select price from unpivot {a: 1, b: 2, c: 3} as price at sym where sym != 'b';
 
 <div class="example">
 
-### Unpivot Of
+## Unpivot Of
 
 Unpivot of a non-object value contributes no rows.
 
@@ -394,7 +402,7 @@ select price from unpivot 5 as price at sym;
 
 <div class="example">
 
-### Unpivot Of
+## Unpivot Of
 
 Unpivot of an empty object contributes no rows.
 
@@ -416,7 +424,7 @@ select price from unpivot {} as price;
 
 <div class="example">
 
-### Unpivot A
+## Unpivot A
 
 Unpivot a table row's columns into (name, value) rows.
 
@@ -427,7 +435,7 @@ create table T;
 
 create table closing;
 
-insert into closing ({date: "d1", amzn: 1900, goog: 1120});
+insert into closing ({"date": "d1", "amzn": 1900, "goog": 1120});
 
 select sym as sym, price as price from closing as c, unpivot c as price at sym where sym != 'date';
 ```
@@ -445,7 +453,7 @@ select sym as sym, price as price from closing as c, unpivot c as price at sym w
 
 <div class="example">
 
-### Unpivot Flattens
+## Unpivot Flattens
 
 Unpivot flattens every outer row's members in order.
 
@@ -456,7 +464,7 @@ create table T;
 
 create table P;
 
-insert into P ({a: 1, b: 2}, {a: 3, b: 4});
+insert into P ({"a": 1, "b": 2}, {"a": 3, "b": 4});
 
 select sym as k, price as v from P as p, unpivot p as price at sym;
 ```
@@ -476,7 +484,7 @@ select sym as k, price as v from P as p, unpivot p as price at sym;
 
 <div class="example">
 
-### Order By
+## Order By
 
 Order by sorts the unpivoted pairs by the attribute name.
 
@@ -485,7 +493,7 @@ Order by sorts the unpivoted pairs by the attribute name.
 ```sql
 create table T;
 
-select price from unpivot {b: 2, a: 1, c: 3} as price at sym order by sym;
+select price from unpivot {"b": 2, "a": 1, "c": 3} as price at sym order by sym;
 ```
 
 <p class="example-label">Result</p>
@@ -502,7 +510,7 @@ select price from unpivot {b: 2, a: 1, c: 3} as price at sym order by sym;
 
 <div class="example">
 
-### An Aggregate
+## An Aggregate
 
 An aggregate folds over the unpivoted value binding.
 
@@ -511,7 +519,7 @@ An aggregate folds over the unpivoted value binding.
 ```sql
 create table T;
 
-select sum(price) from unpivot {a: 10, b: 20, c: 30} as price;
+select sum(price) from unpivot {"a": 10, "b": 20, "c": 30} as price;
 ```
 
 <p class="example-label">Result</p>
@@ -526,7 +534,7 @@ select sum(price) from unpivot {a: 10, b: 20, c: 30} as price;
 
 <div class="example">
 
-### Count Over
+## Count Over
 
 Count over an unpivot source counts one row per pair.
 
@@ -535,7 +543,7 @@ Count over an unpivot source counts one row per pair.
 ```sql
 create table T;
 
-select count(price) from unpivot {a: 1, b: 2, c: 3} as price;
+select count(price) from unpivot {"a": 1, "b": 2, "c": 3} as price;
 ```
 
 <p class="example-label">Result</p>
@@ -550,7 +558,7 @@ select count(price) from unpivot {a: 1, b: 2, c: 3} as price;
 
 <div class="example">
 
-### Group By
+## Group By
 
 Group by over an unpivot source groups its value binding.
 
@@ -559,7 +567,7 @@ Group by over an unpivot source groups its value binding.
 ```sql
 create table T;
 
-select { v: price, n: count(*) } from unpivot {a: 5, b: 5, c: 9} as price group by price;
+select { "v": price, "n": count(*) } from unpivot {"a": 5, "b": 5, "c": 9} as price group by price;
 ```
 
 <p class="example-label">Result</p>
@@ -575,7 +583,7 @@ select { v: price, n: count(*) } from unpivot {a: 5, b: 5, c: 9} as price group 
 
 <div class="example">
 
-### The Unpivot
+## The Unpivot
 
 The unpivot value binding requires an alias.
 
@@ -584,426 +592,7 @@ The unpivot value binding requires an alias.
 ```sql
 create table T;
 
-select . from unpivot {a: 1};
-```
-
-Expected error: `static`
-
-</div>
-
-## params
-
-<div class="example">
-
-### Positional Single
-
-A lone `?` resolves to the first list element.
-
-<p class="example-label">SQL</p>
-
-```sql
-select ?;
-```
-
-<p class="example-label">Result</p>
-
-```json
-[
-  42
-]
-```
-
-</div>
-
-<div class="example">
-
-### Each ?
-
-Each `?` consumes the next list slot in source order.
-
-<p class="example-label">SQL</p>
-
-```sql
-select [?, ?, ?];
-```
-
-<p class="example-label">Result</p>
-
-```json
-[
-  [ 1, 2, 3 ]
-]
-```
-
-</div>
-
-<div class="example">
-
-### Positional String
-
-A string parameter.
-
-<p class="example-label">SQL</p>
-
-```sql
-select ?;
-```
-
-<p class="example-label">Result</p>
-
-```json
-[
-  "hello"
-]
-```
-
-</div>
-
-<div class="example">
-
-### Positional null
-
-A null parameter.
-
-<p class="example-label">SQL</p>
-
-```sql
-select ?;
-```
-
-<p class="example-label">Result</p>
-
-```json
-[
-  null
-]
-```
-
-</div>
-
-<div class="example">
-
-### Parameters Compose
-
-Parameters compose inside an expression.
-
-<p class="example-label">SQL</p>
-
-```sql
-select ? + ?;
-```
-
-<p class="example-label">Result</p>
-
-```json
-[
-  30
-]
-```
-
-</div>
-
-<div class="example">
-
-### $1 Is
-
-$1 is the first (1-based) list element.
-
-<p class="example-label">SQL</p>
-
-```sql
-select $1;
-```
-
-<p class="example-label">Result</p>
-
-```json
-[
-  7
-]
-```
-
-</div>
-
-<div class="example">
-
-### The Same
-
-The same index may be referenced more than once.
-
-<p class="example-label">SQL</p>
-
-```sql
-select [$1, $1, $2];
-```
-
-<p class="example-label">Result</p>
-
-```json
-[
-  [ 9, 9, 8 ]
-]
-```
-
-</div>
-
-<div class="example">
-
-### Numbered References
-
-Numbered references pick by index, not by appearance.
-
-<p class="example-label">SQL</p>
-
-```sql
-select [$2, $1];
-```
-
-<p class="example-label">Result</p>
-
-```json
-[
-  [ "b", "a" ]
-]
-```
-
-</div>
-
-<div class="example">
-
-### The First
-
-The first `?` and `$1` both resolve to list[0].
-
-<p class="example-label">SQL</p>
-
-```sql
-select [?, $1];
-```
-
-<p class="example-label">Result</p>
-
-```json
-[
-  [ 5, 5 ]
-]
-```
-
-</div>
-
-<div class="example">
-
-### Named Single
-
-A named parameter resolves from the map.
-
-<p class="example-label">SQL</p>
-
-```sql
-select $foo;
-```
-
-<p class="example-label">Result</p>
-
-```json
-[
-  99
-]
-```
-
-</div>
-
-<div class="example">
-
-### Several Named Parameters
-
-Several named parameters.
-
-<p class="example-label">SQL</p>
-
-```sql
-select [$a, $b];
-```
-
-<p class="example-label">Result</p>
-
-```json
-[
-  [ 1, 2 ]
-]
-```
-
-</div>
-
-<div class="example">
-
-### Where Positional
-
-A parameter as a where-clause operand.
-
-<p class="example-label">SQL</p>
-
-```sql
-create table T;
-
-insert into T ({x: 1}, {x: 2}, {x: 3});
-
-select * from T where T.x > ?;
-```
-
-<p class="example-label">Result</p>
-
-```json
-[
-  { "x": 2 },
-  { "x": 3 }
-]
-```
-
-</div>
-
-<div class="example">
-
-### Where Named
-
-A named parameter in a Where clause.
-
-<p class="example-label">SQL</p>
-
-```sql
-create table T;
-
-insert into T ({x: 1}, {x: 2});
-
-select * from T where T.x = $val;
-```
-
-<p class="example-label">Result</p>
-
-```json
-[
-  { "x": 2 }
-]
-```
-
-</div>
-
-<div class="example">
-
-### Keyed Get Positional
-
-A parameter as a keyed-table index (substituted to a literal key).
-
-<p class="example-label">SQL</p>
-
-```sql
-create table t (id int);
-
-insert into t ({id: 1, v: "a"}, {id: 2, v: "b"});
-
-select t[?];
-```
-
-<p class="example-label">Result</p>
-
-```json
-[
-  { "id": 2, "v": "b" }
-]
-```
-
-</div>
-
-<div class="example">
-
-### ? With
-
-`?` with too few list elements is a bind error.
-
-<p class="example-label">SQL</p>
-
-```sql
-select [?, ?];
-```
-
-Expected error: `static`
-
-</div>
-
-<div class="example">
-
-### $2 With
-
-$2 with a one-element list is a bind error.
-
-<p class="example-label">SQL</p>
-
-```sql
-select $2;
-```
-
-Expected error: `static`
-
-</div>
-
-<div class="example">
-
-### An Absent
-
-An absent named key is a bind error.
-
-<p class="example-label">SQL</p>
-
-```sql
-select $foo;
-```
-
-Expected error: `static`
-
-</div>
-
-<div class="example">
-
-### $0 Is
-
-$0 is out of range (numbering is 1-based).
-
-<p class="example-label">SQL</p>
-
-```sql
-select $0;
-```
-
-Expected error: `static`
-
-</div>
-
-<div class="example">
-
-### Numbered Overflow
-
-A numbered index past u32 is a static bind error, not an opaque lexer error.
-
-<p class="example-label">SQL</p>
-
-```sql
-select $4294967296;
-```
-
-Expected error: `static`
-
-</div>
-
-<div class="example">
-
-### No Parameters Supplied
-
-A placeholder with no parameters at all is a bind error.
-
-<p class="example-label">SQL</p>
-
-```sql
-select ?;
+select . from unpivot {"a": 1};
 ```
 
 Expected error: `static`

@@ -14,7 +14,7 @@ tests:
       - sql: |
           create table t;
       - sql: |
-          insert into t ({x: 1, y: 2, z: 3});
+          insert into t ({"x": 1, "y": 2, "z": 3});
       - sql: |
           select * from t;
         result:
@@ -26,7 +26,7 @@ tests:
       - sql: |
           create table t;
       - sql: |
-          insert into t ({y: 2, z: 3});
+          insert into t ({"y": 2, "z": 3});
       - sql: |
           select * from t;
         result:
@@ -38,7 +38,7 @@ tests:
       - sql: |
           create table t;
       - sql: |
-          insert into t ({x: 3}, {x: 1}, {x: 2});
+          insert into t ({"x": 3}, {"x": 1}, {"x": 2});
       - sql: |
           select * from t;
         result:
@@ -52,7 +52,7 @@ tests:
       - sql: |
           create table t (x int);
       - sql: |
-          insert into t ({x: 1, z: 9});
+          insert into t ({"x": 1, "z": 9});
       - sql: |
           select * from t;
         result:
@@ -64,7 +64,7 @@ tests:
       - sql: |
           create table t (x int);
       - sql: |
-          insert into t ({x: 3}, {x: 1}, {x: 2});
+          insert into t ({"x": 3}, {"x": 1}, {"x": 2});
       - sql: |
           select * from t;
         result:
@@ -78,7 +78,7 @@ tests:
       - sql: |
           create table t (x int);
       - sql: |
-          insert into t ({x: 1}, {x: -5}, {x: 0}, {x: -1});
+          insert into t ({"x": 1}, {"x": -5}, {"x": 0}, {"x": -1});
       - sql: |
           select * from t;
         result:
@@ -93,9 +93,9 @@ tests:
       - sql: |
           create table t (x int);
       - sql: |
-          insert into t ({x: 1, v: 100});
+          insert into t ({"x": 1, "v": 100});
       - sql: |
-          insert into t ({x: 1, v: 200});
+          insert into t ({"x": 1, "v": 200});
       - sql: |
           select * from t;
         result:
@@ -107,7 +107,7 @@ tests:
       - sql: |
           create table t (x int);
       - sql: |
-          insert into t ({z: 9});
+          insert into t ({"z": 9});
         error: schema
 
   - id: int-key-wrong-type
@@ -116,7 +116,7 @@ tests:
       - sql: |
           create table t (x int);
       - sql: |
-          insert into t ({x: "a"});
+          insert into t ({"x": "a"});
         error: schema
 
   - id: int-key-non-integral
@@ -125,7 +125,7 @@ tests:
       - sql: |
           create table t (x int);
       - sql: |
-          insert into t ({x: 1.5});
+          insert into t ({"x": 1.5});
         error: schema
 
   - id: str-key-roundtrip
@@ -134,7 +134,7 @@ tests:
       - sql: |
           create table t (x string);
       - sql: |
-          insert into t ({x: "a", z: 9});
+          insert into t ({"x": "a", "z": 9});
       - sql: |
           select * from t;
         result:
@@ -146,7 +146,7 @@ tests:
       - sql: |
           create table t (x string);
       - sql: |
-          insert into t ({x: "c"}, {x: "a"}, {x: "b"});
+          insert into t ({"x": "c"}, {"x": "a"}, {"x": "b"});
       - sql: |
           select * from t;
         result:
@@ -160,7 +160,7 @@ tests:
       - sql: |
           create table t (x string);
       - sql: |
-          insert into t ({z: 9});
+          insert into t ({"z": 9});
         error: schema
 
   - id: str-key-wrong-type
@@ -169,7 +169,7 @@ tests:
       - sql: |
           create table t (x string);
       - sql: |
-          insert into t ({x: 1});
+          insert into t ({"x": 1});
         error: schema
 
   - id: int-str-roundtrip
@@ -178,7 +178,7 @@ tests:
       - sql: |
           create table t (a int, b string);
       - sql: |
-          insert into t ({a: 1, b: "x", z: 9});
+          insert into t ({"a": 1, "b": "x", "z": 9});
       - sql: |
           select * from t;
         result:
@@ -190,7 +190,7 @@ tests:
       - sql: |
           create table t (a int, b string);
       - sql: |
-          insert into t ({a: 2, b: "a"}, {a: 1, b: "y"}, {a: 1, b: "x"});
+          insert into t ({"a": 2, "b": "a"}, {"a": 1, "b": "y"}, {"a": 1, "b": "x"});
       - sql: |
           select * from t;
         result:
@@ -204,7 +204,7 @@ tests:
       - sql: |
           create table t (a int, b string);
       - sql: |
-          insert into t ({b: "x"});
+          insert into t ({"b": "x"});
         error: schema
 
   - id: int-str-missing-second
@@ -213,7 +213,7 @@ tests:
       - sql: |
           create table t (a int, b string);
       - sql: |
-          insert into t ({a: 1});
+          insert into t ({"a": 1});
         error: schema
 
   - id: int-str-wrong-type-first
@@ -222,7 +222,7 @@ tests:
       - sql: |
           create table t (a int, b string);
       - sql: |
-          insert into t ({a: "q", b: "x"});
+          insert into t ({"a": "q", "b": "x"});
         error: schema
 
   - id: int-str-wrong-type-second
@@ -231,7 +231,7 @@ tests:
       - sql: |
           create table t (a int, b string);
       - sql: |
-          insert into t ({a: 1, b: 2});
+          insert into t ({"a": 1, "b": 2});
         error: schema
 
   - id: str-int-roundtrip
@@ -240,7 +240,7 @@ tests:
       - sql: |
           create table t (a string, b int);
       - sql: |
-          insert into t ({a: "x", b: 1, z: 9});
+          insert into t ({"a": "x", "b": 1, "z": 9});
       - sql: |
           select * from t;
         result:
@@ -252,7 +252,7 @@ tests:
       - sql: |
           create table t (a string, b int);
       - sql: |
-          insert into t ({a: "b", b: 1}, {a: "a", b: 2}, {a: "a", b: 1});
+          insert into t ({"a": "b", "b": 1}, {"a": "a", "b": 2}, {"a": "a", "b": 1});
       - sql: |
           select * from t;
         result:
@@ -266,7 +266,7 @@ tests:
       - sql: |
           create table t (a string, b int);
       - sql: |
-          insert into t ({a: "x"});
+          insert into t ({"a": "x"});
         error: schema
 
   - id: str-int-wrong-type-second
@@ -275,7 +275,7 @@ tests:
       - sql: |
           create table t (a string, b int);
       - sql: |
-          insert into t ({a: "x", b: "y"});
+          insert into t ({"a": "x", "b": "y"});
         error: schema
 
   - id: int-int-roundtrip
@@ -284,7 +284,7 @@ tests:
       - sql: |
           create table t (a int, b int);
       - sql: |
-          insert into t ({a: 1, b: 2, z: 9});
+          insert into t ({"a": 1, "b": 2, "z": 9});
       - sql: |
           select * from t;
         result:
@@ -296,7 +296,7 @@ tests:
       - sql: |
           create table t (a int, b int);
       - sql: |
-          insert into t ({a: 2, b: 1}, {a: 1, b: 2}, {a: 1, b: 1});
+          insert into t ({"a": 2, "b": 1}, {"a": 1, "b": 2}, {"a": 1, "b": 1});
       - sql: |
           select * from t;
         result:
@@ -310,7 +310,7 @@ tests:
       - sql: |
           create table t (a int, b int);
       - sql: |
-          insert into t ({a: 1});
+          insert into t ({"a": 1});
         error: schema
 
   - id: str-str-roundtrip
@@ -319,7 +319,7 @@ tests:
       - sql: |
           create table t (a string, b string);
       - sql: |
-          insert into t ({a: "x", b: "y", z: 9});
+          insert into t ({"a": "x", "b": "y", "z": 9});
       - sql: |
           select * from t;
         result:
@@ -331,7 +331,7 @@ tests:
       - sql: |
           create table t (a string, b string);
       - sql: |
-          insert into t ({a: "b", b: "a"}, {a: "a", b: "b"}, {a: "a", b: "a"});
+          insert into t ({"a": "b", "b": "a"}, {"a": "a", "b": "b"}, {"a": "a", "b": "a"});
       - sql: |
           select * from t;
         result:
@@ -348,7 +348,7 @@ tests:
       - sql: |
           create table t (a string, b string);
       - sql: |
-          insert into t ({a: "ab", b: "a"}, {a: "a", b: "z"});
+          insert into t ({"a": "ab", "b": "a"}, {"a": "a", "b": "z"});
       - sql: |
           select * from t;
         result:
@@ -361,7 +361,7 @@ tests:
       - sql: |
           create table t (a string, b string);
       - sql: |
-          insert into t ({a: "x"});
+          insert into t ({"a": "x"});
         error: schema
 
   - id: bad-ddl-float-key

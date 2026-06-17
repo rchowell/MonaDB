@@ -111,7 +111,7 @@ tests:
       - create table T;
     steps:
       - sql: |
-          insert into T ({x: 1}, {x: 2}, {x: 3});
+          insert into T ({"x": 1}, {"x": 2}, {"x": 3});
       - sql: select * from T where T.x > ?;
         parameters: [1]
         result:
@@ -124,7 +124,7 @@ tests:
       - create table T;
     steps:
       - sql: |
-          insert into T ({x: 1}, {x: 2});
+          insert into T ({"x": 1}, {"x": 2});
       - sql: select * from T where T.x = $val;
         parameters: {val: 2}
         result:
@@ -136,7 +136,7 @@ tests:
       - create table t (id int);
     steps:
       - sql: |
-          insert into t ({id: 1, v: "a"}, {id: 2, v: "b"});
+          insert into t ({"id": 1, "v": "a"}, {"id": 2, "v": "b"});
       - sql: select t[?];
         parameters: [2]
         result:

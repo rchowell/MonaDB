@@ -9,7 +9,7 @@ tests:
       - sql: |
           create table T;
       - sql: |
-          insert into T ({x: 1});
+          insert into T ({"x": 1});
       - sql: |
           drop table T;
       - sql: |
@@ -22,7 +22,7 @@ tests:
       - sql: |
           create table T;
       - sql: |
-          insert into T ({x: 1}, {x: 2});
+          insert into T ({"x": 1}, {"x": 2});
       - sql: |
           drop table T;
       - sql: |

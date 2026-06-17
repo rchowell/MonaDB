@@ -42,7 +42,7 @@ tests:
     setup:
       - create table S;
       - |
-        insert into S ({x: null});
+        insert into S ({"x": null});
     steps:
       - sql: |
           select s.x is null from S as s;
@@ -62,7 +62,7 @@ tests:
     setup:
       - create table S;
       - |
-        insert into S ({x: 1});
+        insert into S ({"x": 1});
     steps:
       - sql: |
           select s.x is not null from S as s;
@@ -355,7 +355,7 @@ tests:
     setup:
       - create table N;
       - |
-        insert into N ({x: 5});
+        insert into N ({"x": 5});
     steps:
       - sql: |
           select n.x between 1 and 10 from N as n;
@@ -432,7 +432,7 @@ tests:
     setup:
       - create table N;
       - |
-        insert into N ({x: 2});
+        insert into N ({"x": 2});
     steps:
       - sql: |
           select n.x in (1, 2, 3) from N as n;
@@ -478,7 +478,7 @@ tests:
     setup:
       - create table N;
       - |
-        insert into N ({x: 1});
+        insert into N ({"x": 1});
     steps:
       - sql: |
           select n.x from N as n where null and n.x > 0;
@@ -488,7 +488,7 @@ tests:
     setup:
       - create table N;
       - |
-        insert into N ({x: 1}, {x: 2});
+        insert into N ({"x": 1}, {"x": 2});
     steps:
       - sql: |
           select n.x from N as n where true or null;
@@ -498,7 +498,7 @@ tests:
     setup:
       - create table N;
       - |
-        insert into N ({x: 2, y: 5});
+        insert into N ({"x": 2, "y": 5});
     steps:
       - sql: |
           select n.x from N as n where n.x > 1 and n.y > 0;
@@ -508,7 +508,7 @@ tests:
     setup:
       - create table N;
       - |
-        insert into N ({x: 3});
+        insert into N ({"x": 3});
     steps:
       - sql: |
           select n.x from N as n where n.x = 1 or n.x = 3;
@@ -518,7 +518,7 @@ tests:
     setup:
       - create table N;
       - |
-        insert into N ({x: 1}, {x: null}, {x: 3});
+        insert into N ({"x": 1}, {"x": null}, {"x": 3});
     steps:
       - sql: |
           select * from N where N.x is null;
@@ -560,7 +560,7 @@ tests:
     setup:
       - create table W;
       - |
-        insert into W ({v: 42});
+        insert into W ({"v": 42});
     steps:
       - sql: |
           select w.v from W as w where [1];

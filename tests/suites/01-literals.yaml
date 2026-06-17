@@ -52,10 +52,40 @@ tests:
         result: [""]
 
   - id: lit-string-escaped-quote
-    description: embedded single quote is escaped by doubling
+    description: embedded quote is escaped with a backslash
     steps:
-      - sql: "select 'it''s';"
+      - sql: "select 'it\\'s';"
         result: ["it's"]
+
+  - id: lit-string-double-quoted
+    description: double-quoted string literal, equivalent to single-quoted
+    steps:
+      - sql: 'select "hello";'
+        result: ["hello"]
+
+  - id: lit-string-opposite-quote-literal
+    description: the opposite delimiter needs no escape inside a string
+    steps:
+      - sql: 'select "it''s";'
+        result: ["it's"]
+
+  - id: lit-string-escapes
+    description: backslash escapes for newline, tab, and backslash
+    steps:
+      - sql: "select 'a\\nb\\tc\\\\d';"
+        result: ["a\nb\tc\\d"]
+
+  - id: lit-string-unicode-escape
+    description: backslash-u escape produces the corresponding Unicode scalar
+    steps:
+      - sql: "select '\\u00e9';"
+        result: ["é"]
+
+  - id: lit-string-bad-escape
+    description: an unknown backslash escape is a syntax error
+    steps:
+      - sql: "select '\\q';"
+        error: syntax
 
   - id: lit-string-unicode
     description: string with Unicode content
@@ -102,7 +132,7 @@ tests:
   - id: lit-object-basic
     description: object literal with two members
     steps:
-      - sql: "select {x: 1, y: 2};"
+      - sql: "select {\"x\": 1, \"y\": 2};"
         result: [{x: 1, y: 2}]
 
   - id: lit-object-string-key
@@ -114,8 +144,20 @@ tests:
   - id: lit-object-nested
     description: nested object and array in a literal
     steps:
-      - sql: "select {items: [1, 2], meta: {n: 2}};"
+      - sql: "select {\"items\": [1, 2], \"meta\": {\"n\": 2}};"
         result: [{items: [1, 2], meta: {n: 2}}]
+
+  - id: lit-object-bare-key-rejected
+    description: a bare-identifier object key is a syntax error
+    steps:
+      - sql: "select {x: 1};"
+        error: syntax
+
+  - id: lit-object-nonbare-key-via-subscript
+    description: a non-bare key is written as a string and read via subscript
+    steps:
+      - sql: "select t[\"weird key\"] from [{\"weird key\": 5}] as t;"
+        result: [5]
 
   # 1.2 — keyword case-insensitivity
   - id: lex-keywords-case-insensitive

@@ -453,10 +453,10 @@ The current `Connection` is the right boundary, but its API needs to grow:
 
 ```rust
 // before (current)
-conn.open_cursor(table) -> Cursor              // Cursor backed by Vec<Row>
+db.open_cursor(table) -> Cursor              // Cursor backed by Vec<Row>
 
 // after
-conn.begin_read() / conn.begin_write()         // returns ReadTxn / WriteTxn
+db.begin_read() / db.begin_write()         // returns ReadTxn / WriteTxn
 txn.open_cursor(table) -> StorageCursor        // borrows from txn
 txn.put_row(table, value) / txn.commit() / ...
 ```
@@ -518,7 +518,7 @@ Let's trace `create table points; insert into points (1); select * from points;`
 1. Parser produces `ir::Statement::Create(Create::Table(Table { name: "points", keys: vec![] }))`.
 2. Compiler emits `[Init(write), CreateTable { table }, Commit, Exit]`.
 3. VM:
-   - `Init(write)` → `conn.begin_write()` opens an LMDB `RwTxn`, stashes it on the VM as `TxnHandle::Write`.
+   - `Init(write)` → `db.begin_write()` opens an LMDB `RwTxn`, stashes it on the VM as `TxnHandle::Write`.
    - `CreateTable` → `txn.create_table(schema)` allocates a new `table_id` from `meta::next_table_id` (say 7), writes `meta[b"schema/points"] = bincode(TableSchema { name: "points", table_id: 7, keys: vec![] })`, increments the counter.
    - `Commit` → `txn.commit()` flushes (no staged data writes; just the meta updates) and wraps `RwTxn.commit()`.
 4. Returns to the REPL: 0 rows.
@@ -544,7 +544,7 @@ Let's trace `create table points; insert into points (1); select * from points;`
 1. Parser: a Select with `from points as points`, no where, no fetch.
 2. Compiler: roughly `[Init(read), Open("points"), Rewind(c=0, jmp=after_loop), Load(c=0), <project *>, Return(0), Next(c=0, jmp=loop_top), <after_loop>, Exit]`.
 3. VM:
-   - `Init(read)` → `conn.begin_read()` opens `RoTxn`.
+   - `Init(read)` → `db.begin_read()` opens `RoTxn`.
    - `Open("points")` → `txn.open_cursor("points")` builds a `StorageCursor`:
      - Look up table_id = 7 in the catalog snapshot.
      - Construct `inner = data_db.iter(&ro)` positioned at `u32_be(7)`.

@@ -18,7 +18,7 @@ tests:
     description: indexing by an existing int key returns the whole row
     steps:
       - sql: |
-          insert into t ({id: 1, v: "a"});
+          insert into t ({"id": 1, "v": "a"});
       - sql: |
           select t[1];
         result:
@@ -28,7 +28,7 @@ tests:
     description: a missing key yields null (dict-get → nil), one row
     steps:
       - sql: |
-          insert into t ({id: 1, v: "a"});
+          insert into t ({"id": 1, "v": "a"});
       - sql: |
           select t[99];
         result:
@@ -48,7 +48,7 @@ tests:
       - sql: |
           create table s (id string);
       - sql: |
-          insert into s ({id: "x", v: 9});
+          insert into s ({"id": "x", "v": 9});
       - sql: |
           select s["x"];
         result:
@@ -58,9 +58,9 @@ tests:
     description: re-inserting a key overwrites; the lookup sees the latest value
     steps:
       - sql: |
-          insert into t ({id: 1, v: 100});
+          insert into t ({"id": 1, "v": 100});
       - sql: |
-          insert into t ({id: 1, v: 200});
+          insert into t ({"id": 1, "v": 200});
       - sql: |
           select t[1];
         result:
@@ -70,7 +70,7 @@ tests:
     description: the looked-up row is a value and can be indexed further
     steps:
       - sql: |
-          insert into t ({id: 1, v: "a"});
+          insert into t ({"id": 1, "v": "a"});
       - sql: |
           select t[1].v;
         result:
@@ -80,7 +80,7 @@ tests:
     description: the lookup picks exactly one row out of many, ignoring the rest
     steps:
       - sql: |
-          insert into t ({id: 1, v: "a"}, {id: 2, v: "b"}, {id: 3, v: "c"});
+          insert into t ({"id": 1, "v": "a"}, {"id": 2, "v": "b"}, {"id": 3, "v": "c"});
       - sql: |
           select t[2];
         result:
@@ -117,7 +117,7 @@ tests:
       - sql: |
           create table c (a string, b int);
       - sql: |
-          insert into c ({a: "x", b: 7, v: "hit"});
+          insert into c ({"a": "x", "b": 7, "v": "hit"});
       - sql: |
           select c["x", 7];
         result:
@@ -133,7 +133,7 @@ tests:
       - sql: |
           create table c (a string, b int);
       - sql: |
-          insert into c ({a: "x", b: 2, v: "q"}, {a: "x", b: 1, v: "p"}, {a: "y", b: 9, v: "r"});
+          insert into c ({"a": "x", "b": 2, "v": "q"}, {"a": "x", "b": 1, "v": "p"}, {"a": "y", "b": 9, "v": "r"});
       - sql: |
           select c["x"];
         result:
@@ -145,7 +145,7 @@ tests:
       - sql: |
           create table c (a string, b int);
       - sql: |
-          insert into c ({a: "x", b: 1, v: "p"});
+          insert into c ({"a": "x", "b": 1, "v": "p"});
       - sql: |
           select c["z"];
         result:
@@ -157,7 +157,7 @@ tests:
       - sql: |
           create table k (a string, b int, c int);
       - sql: |
-          insert into k ({a: "x", b: 7, c: 2, v: "n"}, {a: "x", b: 7, c: 1, v: "m"}, {a: "x", b: 8, c: 9, v: "o"});
+          insert into k ({"a": "x", "b": 7, "c": 2, "v": "n"}, {"a": "x", "b": 7, "c": 1, "v": "m"}, {"a": "x", "b": 8, "c": 9, "v": "o"});
       - sql: |
           select k["x", 7];
         result:
@@ -169,7 +169,7 @@ tests:
       - sql: |
           create table c (a string, b int);
       - sql: |
-          insert into c ({a: "x", b: 1, v: "p"}, {a: "x", b: 2, v: "q"});
+          insert into c ({"a": "x", "b": 1, "v": "p"}, {"a": "x", "b": 2, "v": "q"});
       - sql: |
           select c["x"][0];
         result:
@@ -181,7 +181,7 @@ tests:
       - sql: |
           create table c (a string, b int);
       - sql: |
-          insert into c ({a: "x", b: 1, v: "p"}, {a: "x", b: 2, v: "q"}, {a: "y", b: 9, v: "r"});
+          insert into c ({"a": "x", "b": 1, "v": "p"}, {"a": "x", "b": 2, "v": "q"}, {"a": "y", "b": 9, "v": "r"});
       - sql: |
           select r from c["x"] as r;
         result:
@@ -194,7 +194,7 @@ tests:
       - sql: |
           create table c (a string, b int);
       - sql: |
-          insert into c ({a: "x", b: 7});
+          insert into c ({"a": "x", "b": 7});
       - sql: |
           select c["x", 8];
         result:

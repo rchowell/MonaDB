@@ -12,7 +12,7 @@ This tutorial walks through the basics in a Python REPL. MonaDB runs in-process 
 ```python
 import monadb
 
-con = monadb.connect("demo.db")  # omit the path for :memory:
+db = monadb.connect("demo.db")  # omit the path for :memory:
 ```
 
 ## Create a table
@@ -20,20 +20,20 @@ con = monadb.connect("demo.db")  # omit the path for :memory:
 Tables are created with SQL. Key columns are optional; here we declare an integer `id`:
 
 ```python
-con.execute("create table todos (id int);")
+db.execute("create table todos (id int);")
 ```
 
 You can also use the dict-like table API:
 
 ```python
-todos = con["todos"]
+todos = db.table("todos")
 todos.create(id=int)
 ```
 
 ## Insert rows
 
 ```python
-con.execute("""
+db.execute("""
     insert into todos ({id: 1, text: "Buy milk", done: false});
     insert into todos ({id: 2, text: "Walk the dog", done: false});
 """)
@@ -50,8 +50,8 @@ Re-inserting a row with the same key overwrites it — MonaDB has no separate `U
 ## Query
 
 ```python
-con.execute("select * from todos where done = false order by id;")
-con.fetchall()
+db.execute("select * from todos where done = false order by id;")
+db.fetchall()
 # [{'id': 1, 'text': 'Buy milk', 'done': False}, ...]
 ```
 

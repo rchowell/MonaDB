@@ -13,9 +13,9 @@ pip install monadb
 ```python
 import monadb
 
-con = monadb.connect()          # in-memory
-con = monadb.connect("app.db")  # file-backed
-con.execute("create table todos (id int);")
+db = monadb.connect()          # in-memory
+db = monadb.connect("app.db")  # file-backed
+db.execute("create table todos (id int);")
 ```
 
 ### CLI shell (`monadb`)

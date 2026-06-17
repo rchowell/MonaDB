@@ -20,6 +20,7 @@ export const SUITE_TITLES = {
   aggregate: "Aggregate",
   "unpivot-clause": "Unpivot",
   "pivot-clause": "Pivot",
+  params: "Parameters",
   functions: "Functions",
   cast: "Casts",
   delete: "Delete",
@@ -203,16 +204,67 @@ function collectTestExamples(test, suite) {
   return { positive, errors, session };
 }
 
-export function renderTest(test, suite, { terse = false } = {}) {
+function hasErrorSteps(test) {
+  return (test.steps ?? []).some((step) => step.error !== undefined);
+}
+
+function isMinimalTest(test, suite) {
+  if (hasErrorSteps(test)) return false;
+
+  const resultSteps = (test.steps ?? []).filter((step) => step.result !== undefined);
+  if (resultSteps.length !== 1) return false;
+
+  const sqlSteps = (test.steps ?? []).filter((step) => step.sql);
+  if (sqlSteps.length > 2) return false;
+
+  const haystack = `${test.id} ${test.description ?? ""}`.toLowerCase();
+  if (
+    /cross|cartesian|lateral|comma|multi|equivalent|five|heterogeneous|pivot|subquery|nested|three|four|partial|composite|ordering|desc|nulls|step/.test(
+      haystack,
+    )
+  ) {
+    return false;
+  }
+
+  const setup = collectSetup(suite, test);
+  if (setup.length > 2) return false;
+
+  return true;
+}
+
+function categorizeTests(suite) {
+  const minimal = [];
+  const compound = [];
+  const errors = [];
+
+  for (const test of suite.tests ?? []) {
+    if (hasErrorSteps(test)) {
+      errors.push(test);
+    } else if (isMinimalTest(test, suite)) {
+      minimal.push(test);
+    } else {
+      compound.push(test);
+    }
+  }
+
+  if (minimal.length === 0 && compound.length > 0) {
+    minimal.push(compound.shift());
+  }
+
+  return { minimal, compound, errors };
+}
+
+export function renderTest(test, suite, { terse = false, headingLevel = 2 } = {}) {
   const lines = [];
   const { positive, errors, session } = collectTestExamples(test, suite);
+  const heading = "#".repeat(headingLevel);
 
   if (!terse) {
     const title = exampleTitle(test);
     const description = exampleDescription(test);
     lines.push('<div class="example">');
     lines.push("");
-    lines.push(`### ${title}`);
+    lines.push(`${heading} ${title}`);
     lines.push("");
     lines.push(description);
     lines.push("");
@@ -349,6 +401,37 @@ export function renderSuiteFile(suitesDir, file, { terse = false } = {}) {
   return renderSuiteTests(suite, { terse });
 }
 
+/** Render suite tests grouped into Minimal, Compound, and Error cases. */
+export function renderCategorizedSuite(suite, { terse = false, headingLevel = 4 } = {}) {
+  const { minimal, compound, errors } = categorizeTests(suite);
+  const sections = ["## Examples", ""];
+
+  function renderGroup(title, tests) {
+    if (tests.length === 0) return;
+    sections.push(`### ${title}`, "");
+    for (const test of tests) {
+      sections.push(renderTest(test, suite, { terse, headingLevel }));
+      sections.push("");
+    }
+  }
+
+  renderGroup("Minimal", minimal);
+  renderGroup("Compound", compound);
+  renderGroup("Error cases", errors);
+
+  return sections.join("\n").trimEnd();
+}
+
+/** Render a single suite file into categorized example sections. */
+export function renderCategorizedSuiteFile(
+  suitesDir,
+  file,
+  { terse = false, headingLevel = 4 } = {},
+) {
+  const suite = loadSuite(suitesDir, file);
+  return renderCategorizedSuite(suite, { terse, headingLevel });
+}
+
 /** Render one or more suite files into a single examples body. */
 export function renderSuitesFromFiles(
   suitesDir,
@@ -363,7 +446,11 @@ export function renderSuitesFromFiles(
     const sectionTitle = sectionTitles[name] ?? SUITE_TITLES[name] ?? name;
 
     if (!terse && files.length > 1) {
+      sections.push('<div class="example-section">');
+      sections.push("");
       sections.push(`${sectionHeading} ${sectionTitle}`);
+      sections.push("");
+      sections.push("</div>");
       sections.push("");
     }
 

@@ -10,7 +10,7 @@ Then type commands at the `todo>` prompt (try `help`).
 What this demonstrates about driving monadb from Python:
 
   * ``monadb.connect(path)`` opens a persistent, file-backed database.
-  * ``con["todos"]`` returns a dict-like :class:`~monadb.table.Table` handle.
+  * ``db.table("todos")`` returns a dict-like :class:`~monadb.table.Table` handle.
   * ``create`` / ``insert`` / ``get`` / ``delete`` / iteration map CRUD onto
     monadb's keyed document model without hand-built SQL.
   * monadb has no ``UPDATE`` statement — re-inserting an object whose key
@@ -63,8 +63,8 @@ def remove(todos, tid):
     return f"removed #{tid}"
 
 
-def clear(con):
-    con.execute("delete from todos;")
+def clear(db):
+    db.execute("delete from todos;")
     return "cleared"
 
 
@@ -85,7 +85,7 @@ def _with_id(arg, fn):
     return fn(tid)
 
 
-def dispatch(con, todos, line):
+def dispatch(db, todos, line):
     """Route one input line to an operation; returns text to print, or None."""
     line = line.strip()
     if not line:
@@ -101,7 +101,7 @@ def dispatch(con, todos, line):
     if cmd in ("rm", "remove", "del"):
         return _with_id(arg, lambda tid: remove(todos, tid))
     if cmd == "clear":
-        return clear(con)
+        return clear(db)
     if cmd == "help":
         return HELP
     return f"unknown command: {cmd!r} (type 'help')"
@@ -109,8 +109,8 @@ def dispatch(con, todos, line):
 
 def main():
     db_path = sys.argv[1] if len(sys.argv) > 1 else "todos.db"
-    con = monadb.connect(db_path)
-    todos = con["todos"]
+    db = monadb.connect(db_path)
+    todos = db.table("todos")
 
     try:
         todos.create(id=int)
@@ -127,11 +127,11 @@ def main():
                 break
             if line.strip().lower() in ("quit", "exit"):
                 break
-            out = dispatch(con, todos, line)
+            out = dispatch(db, todos, line)
             if out is not None:
                 print(out)
     finally:
-        con.close()
+        db.close()
 
 
 if __name__ == "__main__":

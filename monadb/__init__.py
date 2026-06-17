@@ -3,7 +3,7 @@
 Open a database with :func:`connect` (``None`` / ``":memory:"`` for in-memory,
 or a filesystem path). Each connection is a DuckDB-style SQL cursor
 (``execute``/``sql`` + ``fetch*``) and a namespace of dict-like table handles
-(``con["table"]``).
+(``db.table("table")``).
 
 The compiled extension (``monadb._monadb``) is the in-process engine; the
 high-level façade is pure Python layered over it.

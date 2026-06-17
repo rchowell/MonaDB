@@ -26,7 +26,7 @@ tests:
         result: ["null"]
       - sql: "select typeof([1, 2]);"
         result: ["array"]
-      - sql: "select typeof({a: 1});"
+      - sql: "select typeof({\"a\": 1});"
         result: ["object"]
 
   - id: fn-coalesce
@@ -164,7 +164,7 @@ tests:
         result: [5]
       - sql: "select length([1, 2, 3]);"
         result: [3]
-      - sql: "select length({x: 1, y: 2});"
+      - sql: "select length({\"x\": 1, \"y\": 2});"
         result: [2]
       - sql: select length('café');
         result: [4]
@@ -314,13 +314,13 @@ tests:
   - id: fn-object
     description: object_keys, object_values, object_has_key
     steps:
-      - sql: "select object_keys({a: 1, b: 2});"
+      - sql: "select object_keys({\"a\": 1, \"b\": 2});"
         result: [["a", "b"]]
-      - sql: "select object_values({a: 1, b: 2});"
+      - sql: "select object_values({\"a\": 1, \"b\": 2});"
         result: [[1, 2]]
-      - sql: "select object_has_key({a: 1}, 'a');"
+      - sql: "select object_has_key({\"a\": 1}, 'a');"
         result: [true]
-      - sql: "select object_has_key({a: 1}, 'z');"
+      - sql: "select object_has_key({\"a\": 1}, 'z');"
         result: [false]
 
   #----------------------------------------------------------------------------

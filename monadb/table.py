@@ -10,8 +10,8 @@ class Table:
 
     Example:
         >>> import monadb
-        >>> con = monadb.connect()
-        >>> users = con["users"]
+        >>> db = monadb.connect()
+        >>> users = db.table("users")
         >>> users.create(id=int)
         >>> users.insert({"id": 1, "name": "Ada"})
         >>> users[1]
@@ -28,7 +28,7 @@ class Table:
 
         Example:
             >>> import monadb
-            >>> monadb.connect()["items"].name
+            >>> monadb.connect().table("items").name
             'items'
         """
         return self._name
@@ -51,9 +51,9 @@ class Table:
 
         Example:
             >>> import monadb
-            >>> con = monadb.connect()
-            >>> con["events"].create(ts=int, kind=str)
-            >>> con["log"].create()  # no key columns
+            >>> db = monadb.connect()
+            >>> db.table("events").create(ts=int, kind=str)
+            >>> db.table("log").create()  # no key columns
         """
         table = encode_ident(self._name)
         if columns:
@@ -79,7 +79,7 @@ class Table:
 
         Example:
             >>> import monadb
-            >>> t = monadb.connect()["scores"]
+            >>> t = monadb.connect().table("scores")
             >>> t.create(player=str)
             >>> t.insert({"player": "ada", "score": 100})
             >>> t.insert([{"player": "linus", "score": 95},
@@ -106,7 +106,7 @@ class Table:
 
         Example:
             >>> import monadb
-            >>> c = monadb.connect()["c"]
+            >>> c = monadb.connect().table("c")
             >>> c.create(a=str, b=int)
             >>> c.insert([{"a": "x", "b": 7}, {"a": "x", "b": 8}])
             >>> c.get("x", 7)          # full key → row
@@ -128,7 +128,7 @@ class Table:
     def delete(self, *, where: Optional[str] = None, **eq: Any) -> "Table":
         """Delete rows matching key predicates or a raw ``where`` clause.
 
-        To delete every row, use ``connection.execute("delete from …")`` —
+        To delete every row, use ``db.execute("delete from …")`` —
         bare ``delete()`` is rejected to avoid accidents.
 
         Args:
@@ -144,7 +144,7 @@ class Table:
 
         Example:
             >>> import monadb
-            >>> t = monadb.connect()["t"]
+            >>> t = monadb.connect().table("t")
             >>> t.create(k=int)
             >>> t.insert([{"k": 1}, {"k": 2}])
             >>> t.delete(k=1)
@@ -183,7 +183,7 @@ class Table:
 
         Example:
             >>> import monadb
-            >>> c = monadb.connect()["c"]
+            >>> c = monadb.connect().table("c")
             >>> c.create(a=str, b=int)
             >>> c.insert({"a": "x", "b": 7})
             >>> c["x", 7]              # composite full key
@@ -201,7 +201,7 @@ class Table:
 
         Example:
             >>> import monadb
-            >>> t = monadb.connect()["t"]
+            >>> t = monadb.connect().table("t")
             >>> t.create(k=int)
             >>> t.insert({"k": 1})
             >>> 1 in t
@@ -216,7 +216,7 @@ class Table:
 
         Example:
             >>> import monadb
-            >>> t = monadb.connect()["t"]
+            >>> t = monadb.connect().table("t")
             >>> t.create(k=int)
             >>> t.insert([{"k": 1}, {"k": 2}])
             >>> sorted(row["k"] for row in t)
@@ -232,7 +232,7 @@ class Table:
 
         Example:
             >>> import monadb
-            >>> t = monadb.connect()["t"]
+            >>> t = monadb.connect().table("t")
             >>> t.create(k=int)
             >>> t.insert([{"k": 1}, {"k": 2}, {"k": 3}])
             >>> len(t)
@@ -258,7 +258,7 @@ class Table:
 
         Example:
             >>> import monadb
-            >>> t = monadb.connect()["t"]
+            >>> t = monadb.connect().table("t")
             >>> t.create(k=int)
             >>> t.insert([{"k": 1}, {"k": 2}])
             >>> del t[1]
@@ -287,7 +287,7 @@ class Table:
 
         Example:
             >>> import monadb
-            >>> t = monadb.connect()["t"]
+            >>> t = monadb.connect().table("t")
             >>> t.create(k=int)
             >>> t.insert({"k": 2, "v": "old"})
             >>> t[2] = {"v": "new"}
@@ -308,7 +308,7 @@ class Table:
         if not cols:
             raise TypeError(
                 f"key columns for {self._name!r} are unknown; create the table "
-                "via create() or pass keys= to connection.table()"
+                "via create() or pass keys= to db.table()"
             )
         return cols
 

@@ -196,11 +196,14 @@
   }
 
   /* ── Prose code highlighting ────────────────────────── */
+  // Keep in sync with reserved tokens in src/lexer.rs (keywords, type names, literals).
   var KEYWORDS = {
-    and: 1, as: 1, asc: 1, by: 1, cast: 1, copy: 1, create: 1, default: 1,
-    delete: 1, desc: 1, drop: 1, false: 1, fetch: 1, from: 1, group: 1,
-    insert: 1, into: 1, limit: 1, not: 1, null: 1, or: 1, order: 1, read: 1,
-    select: 1, set: 1, step: 1, table: 1, true: 1, update: 1, where: 1, with: 1
+    all: 1, and: 1, any: 1, array: 1, as: 1, asc: 1, at: 1, between: 1, bool: 1,
+    by: 1, clear: 1, copy: 1, create: 1, delete: 1, desc: 1, drop: 1, exists: 1,
+    false: 1, float: 1, from: 1, group: 1, having: 1, in: 1, insert: 1, into: 1,
+    int: 1, is: 1, limit: 1, not: 1, null: 1, number: 1, object: 1, or: 1,
+    order: 1, pivot: 1, select: 1, string: 1, table: 1, to: 1, true: 1,
+    unknown: 1, unpivot: 1, where: 1
   };
 
   function appendTok(parent, text, cls) {
@@ -297,11 +300,26 @@
     var list = input.closest('[data-docs-sidebar]');
     if (!list) return;
     var items = list.querySelectorAll('[data-docs-sidebar-item]');
+    var groups = list.querySelectorAll('[data-docs-sidebar-group]');
     input.addEventListener('input', function () {
       var q = input.value.trim().toLowerCase();
       items.forEach(function (li) {
         var title = li.getAttribute('data-title') || '';
         li.hidden = q && title.indexOf(q) === -1;
+      });
+      groups.forEach(function (group) {
+        if (!q) {
+          group.hidden = false;
+          return;
+        }
+        var groupTitle = group.getAttribute('data-title') || '';
+        var childVisible = Array.prototype.some.call(
+          group.querySelectorAll('[data-docs-sidebar-item]'),
+          function (li) { return !li.hidden; }
+        );
+        var match = groupTitle.indexOf(q) !== -1 || childVisible;
+        group.hidden = !match;
+        if (match && childVisible) group.setAttribute('data-open', '');
       });
     });
     document.addEventListener('keydown', function (event) {
@@ -311,6 +329,31 @@
           input.focus();
         }
       }
+    });
+  }
+
+  function initDocsSidebarGroups(root) {
+    var scope = root || document;
+    scope.querySelectorAll('[data-docs-sidebar-group]').forEach(function (group) {
+      if (group.dataset.bound) return;
+      group.dataset.bound = 'true';
+      if (group.querySelector('.docs-sidebar-list a.active')) {
+        group.setAttribute('data-open', '');
+        var activeToggle = group.querySelector('.docs-sidebar-group-toggle');
+        if (activeToggle) activeToggle.setAttribute('aria-expanded', 'true');
+      }
+      var toggle = group.querySelector('.docs-sidebar-group-toggle');
+      if (!toggle) return;
+      toggle.addEventListener('click', function () {
+        var open = group.hasAttribute('data-open');
+        if (open) {
+          group.removeAttribute('data-open');
+          toggle.setAttribute('aria-expanded', 'false');
+        } else {
+          group.setAttribute('data-open', '');
+          toggle.setAttribute('aria-expanded', 'true');
+        }
+      });
     });
   }
 
@@ -406,6 +449,7 @@
     initCopyMarkdown();
     highlightProseCode();
     initDocsSidebarSearch();
+    initDocsSidebarGroups();
     initMobileSidebar();
     drawAll();
     // Redraw the wordmark once Geist has actually loaded.

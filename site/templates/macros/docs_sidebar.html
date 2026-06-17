@@ -9,6 +9,36 @@
 </li>
 {% endmacro %}
 
+{% macro sidebar_group(title, section_path) %}
+{% set section = get_section(path=section_path) %}
+{% set_global group_active = false %}
+{% for page in section.pages %}
+  {% if page.permalink == current_url %}
+    {% set_global group_active = true %}
+  {% endif %}
+{% endfor %}
+<li
+  class="docs-sidebar-group"
+  data-docs-sidebar-group
+  data-title="{{ title | lower }}"
+  {% if group_active %}data-open{% endif %}
+>
+  <button
+    type="button"
+    class="docs-sidebar-group-toggle"
+    aria-expanded="{% if group_active %}true{% else %}false{% endif %}"
+  >
+    <span class="docs-sidebar-group-label">{{ title }}</span>
+    <span class="docs-sidebar-group-chevron" aria-hidden="true">›</span>
+  </button>
+  <ul class="docs-sidebar-list docs-sidebar-list--nested" data-docs-sidebar-list>
+    {% for page in section.pages %}
+      {{ docs_sidebar::sidebar_link(page=page) }}
+    {% endfor %}
+  </ul>
+</li>
+{% endmacro %}
+
 {% macro render_docs_sidebar() %}
 <aside class="docs-sidebar" id="mobile-sidebar-nav" aria-label="Documentation" data-docs-sidebar data-mobile-sidebar-panel="nav">
   <div class="docs-sidebar-search-wrap">
@@ -37,7 +67,7 @@
       <p class="docs-sidebar-section-title">SQL</p>
       <ul class="docs-sidebar-list" data-docs-sidebar-list>
         {{ docs_sidebar::sidebar_link(page=get_page(path="language/introduction.md")) }}
-        {{ docs_sidebar::sidebar_link(page=get_page(path="language/statements.md")) }}
+        {{ docs_sidebar::sidebar_group(title="Statements", section_path="language/statements/_index.md") }}
         {{ docs_sidebar::sidebar_link(page=get_page(path="language/syntax.md")) }}
         {{ docs_sidebar::sidebar_link(page=get_page(path="language/types.md")) }}
         {{ docs_sidebar::sidebar_link(page=get_page(path="language/expressions.md")) }}
@@ -52,7 +82,8 @@
         {{ docs_sidebar::sidebar_link(page=get_page(path="examples/writing.md")) }}
         {{ docs_sidebar::sidebar_link(page=get_page(path="examples/keys.md")) }}
         {{ docs_sidebar::sidebar_link(page=get_page(path="examples/values.md")) }}
-        {{ docs_sidebar::sidebar_link(page=get_page(path="examples/reshape.md")) }}
+        {{ docs_sidebar::sidebar_link(page=get_page(path="examples/pivot.md")) }}
+        {{ docs_sidebar::sidebar_link(page=get_page(path="examples/params.md")) }}
       </ul>
     </div>
   </nav>

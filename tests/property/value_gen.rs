@@ -1,3 +1,5 @@
+#![allow(clippy::doc_markdown)]
+
 //! Shared Hegel generators for MonaDB values.
 //!
 //! `Value` is not `Debug`, but `TestCase::draw` requires `T: Debug` so a failing

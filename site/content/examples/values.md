@@ -8,6 +8,12 @@ weight = 4
 
 Expressions evaluated in isolation or inside larger queries.
 
+<div class="example-section">
+
+## Literals
+
+</div>
+
 <div class="example">
 
 ## Null
@@ -236,11 +242,15 @@ select {items: [1, 2], meta: {n: 2}};
 
 </div>
 
+<div class="example-section">
+
 ## Predicates
+
+</div>
 
 <div class="example">
 
-### Is null True
+## Is null True
 
 Shows the result of `is null true`.
 
@@ -266,7 +276,7 @@ select null is null from T;
 
 <div class="example">
 
-### Is null False
+## Is null False
 
 Shows the result of `is null false`.
 
@@ -292,7 +302,7 @@ select 1 is null from T;
 
 <div class="example">
 
-### Is Not null
+## Is Not null
 
 Shows the result of `is not null on null`.
 
@@ -318,7 +328,7 @@ select null is not null from T;
 
 <div class="example">
 
-### Is Not null
+## Is Not null
 
 Shows the result of `is not null on value`.
 
@@ -344,7 +354,7 @@ select 1 is not null from T;
 
 <div class="example">
 
-### Is null On
+## Is null On
 
 Shows the result of `is null on null column`.
 
@@ -357,7 +367,7 @@ insert into T ({});
 
 create table S;
 
-insert into S ({x: null});
+insert into S ({"x": null});
 
 select s.x is null from S as s;
 ```
@@ -374,7 +384,7 @@ select s.x is null from S as s;
 
 <div class="example">
 
-### Is null On
+## Is null On
 
 Shows the result of `is null on absent key`.
 
@@ -404,7 +414,7 @@ select s.x is null from S as s;
 
 <div class="example">
 
-### Is Not null
+## Is Not null
 
 Shows the result of `is not null on present key`.
 
@@ -417,7 +427,7 @@ insert into T ({});
 
 create table S;
 
-insert into S ({x: 1});
+insert into S ({"x": 1});
 
 select s.x is not null from S as s;
 ```
@@ -434,7 +444,7 @@ select s.x is not null from S as s;
 
 <div class="example">
 
-### True Is True
+## True Is True
 
 Shows the result of `true is true`.
 
@@ -460,7 +470,7 @@ select true is true from T;
 
 <div class="example">
 
-### False Is True
+## False Is True
 
 Shows the result of `false is true`.
 
@@ -486,7 +496,7 @@ select false is true from T;
 
 <div class="example">
 
-### null Is True
+## null Is True
 
 Shows the result of `null is true`.
 
@@ -512,7 +522,7 @@ select null is true from T;
 
 <div class="example">
 
-### True Is False
+## True Is False
 
 Shows the result of `true is false`.
 
@@ -538,7 +548,7 @@ select true is false from T;
 
 <div class="example">
 
-### False Is False
+## False Is False
 
 Shows the result of `false is false`.
 
@@ -564,7 +574,7 @@ select false is false from T;
 
 <div class="example">
 
-### null Is False
+## null Is False
 
 Shows the result of `null is false`.
 
@@ -590,7 +600,7 @@ select null is false from T;
 
 <div class="example">
 
-### True Is Unknown
+## True Is Unknown
 
 Shows the result of `true is unknown`.
 
@@ -616,7 +626,7 @@ select true is unknown from T;
 
 <div class="example">
 
-### False Is Unknown
+## False Is Unknown
 
 Shows the result of `false is unknown`.
 
@@ -642,7 +652,7 @@ select false is unknown from T;
 
 <div class="example">
 
-### null Is Unknown
+## null Is Unknown
 
 Shows the result of `null is unknown`.
 
@@ -668,7 +678,7 @@ select null is unknown from T;
 
 <div class="example">
 
-### Not True
+## Not True
 
 Shows the result of `true is not true`.
 
@@ -694,7 +704,7 @@ select true is not true from T;
 
 <div class="example">
 
-### Not True
+## Not True
 
 Shows the result of `null is not true`.
 
@@ -720,7 +730,7 @@ select null is not true from T;
 
 <div class="example">
 
-### Not False
+## Not False
 
 Shows the result of `null is not false`.
 
@@ -746,7 +756,7 @@ select null is not false from T;
 
 <div class="example">
 
-### Not Unknown
+## Not Unknown
 
 Shows the result of `null is not unknown`.
 
@@ -772,7 +782,7 @@ select null is not unknown from T;
 
 <div class="example">
 
-### Not True
+## Not True
 
 Shows the result of `not true`.
 
@@ -798,7 +808,7 @@ select not true from T;
 
 <div class="example">
 
-### Not False
+## Not False
 
 Shows the result of `not false`.
 
@@ -824,7 +834,7 @@ select not false from T;
 
 <div class="example">
 
-### Not null
+## Not null
 
 Shows the result of `not null`.
 
@@ -850,7 +860,7 @@ select not null from T;
 
 <div class="example">
 
-### Double Not
+## Double Not
 
 Shows the result of `double not`.
 
@@ -876,7 +886,7 @@ select not not true from T;
 
 <div class="example">
 
-### And T T
+## And T T
 
 Shows the result of `and t t`.
 
@@ -902,7 +912,7 @@ select true and true from T;
 
 <div class="example">
 
-### And T F
+## And T F
 
 Shows the result of `and t f`.
 
@@ -928,7 +938,7 @@ select true and false from T;
 
 <div class="example">
 
-### And T N
+## And T N
 
 Shows the result of `and t n`.
 
@@ -954,7 +964,7 @@ select true and null from T;
 
 <div class="example">
 
-### And F T
+## And F T
 
 Shows the result of `and f t`.
 
@@ -980,7 +990,7 @@ select false and true from T;
 
 <div class="example">
 
-### And F F
+## And F F
 
 Shows the result of `and f f`.
 
@@ -1006,7 +1016,7 @@ select false and false from T;
 
 <div class="example">
 
-### False-dominance, False
+## False-dominance, False
 
 False-dominance, false AND null is false.
 
@@ -1032,7 +1042,7 @@ select false and null from T;
 
 <div class="example">
 
-### And N T
+## And N T
 
 Shows the result of `and n t`.
 
@@ -1058,7 +1068,7 @@ select null and true from T;
 
 <div class="example">
 
-### False-dominance, Null
+## False-dominance, Null
 
 False-dominance, null AND false is false.
 
@@ -1084,7 +1094,7 @@ select null and false from T;
 
 <div class="example">
 
-### And N N
+## And N N
 
 Shows the result of `and n n`.
 
@@ -1110,7 +1120,7 @@ select null and null from T;
 
 <div class="example">
 
-### Or T T
+## Or T T
 
 Shows the result of `or t t`.
 
@@ -1136,7 +1146,7 @@ select true or true from T;
 
 <div class="example">
 
-### Or T F
+## Or T F
 
 Shows the result of `or t f`.
 
@@ -1162,7 +1172,7 @@ select true or false from T;
 
 <div class="example">
 
-### True-dominance, True
+## True-dominance, True
 
 True-dominance, true OR null is true.
 
@@ -1188,7 +1198,7 @@ select true or null from T;
 
 <div class="example">
 
-### Or F T
+## Or F T
 
 Shows the result of `or f t`.
 
@@ -1214,7 +1224,7 @@ select false or true from T;
 
 <div class="example">
 
-### Or F F
+## Or F F
 
 Shows the result of `or f f`.
 
@@ -1240,7 +1250,7 @@ select false or false from T;
 
 <div class="example">
 
-### Or F N
+## Or F N
 
 Shows the result of `or f n`.
 
@@ -1266,7 +1276,7 @@ select false or null from T;
 
 <div class="example">
 
-### True-dominance, Null
+## True-dominance, Null
 
 True-dominance, null OR true is true.
 
@@ -1292,7 +1302,7 @@ select null or true from T;
 
 <div class="example">
 
-### Or N F
+## Or N F
 
 Shows the result of `or n f`.
 
@@ -1318,7 +1328,7 @@ select null or false from T;
 
 <div class="example">
 
-### Or N N
+## Or N N
 
 Shows the result of `or n n`.
 
@@ -1344,7 +1354,7 @@ select null or null from T;
 
 <div class="example">
 
-### Than Or
+## Than Or
 
 A OR b AND c parses as a OR (b AND c).
 
@@ -1370,7 +1380,7 @@ select false or true and false from T;
 
 <div class="example">
 
-### NOT A
+## NOT A
 
 NOT a AND b parses as (NOT a) AND b.
 
@@ -1396,7 +1406,7 @@ select not false and true from T;
 
 <div class="example">
 
-### Parens Override Precedence
+## Parens Override Precedence
 
 Shows the result of `parens override precedence`.
 
@@ -1422,7 +1432,7 @@ select (false or true) and false from T;
 
 <div class="example">
 
-### Between Inside
+## Between Inside
 
 Shows the result of `between inside`.
 
@@ -1448,7 +1458,7 @@ select 5 between 1 and 10 from T;
 
 <div class="example">
 
-### Between Low Boundary
+## Between Low Boundary
 
 Shows the result of `between low boundary`.
 
@@ -1474,7 +1484,7 @@ select 1 between 1 and 10 from T;
 
 <div class="example">
 
-### Between High Boundary
+## Between High Boundary
 
 Shows the result of `between high boundary`.
 
@@ -1500,7 +1510,7 @@ select 10 between 1 and 10 from T;
 
 <div class="example">
 
-### Between Below Range
+## Between Below Range
 
 Shows the result of `between below range`.
 
@@ -1526,7 +1536,7 @@ select 0 between 1 and 10 from T;
 
 <div class="example">
 
-### Between Above Range
+## Between Above Range
 
 Shows the result of `between above range`.
 
@@ -1552,7 +1562,7 @@ select 11 between 1 and 10 from T;
 
 <div class="example">
 
-### Asymmetric BETWEEN,
+## Asymmetric BETWEEN,
 
 Asymmetric BETWEEN, a > b yields false.
 
@@ -1578,7 +1588,7 @@ select 5 between 10 and 1 from T;
 
 <div class="example">
 
-### Not Between Inside
+## Not Between Inside
 
 Shows the result of `not between inside`.
 
@@ -1604,7 +1614,7 @@ select 5 not between 1 and 10 from T;
 
 <div class="example">
 
-### Not Between Outside
+## Not Between Outside
 
 Shows the result of `not between outside`.
 
@@ -1630,7 +1640,7 @@ select 11 not between 1 and 10 from T;
 
 <div class="example">
 
-### Between On Column
+## Between On Column
 
 Shows the result of `between on column`.
 
@@ -1643,7 +1653,7 @@ insert into T ({});
 
 create table N;
 
-insert into N ({x: 5});
+insert into N ({"x": 5});
 
 select n.x between 1 and 10 from N as n;
 ```
@@ -1660,7 +1670,7 @@ select n.x between 1 and 10 from N as n;
 
 <div class="example">
 
-### Strings Order Lexicographically
+## Strings Order Lexicographically
 
 Strings order lexicographically.
 
@@ -1686,7 +1696,7 @@ select 'a' < 'b' from T;
 
 <div class="example">
 
-### String Gt
+## String Gt
 
 Shows the result of `string gt`.
 
@@ -1712,7 +1722,7 @@ select 'b' > 'a' from T;
 
 <div class="example">
 
-### String Ge Equal
+## String Ge Equal
 
 Shows the result of `string ge equal`.
 
@@ -1738,7 +1748,7 @@ select 'a' >= 'a' from T;
 
 <div class="example">
 
-### String Between Inside
+## String Between Inside
 
 Shows the result of `string between inside`.
 
@@ -1764,7 +1774,7 @@ select 'b' between 'a' and 'c' from T;
 
 <div class="example">
 
-### String Between Outside
+## String Between Outside
 
 Shows the result of `string between outside`.
 
@@ -1790,7 +1800,7 @@ select 'd' between 'a' and 'c' from T;
 
 <div class="example">
 
-### In Hit
+## In Hit
 
 Shows the result of `in hit`.
 
@@ -1816,7 +1826,7 @@ select 2 in (1, 2, 3) from T;
 
 <div class="example">
 
-### In Miss
+## In Miss
 
 Shows the result of `in miss`.
 
@@ -1842,7 +1852,7 @@ select 99 in (1, 2, 3) from T;
 
 <div class="example">
 
-### In Single Element
+## In Single Element
 
 Shows the result of `in single element`.
 
@@ -1868,7 +1878,7 @@ select 1 in (1) from T;
 
 <div class="example">
 
-### In String
+## In String
 
 Shows the result of `in string`.
 
@@ -1894,7 +1904,7 @@ select 'bob' in ('alice', 'bob', 'carol') from T;
 
 <div class="example">
 
-### Not In Hit
+## Not In Hit
 
 Shows the result of `not in hit`.
 
@@ -1920,7 +1930,7 @@ select 2 not in (1, 2, 3) from T;
 
 <div class="example">
 
-### Not In Miss
+## Not In Miss
 
 Shows the result of `not in miss`.
 
@@ -1946,7 +1956,7 @@ select 99 not in (1, 2, 3) from T;
 
 <div class="example">
 
-### In On Column
+## In On Column
 
 Shows the result of `in on column`.
 
@@ -1959,7 +1969,7 @@ insert into T ({});
 
 create table N;
 
-insert into N ({x: 2});
+insert into N ({"x": 2});
 
 select n.x in (1, 2, 3) from N as n;
 ```
@@ -1976,7 +1986,7 @@ select n.x in (1, 2, 3) from N as n;
 
 <div class="example">
 
-### Pin Existing
+## Pin Existing
 
 Pin existing semantics, null = null is true.
 
@@ -2002,7 +2012,7 @@ select null = null from T;
 
 <div class="example">
 
-### Pin Existing
+## Pin Existing
 
 Pin existing semantics, null = 1 is false.
 
@@ -2028,7 +2038,7 @@ select null = 1 from T;
 
 <div class="example">
 
-### Pin Existing
+## Pin Existing
 
 Pin existing semantics, null contaminates ne to false.
 
@@ -2054,7 +2064,7 @@ select null != 1 from T;
 
 <div class="example">
 
-### Pin Existing
+## Pin Existing
 
 Pin existing semantics, null != null is false.
 
@@ -2080,7 +2090,7 @@ select null != null from T;
 
 <div class="example">
 
-### Pin Existing
+## Pin Existing
 
 Pin existing semantics, ordering with null is false.
 
@@ -2106,7 +2116,7 @@ select null < 1 from T;
 
 <div class="example">
 
-### Where Boundary
+## Where Boundary
 
 A null predicate result excludes the row at the where boundary.
 
@@ -2119,7 +2129,7 @@ insert into T ({});
 
 create table N;
 
-insert into N ({x: 1});
+insert into N ({"x": 1});
 
 select n.x from N as n where null and n.x > 0;
 ```
@@ -2134,7 +2144,7 @@ select n.x from N as n where null and n.x > 0;
 
 <div class="example">
 
-### Includes All
+## Includes All
 
 Shows the result of `where true includes all`.
 
@@ -2147,7 +2157,7 @@ insert into T ({});
 
 create table N;
 
-insert into N ({x: 1}, {x: 2});
+insert into N ({"x": 1}, {"x": 2});
 
 select n.x from N as n where true or null;
 ```
@@ -2165,7 +2175,7 @@ select n.x from N as n where true or null;
 
 <div class="example">
 
-### Where And Filters
+## Where And Filters
 
 Shows the result of `where and filters`.
 
@@ -2178,7 +2188,7 @@ insert into T ({});
 
 create table N;
 
-insert into N ({x: 2, y: 5});
+insert into N ({"x": 2, "y": 5});
 
 select n.x from N as n where n.x > 1 and n.y > 0;
 ```
@@ -2195,7 +2205,7 @@ select n.x from N as n where n.x > 1 and n.y > 0;
 
 <div class="example">
 
-### Where Or Filters
+## Where Or Filters
 
 Shows the result of `where or filters`.
 
@@ -2208,7 +2218,7 @@ insert into T ({});
 
 create table N;
 
-insert into N ({x: 3});
+insert into N ({"x": 3});
 
 select n.x from N as n where n.x = 1 or n.x = 3;
 ```
@@ -2225,7 +2235,7 @@ select n.x from N as n where n.x = 1 or n.x = 3;
 
 <div class="example">
 
-### null Filters
+## null Filters
 
 Shows the result of `where is null filters`.
 
@@ -2238,7 +2248,7 @@ insert into T ({});
 
 create table N;
 
-insert into N ({x: 1}, {x: null}, {x: 3});
+insert into N ({"x": 1}, {"x": null}, {"x": 3});
 
 select * from N where N.x is null;
 ```
@@ -2255,7 +2265,7 @@ select * from N where N.x is null;
 
 <div class="example">
 
-### Two Identical
+## Two Identical
 
 Two identical array literals are equal.
 
@@ -2281,7 +2291,7 @@ select [1] = [1] from T;
 
 <div class="example">
 
-### Two Distinct
+## Two Distinct
 
 Two distinct array literals are not equal.
 
@@ -2307,7 +2317,7 @@ select [1] = [2] from T;
 
 <div class="example">
 
-### Ne On
+## Ne On
 
 Ne on unequal arrays is true.
 
@@ -2333,7 +2343,7 @@ select [1] != [2] from T;
 
 <div class="example">
 
-### Ne On
+## Ne On
 
 Ne on equal arrays is false.
 
@@ -2359,7 +2369,7 @@ select [1, 2] != [1, 2] from T;
 
 <div class="example">
 
-### In Where
+## In Where
 
 A non-empty array is truthy in a Where clause.
 
@@ -2372,7 +2382,7 @@ insert into T ({});
 
 create table W;
 
-insert into W ({v: 42});
+insert into W ({"v": 42});
 
 select w.v from W as w where [1];
 ```
@@ -2387,11 +2397,15 @@ select w.v from W as w where [1];
 
 </div>
 
+<div class="example-section">
+
 ## Casts
+
+</div>
 
 <div class="example">
 
-### Int(x) Over
+## Int(x) Over
 
 Int(x) over int, float, string, and bool sources.
 
@@ -2629,7 +2643,7 @@ select int('9007199254740993.0') = 9007199254740993;
 
 <div class="example">
 
-### Float(x) Over
+## Float(x) Over
 
 Float(x) over int, float, string, and bool sources.
 
@@ -2751,7 +2765,7 @@ select float(false);
 
 <div class="example">
 
-### String(x) Renders
+## String(x) Renders
 
 String(x) renders a scalar as text.
 
@@ -2849,7 +2863,7 @@ select string('hi');
 
 <div class="example">
 
-### Bool(x) Over
+## Bool(x) Over
 
 Bool(x) over numbers and the true/false strings.
 
@@ -3025,7 +3039,7 @@ select bool('TRUE');
 
 <div class="example">
 
-### Number(x) Keeps
+## Number(x) Keeps
 
 Number(x) keeps the int/float-ness of the value.
 
@@ -3147,7 +3161,7 @@ select number('5.0');
 
 <div class="example">
 
-### Cast Compose
+## Cast Compose
 
 A cast is a normal call — it nests and combines with operators.
 
@@ -3188,7 +3202,7 @@ select int('5') + 1;
 
 select int(2.9) + 1;
 
-select int({a: 2.9}.a);
+select int({"a": 2.9}.a);
 ```
 
 <p class="example-label">Result</p>
@@ -3206,7 +3220,7 @@ select int('5') + 1;
 
 select int(2.9) + 1;
 
-select int({a: 2.9}.a);
+select int({"a": 2.9}.a);
 
 select int(float('2.7'));
 ```
@@ -3223,7 +3237,7 @@ select int(float('2.7'));
 
 <div class="example">
 
-### Cast null
+## Cast null
 
 A null argument short-circuits to null.
 
@@ -3321,7 +3335,7 @@ select number(null);
 
 <div class="example">
 
-### Typeof(t(x)) Reports
+## Typeof(t(x)) Reports
 
 Typeof(t(x)) reports the target type.
 
@@ -3559,7 +3573,7 @@ select typeof(number(true));
 
 <div class="example">
 
-### Bad Conversions
+## Bad Conversions
 
 Bad conversions fail at runtime.
 
@@ -3728,7 +3742,7 @@ select float('inf');
 
 select string([1, 2]);
 
-select string({a: 1});
+select string({"a": 1});
 ```
 
 Expected error: `runtime`
@@ -3737,7 +3751,7 @@ Expected error: `runtime`
 
 <div class="example">
 
-### Object/array/any Are
+## Object/array/any Are
 
 Object/array/any are not callable conversion functions.
 
@@ -3773,11 +3787,15 @@ Expected error: `syntax`
 
 </div>
 
+<div class="example-section">
+
 ## Functions
+
+</div>
 
 <div class="example">
 
-### Typeof Reports
+## Typeof Reports
 
 Typeof reports the value's runtime type name.
 
@@ -3910,7 +3928,7 @@ select typeof(null);
 
 select typeof([1, 2]);
 
-select typeof({a: 1});
+select typeof({"a": 1});
 ```
 
 <p class="example-label">Result</p>
@@ -3925,7 +3943,7 @@ select typeof({a: 1});
 
 <div class="example">
 
-### Coalesce Returns
+## Coalesce Returns
 
 Coalesce returns the first non-null argument.
 
@@ -4001,7 +4019,7 @@ select coalesce(null, null);
 
 <div class="example">
 
-### Nullif Yields
+## Nullif Yields
 
 Nullif yields null when the two arguments are equal.
 
@@ -4039,7 +4057,7 @@ select nullif(5, 3);
 
 <div class="example">
 
-### Ifnull /
+## Ifnull /
 
 Ifnull / nvl substitute a default for null.
 
@@ -4095,7 +4113,7 @@ select nvl(null, 9);
 
 <div class="example">
 
-### Iif Selects
+## Iif Selects
 
 Iif selects a branch on the truthiness of the condition.
 
@@ -4151,7 +4169,7 @@ select iif(null, 'y', 'n');
 
 <div class="example">
 
-### Abs Of
+## Abs Of
 
 Abs of ints and floats.
 
@@ -4207,7 +4225,7 @@ select abs(0.0 - 2.5);
 
 <div class="example">
 
-### Ceil, Floor,
+## Ceil, Floor,
 
 Ceil, floor, and trunc round floats; ints pass through.
 
@@ -4305,7 +4323,7 @@ select ceil(7);
 
 <div class="example">
 
-### Round To
+## Round To
 
 Round to nearest integer, and to n decimals.
 
@@ -4361,7 +4379,7 @@ select round(5);
 
 <div class="example">
 
-### Sign Returns
+## Sign Returns
 
 Sign returns -1, 0, or 1.
 
@@ -4417,7 +4435,7 @@ select sign(0);
 
 <div class="example">
 
-### Sqrt And
+## Sqrt And
 
 Sqrt and pow (integer powers stay integers).
 
@@ -4473,7 +4491,7 @@ select power(3, 2);
 
 <div class="example">
 
-### Exp, Ln,
+## Exp, Ln,
 
 Exp, ln, and log10 at exact points.
 
@@ -4529,7 +4547,7 @@ select log10(1);
 
 <div class="example">
 
-### Mod Is
+## Mod Is
 
 Mod is the integer remainder.
 
@@ -4567,7 +4585,7 @@ select mod(10, 5);
 
 <div class="example">
 
-### Greatest And
+## Greatest And
 
 Greatest and least over numbers and strings.
 
@@ -4623,7 +4641,7 @@ select greatest('a', 'c', 'b');
 
 <div class="example">
 
-### Length Dispatches
+## Length Dispatches
 
 Length dispatches on value — chars, elements, or members.
 
@@ -4664,7 +4682,7 @@ select length('hello');
 
 select length([1, 2, 3]);
 
-select length({x: 1, y: 2});
+select length({"x": 1, "y": 2});
 ```
 
 <p class="example-label">Result</p>
@@ -4682,7 +4700,7 @@ select length('hello');
 
 select length([1, 2, 3]);
 
-select length({x: 1, y: 2});
+select length({"x": 1, "y": 2});
 
 select length('café');
 ```
@@ -4699,7 +4717,7 @@ select length('café');
 
 <div class="example">
 
-### Upper And
+## Upper And
 
 Upper and lower case strings.
 
@@ -4737,7 +4755,7 @@ select lower('HI');
 
 <div class="example">
 
-### Trim, Ltrim,
+## Trim, Ltrim,
 
 Trim, ltrim, and rtrim strip surrounding whitespace.
 
@@ -4793,7 +4811,7 @@ select rtrim('hi  ');
 
 <div class="example">
 
-### Substr Is
+## Substr Is
 
 Substr is 1-based, with an optional length.
 
@@ -4849,7 +4867,7 @@ select substring('hello', 1, 1);
 
 <div class="example">
 
-### Replace Swaps
+## Replace Swaps
 
 Replace swaps every occurrence of a substring.
 
@@ -4871,7 +4889,7 @@ select replace('aXbXc', 'X', '-');
 
 <div class="example">
 
-### Concat Joins
+## Concat Joins
 
 Concat joins arguments, skipping nulls, stringifying scalars.
 
@@ -4927,7 +4945,7 @@ select concat('n', 42);
 
 <div class="example">
 
-### Concat_ws Joins
+## Concat_ws Joins
 
 Concat_ws joins with a separator, skipping nulls.
 
@@ -4965,7 +4983,7 @@ select concat_ws(',', 'a', null, 'b');
 
 <div class="example">
 
-### Repeat Duplicates
+## Repeat Duplicates
 
 Repeat duplicates a string; reverse is dynamic on value.
 
@@ -5021,7 +5039,7 @@ select reverse([1, 2, 3]);
 
 <div class="example">
 
-### Lpad And
+## Lpad And
 
 Lpad and rpad pad to a target width with a fill string.
 
@@ -5077,7 +5095,7 @@ select lpad('x', 3);
 
 <div class="example">
 
-### Repeat /
+## Repeat /
 
 Repeat / lpad reject pathological sizes instead of exhausting memory.
 
@@ -5103,7 +5121,7 @@ Expected error: `runtime`
 
 <div class="example">
 
-### Strpos /
+## Strpos /
 
 Strpos / instr return a 1-based index, 0 if absent.
 
@@ -5159,7 +5177,7 @@ select strpos('hello', 'z');
 
 <div class="example">
 
-### Starts_with, Ends_with,
+## Starts_with, Ends_with,
 
 Starts_with, ends_with, contains (dynamic on value).
 
@@ -5235,7 +5253,7 @@ select contains([1, 2, 3], 2);
 
 <div class="example">
 
-### Array_length, Array_contains, Array_position
+## Array_length, Array_contains, Array_position
 
 Array_length, array_contains, array_position.
 
@@ -5311,7 +5329,7 @@ select array_position([10, 20], 99);
 
 <div class="example">
 
-### Array_append, Array_prepend, Array_concat
+## Array_append, Array_prepend, Array_concat
 
 Array_append, array_prepend, array_concat.
 
@@ -5367,7 +5385,7 @@ select array_concat([1, 2], [3, 4]);
 
 <div class="example">
 
-### Array_reverse, Array_distinct,
+## Array_reverse, Array_distinct,
 
 Array_reverse, array_distinct, array_slice, array_to_string.
 
@@ -5443,14 +5461,14 @@ select array_to_string([1, 2, 3], '-');
 
 <div class="example">
 
-### Object_keys, Object_values, Object_has_key
+## Object_keys, Object_values, Object_has_key
 
 Object_keys, object_values, object_has_key.
 
 <p class="example-label">SQL</p>
 
 ```sql
-select object_keys({a: 1, b: 2});
+select object_keys({"a": 1, "b": 2});
 ```
 
 <p class="example-label">Result</p>
@@ -5464,9 +5482,9 @@ select object_keys({a: 1, b: 2});
 <p class="example-label">SQL</p>
 
 ```sql
-select object_keys({a: 1, b: 2});
+select object_keys({"a": 1, "b": 2});
 
-select object_values({a: 1, b: 2});
+select object_values({"a": 1, "b": 2});
 ```
 
 <p class="example-label">Result</p>
@@ -5480,11 +5498,11 @@ select object_values({a: 1, b: 2});
 <p class="example-label">SQL</p>
 
 ```sql
-select object_keys({a: 1, b: 2});
+select object_keys({"a": 1, "b": 2});
 
-select object_values({a: 1, b: 2});
+select object_values({"a": 1, "b": 2});
 
-select object_has_key({a: 1}, 'a');
+select object_has_key({"a": 1}, 'a');
 ```
 
 <p class="example-label">Result</p>
@@ -5498,13 +5516,13 @@ select object_has_key({a: 1}, 'a');
 <p class="example-label">SQL</p>
 
 ```sql
-select object_keys({a: 1, b: 2});
+select object_keys({"a": 1, "b": 2});
 
-select object_values({a: 1, b: 2});
+select object_values({"a": 1, "b": 2});
 
-select object_has_key({a: 1}, 'a');
+select object_has_key({"a": 1}, 'a');
 
-select object_has_key({a: 1}, 'z');
+select object_has_key({"a": 1}, 'z');
 ```
 
 <p class="example-label">Result</p>
@@ -5519,7 +5537,7 @@ select object_has_key({a: 1}, 'z');
 
 <div class="example">
 
-### Fn null Propagation
+## Fn null Propagation
 
 A null argument to a strict function yields null.
 
@@ -5617,7 +5635,7 @@ select array_length(null);
 
 <div class="example">
 
-### Wrong Argument
+## Wrong Argument
 
 Wrong argument count is a static error.
 
@@ -5643,7 +5661,7 @@ Expected error: `static`
 
 <div class="example">
 
-### An Undefined
+## An Undefined
 
 An undefined function name is a static error.
 
@@ -5659,7 +5677,7 @@ Expected error: `static`
 
 <div class="example">
 
-### Fn Type Error
+## Fn Type Error
 
 A wrong-typed argument is a runtime error.
 

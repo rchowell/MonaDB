@@ -11,14 +11,14 @@ tests:
     description: unpivot yields one binding per attribute-value pair, the value bound by AS
     steps:
       - sql: |
-          select price from unpivot {amzn: 1900, goog: 1120} as price;
+          select price from unpivot {"amzn": 1900, "goog": 1120} as price;
         result: [1900, 1120]
 
   - id: unpivot-at-binds-attribute-name
     description: AT binds the attribute name of each pair
     steps:
       - sql: |
-          select sym as sym, price as price from unpivot {amzn: 1900, goog: 1120} as price at sym;
+          select sym as sym, price as price from unpivot {"amzn": 1900, "goog": 1120} as price at sym;
         result:
           - {sym: "amzn", price: 1900}
           - {sym: "goog", price: 1120}
@@ -27,7 +27,7 @@ tests:
     description: pairs are produced in object member order
     steps:
       - sql: |
-          select sym as sym from unpivot {c: 3, a: 1, b: 2} as price at sym;
+          select sym as sym from unpivot {"c": 3, "a": 1, "b": 2} as price at sym;
         result:
           - {sym: "c"}
           - {sym: "a"}
@@ -37,14 +37,14 @@ tests:
     description: AT may be omitted, binding only the value
     steps:
       - sql: |
-          select price from unpivot {a: 10, b: 20} as price;
+          select price from unpivot {"a": 10, "b": 20} as price;
         result: [10, 20]
 
   - id: unpivot-dot-envelope
     description: select . envelopes the value and attribute bindings under their aliases
     steps:
       - sql: |
-          select . from unpivot {a: 1, b: 2} as v at k;
+          select . from unpivot {"a": 1, "b": 2} as v at k;
         result:
           - {v: 1, k: "a"}
           - {v: 2, k: "b"}
@@ -53,7 +53,7 @@ tests:
     description: select * spreads the scalar bindings under their aliases
     steps:
       - sql: |
-          select * from unpivot {a: 1, b: 2} as v at k;
+          select * from unpivot {"a": 1, "b": 2} as v at k;
         result:
           - {v: 1, k: "a"}
           - {v: 2, k: "b"}
@@ -62,7 +62,7 @@ tests:
     description: a where predicate may filter on the attribute name
     steps:
       - sql: |
-          select price from unpivot {a: 1, b: 2, c: 3} as price at sym where sym != 'b';
+          select price from unpivot {"a": 1, "b": 2, "c": 3} as price at sym where sym != 'b';
         result: [1, 3]
 
   - id: unpivot-non-object-empty
@@ -84,7 +84,7 @@ tests:
     setup:
       - create table closing;
       - |
-        insert into closing ({date: "d1", amzn: 1900, goog: 1120});
+        insert into closing ({"date": "d1", "amzn": 1900, "goog": 1120});
     steps:
       - sql: |
           select sym as sym, price as price from closing as c, unpivot c as price at sym where sym != 'date';
@@ -97,7 +97,7 @@ tests:
     setup:
       - create table P;
       - |
-        insert into P ({a: 1, b: 2}, {a: 3, b: 4});
+        insert into P ({"a": 1, "b": 2}, {"a": 3, "b": 4});
     steps:
       - sql: |
           select sym as k, price as v from P as p, unpivot p as price at sym;
@@ -111,28 +111,28 @@ tests:
     description: order by sorts the unpivoted pairs by the attribute name
     steps:
       - sql: |
-          select price from unpivot {b: 2, a: 1, c: 3} as price at sym order by sym;
+          select price from unpivot {"b": 2, "a": 1, "c": 3} as price at sym order by sym;
         result: [1, 2, 3]
 
   - id: unpivot-aggregate
     description: an aggregate folds over the unpivoted value binding
     steps:
       - sql: |
-          select sum(price) from unpivot {a: 10, b: 20, c: 30} as price;
+          select sum(price) from unpivot {"a": 10, "b": 20, "c": 30} as price;
         result: [60]
 
   - id: unpivot-aggregate-count
     description: count over an unpivot source counts one row per pair
     steps:
       - sql: |
-          select count(price) from unpivot {a: 1, b: 2, c: 3} as price;
+          select count(price) from unpivot {"a": 1, "b": 2, "c": 3} as price;
         result: [3]
 
   - id: unpivot-group-by
     description: group by over an unpivot source groups its value binding
     steps:
       - sql: |
-          select { v: price, n: count(*) } from unpivot {a: 5, b: 5, c: 9} as price group by price;
+          select { "v": price, "n": count(*) } from unpivot {"a": 5, "b": 5, "c": 9} as price group by price;
         result:
           - {v: 5, n: 2}
           - {v: 9, n: 1}
@@ -141,5 +141,5 @@ tests:
     description: the unpivot value binding requires an alias
     steps:
       - sql: |
-          select . from unpivot {a: 1};
+          select . from unpivot {"a": 1};
         error: static

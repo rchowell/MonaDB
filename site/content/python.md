@@ -12,9 +12,9 @@ MonaDB exposes a DuckDB-style SQL cursor and dict-like table handles on top of a
 ```python
 import monadb
 
-con = monadb.connect()           # in-memory
-con = monadb.connect("app.db")   # file-backed
-con = monadb.connect("app.db", read_only=True)
+db = monadb.connect()           # in-memory
+db = monadb.connect("app.db")   # file-backed
+db = monadb.connect("app.db", read_only=True)
 ```
 
 `connect` returns a `Connection`. Use it as a context manager to close automatically.
@@ -29,17 +29,17 @@ con = monadb.connect("app.db", read_only=True)
 | `fetchmany(size=1)` | Up to `size` rows |
 | `fetchall()` | All remaining rows |
 | `close()` | Close the database |
-| `con["name"]` | `Table` handle for `name` |
+| `table(name, keys=None)` | `Table` handle for `name` |
 
 Parameters bind to `?`, `$N`, or `$name` placeholders in SQL:
 
 ```python
-con.execute("select $greeting;", {"greeting": "hello"})
+db.execute("select $greeting;", {"greeting": "hello"})
 ```
 
 ## Table
 
-`con["table"]` returns a dict-like handle:
+`db.table("table")` returns a dict-like handle:
 
 | Method | Description |
 | --- | --- |
@@ -53,7 +53,7 @@ con.execute("select $greeting;", {"greeting": "hello"})
 | `for row in table` | Iterate all rows |
 
 ```python
-users = con["users"]
+users = db.table("users")
 users.create(id=int)
 users.insert({"id": 1, "name": "Ada"})
 users[1]          # {'id': 1, 'name': 'Ada'}

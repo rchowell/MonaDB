@@ -201,7 +201,7 @@ impl Connection {
 #[pymethods]
 impl Connection {
     /// Execute `sql` and return the connection so calls can be chained
-    /// (`con.execute(...).fetchall()`).
+    /// (`db.execute(...).fetchall()`).
     #[pyo3(signature = (sql, parameters=None))]
     fn execute<'py>(
         mut slf: PyRefMut<'py, Self>,

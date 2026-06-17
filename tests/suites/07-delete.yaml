@@ -10,7 +10,7 @@ tests:
     description: delete with no where removes every row
     steps:
       - sql: |
-          insert into T ({x: 1}, {x: 2}, {x: 3});
+          insert into T ({"x": 1}, {"x": 2}, {"x": 3});
       - sql: |
           delete from T;
       - sql: |
@@ -21,7 +21,7 @@ tests:
     description: delete with a predicate removes only matching rows
     steps:
       - sql: |
-          insert into T ({x: 1}, {x: 2}, {x: 3});
+          insert into T ({"x": 1}, {"x": 2}, {"x": 3});
       - sql: |
           delete from T where T.x > 1;
       - sql: |
@@ -33,7 +33,7 @@ tests:
     description: an explicit `as` alias binds the predicate's references
     steps:
       - sql: |
-          insert into T ({x: 1}, {x: 2}, {x: 3});
+          insert into T ({"x": 1}, {"x": 2}, {"x": 3});
       - sql: |
           delete from T as r where r.x = 2;
       - sql: |
@@ -46,7 +46,7 @@ tests:
     description: a predicate that matches nothing leaves the table unchanged
     steps:
       - sql: |
-          insert into T ({x: 1}, {x: 2}, {x: 3});
+          insert into T ({"x": 1}, {"x": 2}, {"x": 3});
       - sql: |
           delete from T where T.x > 100;
       - sql: |
@@ -69,11 +69,11 @@ tests:
     description: a table is reusable after a delete-all
     steps:
       - sql: |
-          insert into T ({x: 1}, {x: 2});
+          insert into T ({"x": 1}, {"x": 2});
       - sql: |
           delete from T;
       - sql: |
-          insert into T ({x: 9});
+          insert into T ({"x": 9});
       - sql: |
           select * from T;
         result:

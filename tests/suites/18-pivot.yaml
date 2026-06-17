@@ -12,7 +12,7 @@ tests:
     setup:
       - create table prices;
       - |
-        insert into prices ({sym: "amzn", price: 1900}, {sym: "goog", price: 1120});
+        insert into prices ({"sym": "amzn", "price": 1900}, {"sym": "goog", "price": 1120});
     steps:
       - sql: |
           pivot p.price at p.sym from prices as p;
@@ -23,7 +23,7 @@ tests:
     description: pivot inverts unpivot over the same value
     steps:
       - sql: |
-          pivot price at sym from unpivot {a: 1, b: 2, c: 3} as price at sym;
+          pivot price at sym from unpivot {"a": 1, "b": 2, "c": 3} as price at sym;
         result:
           - {a: 1, b: 2, c: 3}
 
@@ -42,7 +42,7 @@ tests:
     setup:
       - create table d;
       - |
-        insert into d ({k: "x", v: 1}, {k: "x", v: 2});
+        insert into d ({"k": "x", "v": 1}, {"k": "x", "v": 2});
     steps:
       - sql: |
           pivot e.v at e.k from d as e;
@@ -54,7 +54,7 @@ tests:
     setup:
       - create table m;
       - |
-        insert into m ({k: "ok", v: 1}, {k: 5, v: 2});
+        insert into m ({"k": "ok", "v": 1}, {"k": 5, "v": 2});
     steps:
       - sql: |
           pivot e.v at e.k from m as e;
@@ -66,7 +66,7 @@ tests:
     setup:
       - create table prices;
       - |
-        insert into prices ({sym: "a", price: 1}, {sym: "b", price: 2}, {sym: "c", price: 3});
+        insert into prices ({"sym": "a", "price": 1}, {"sym": "b", "price": 2}, {"sym": "c", "price": 3});
     steps:
       - sql: |
           pivot p.price at p.sym from prices as p where p.price > 1;

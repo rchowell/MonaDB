@@ -16,7 +16,7 @@ tests:
 
   - id: read-csv-no-header
     steps:
-      - sql: "select read_csv('tests/fixtures/people.csv', {header: false});"
+      - sql: "select read_csv('tests/fixtures/people.csv', {\"header\": false});"
         result:
           - - {column0: name, column1: age}
             - {column0: alice, column1: 30}

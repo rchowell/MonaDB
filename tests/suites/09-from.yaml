@@ -18,7 +18,7 @@ tests:
     description: a table scan returns all rows in insertion order
     steps:
       - sql: |
-          insert into T ({x: 1}, {x: 2}, {x: 3});
+          insert into T ({"x": 1}, {"x": 2}, {"x": 3});
       - sql: |
           select * from T;
         result:
@@ -30,7 +30,7 @@ tests:
     description: omitting `as` uses the table name as the alias
     steps:
       - sql: |
-          insert into T ({x: 42});
+          insert into T ({"x": 42});
       - sql: |
           select T.x from T;
         result: [42]
@@ -39,7 +39,7 @@ tests:
     description: an explicit `as` alias names the binding
     steps:
       - sql: |
-          insert into T ({x: 10});
+          insert into T ({"x": 10});
       - sql: |
           select t.x from T as t;
         result: [10]
@@ -48,7 +48,7 @@ tests:
     description: select * over one source emits the row unwrapped
     steps:
       - sql: |
-          insert into T ({x: 1, y: 2});
+          insert into T ({"x": 1, "y": 2});
       - sql: |
           select * from T as t;
         result:
@@ -58,7 +58,7 @@ tests:
     description: select . wraps the binding under its alias
     steps:
       - sql: |
-          insert into T ({x: 1});
+          insert into T ({"x": 1});
       - sql: |
           select . from T as t;
         result:
@@ -69,10 +69,10 @@ tests:
     setup:
       - create table S;
       - |
-        insert into S ({b: 10}, {b: 20});
+        insert into S ({"b": 10}, {"b": 20});
     steps:
       - sql: |
-          insert into T ({a: 1}, {a: 2});
+          insert into T ({"a": 1}, {"a": 2});
       - sql: |
           select * from T as t, S as s;
         result:
@@ -86,10 +86,10 @@ tests:
     setup:
       - create table S;
       - |
-        insert into S ({b: 10}, {b: 20});
+        insert into S ({"b": 10}, {"b": 20});
     steps:
       - sql: |
-          insert into T ({a: 1}, {a: 2});
+          insert into T ({"a": 1}, {"a": 2});
       - sql: |
           select t.a as a, s.b as b from T as t, S as s;
         result:
@@ -103,10 +103,10 @@ tests:
     setup:
       - create table S;
       - |
-        insert into S ({b: 10});
+        insert into S ({"b": 10});
     steps:
       - sql: |
-          insert into T ({a: 1});
+          insert into T ({"a": 1});
       - sql: |
           select . from T as t, S as s;
         result:
@@ -117,10 +117,10 @@ tests:
     setup:
       - create table S;
       - |
-        insert into S ({b: 10}, {b: 20});
+        insert into S ({"b": 10}, {"b": 20});
     steps:
       - sql: |
-          insert into T ({a: 1}, {a: 2});
+          insert into T ({"a": 1}, {"a": 2});
       - sql: |
           select t.a as a, s.b as b from T as t, S as s where t.a = 1;
         result:
@@ -133,7 +133,7 @@ tests:
       - create table S;
     steps:
       - sql: |
-          insert into T ({a: 1}, {a: 2});
+          insert into T ({"a": 1}, {"a": 2});
       - sql: |
           select * from T as t, S as s;
         result: []
@@ -156,7 +156,7 @@ tests:
     description: a later source may unnest a collection path on an earlier binding
     steps:
       - sql: |
-          insert into T ({items: [1, 2, 3]});
+          insert into T ({"items": [1, 2, 3]});
       - sql: |
           select t.items as items, item as item from T as t, t.items as item;
         result:
@@ -168,7 +168,7 @@ tests:
     description: select * keeps a non-object (scalar) lateral binding under its alias
     steps:
       - sql: |
-          insert into T ({items: [1, 2, 3]});
+          insert into T ({"items": [1, 2, 3]});
       - sql: |
           select * from T as t, t.items as item;
         result:
@@ -180,7 +180,7 @@ tests:
     description: the unnested element binds under its alias in the envelope
     steps:
       - sql: |
-          insert into T ({items: [1, 2]});
+          insert into T ({"items": [1, 2]});
       - sql: |
           select . from T as t, t.items as item;
         result:
@@ -191,7 +191,7 @@ tests:
     description: unnest flattens across every outer row in order
     steps:
       - sql: |
-          insert into T ({k: 1, items: [10, 11]}, {k: 2, items: [20]});
+          insert into T ({"k": 1, "items": [10, 11]}, {"k": 2, "items": [20]});
       - sql: |
           select t.k as k, item as v from T as t, t.items as item;
         result:
@@ -203,7 +203,7 @@ tests:
     description: an empty collection contributes no rows for that outer binding
     steps:
       - sql: |
-          insert into T ({items: []});
+          insert into T ({"items": []});
       - sql: |
           select item as v from T as t, t.items as item;
         result: []
@@ -212,7 +212,7 @@ tests:
     description: a missing path is treated as empty (inner-join-like)
     steps:
       - sql: |
-          insert into T ({x: 1});
+          insert into T ({"x": 1});
       - sql: |
           select item as v from T as t, t.items as item;
         result: []
@@ -221,7 +221,7 @@ tests:
     description: a non-array source value contributes no rows
     steps:
       - sql: |
-          insert into T ({items: 5});
+          insert into T ({"items": 5});
       - sql: |
           select item as v from T as t, t.items as item;
         result: []
@@ -267,7 +267,7 @@ tests:
     description: a value source iterates object elements and may path into them
     steps:
       - sql: |
-          select x.a as a from [{a: 1}, {a: 2}] as x;
+          select x.a as a from [{"a": 1}, {"a": 2}] as x;
         result:
           - {a: 1}
           - {a: 2}
@@ -299,7 +299,7 @@ tests:
     description: a value source re-iterates for every outer table row
     setup:
       - |
-        insert into T ({a: 1}, {a: 2});
+        insert into T ({"a": 1}, {"a": 2});
     steps:
       - sql: |
           select . from T as t, [10, 20] as n;
@@ -313,7 +313,7 @@ tests:
     description: unnest an array of objects and path into each element
     steps:
       - sql: |
-          insert into T ({s: [{x: 1}, {x: 2}]}, {s: [{x: 3}]});
+          insert into T ({"s": [{"x": 1}, {"x": 2}]}, {"s": [{"x": 3}]});
       - sql: |
           select s.x as x from T as t, t.s as s;
         result:
