@@ -36,6 +36,8 @@ pub enum Error {
     BindError(String),
     /// A value violated the schema (missing/mistyped key, non-object row).
     Schema(String),
+    /// A compiled prepared statement is no longer valid after a catalog change.
+    StalePreparedStatement,
 }
 
 impl Error {
@@ -88,6 +90,9 @@ impl Error {
             Error::UnboundTable(name) => format!("\nerror: unbound table '{name}'\n"),
             Error::BindError(msg) => format!("\nerror: bind error: {msg}\n"),
             Error::Schema(msg) => format!("\nerror: schema violation: {msg}\n"),
+            Error::StalePreparedStatement => {
+                "\nerror: prepared statement is stale (catalog changed); re-prepare\n".to_string()
+            }
         }
     }
 }

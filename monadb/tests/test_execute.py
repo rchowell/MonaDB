@@ -7,8 +7,8 @@ import monadb
 def populated():
     db = monadb.connect()
     db.execute("create table t;")
-    db.execute("insert into t ({x: 1});")
-    db.execute("insert into t ({x: 2});")
+    db.execute("insert into t ({\"x\": 1});")
+    db.execute("insert into t ({\"x\": 2});")
     return db
 
 

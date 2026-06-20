@@ -3,8 +3,35 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Tuple
 
 from monadb import _monadb
-from monadb._monadb import Error
+from monadb._monadb import Error, PreparedStatement as _PreparedStatement
 from monadb.table import Table
+
+
+class PreparedStatement:
+    """A SQL statement prepared for repeated execution."""
+
+    def __init__(self, engine: _PreparedStatement):
+        self._engine = engine
+
+    def execute(self, parameters: Any = None) -> "PreparedStatement":
+        """Run the prepared statement and return ``self`` for chaining."""
+        if parameters is None:
+            self._engine.execute()
+        else:
+            self._engine.execute(parameters)
+        return self
+
+    def fetchone(self) -> Optional[object]:
+        """Return the next buffered row, or ``None`` when exhausted."""
+        return self._engine.fetchone()
+
+    def fetchmany(self, size: int = 1) -> List[object]:
+        """Return up to ``size`` rows from the buffer."""
+        return self._engine.fetchmany(size)
+
+    def fetchall(self) -> List[object]:
+        """Return all remaining buffered rows."""
+        return self._engine.fetchall()
 
 
 class Connection:
@@ -33,6 +60,11 @@ class Connection:
     def sql(self, query: str, parameters: Any = None) -> "Connection":
         """Alias of :meth:`execute`."""
         return self.execute(query, parameters)
+
+    def prepare(self, sql: str) -> PreparedStatement:
+        """Parse and cache ``sql`` for repeated execution."""
+        self._ensure_open()
+        return PreparedStatement(self._engine.prepare(sql))
 
     def fetchone(self) -> Optional[object]:
         """Return the next buffered row, or ``None`` when exhausted."""

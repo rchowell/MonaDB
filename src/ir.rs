@@ -11,7 +11,7 @@ use crate::value::Value;
 pub use crate::display::ToSql;
 
 /// A top-level SQL statement — the unit the compiler turns into a `Program`.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Statement {
     Clear(Clear),
     Copy(Copy),
@@ -23,7 +23,7 @@ pub enum Statement {
 }
 
 /// A CREATE statement.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Create {
     /// `CREATE TABLE` with an optional key declaration.
     Table(TableDefinition),
@@ -35,7 +35,7 @@ pub enum Create {
 }
 
 /// A COPY import/export statement.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Copy {
     /// `COPY <table> FROM <file> [<options>]`.
     From {
@@ -52,7 +52,7 @@ pub enum Copy {
 }
 
 /// The data source for `COPY … TO`.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum CopySource {
     /// A table name.
     Table {
@@ -64,28 +64,28 @@ pub enum CopySource {
 }
 
 /// An INSERT of one or more row expressions into a table.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Insert {
     pub target: TableDefinition,
     pub source: Vec<Expr>,
 }
 
 /// A DELETE of the `from` rows matching the optional `where_`.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Delete {
     pub from: From,
     pub where_: Option<Where>,
 }
 
 /// A DROP TABLE of the named table.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Drop {
     pub name: String,
     pub oid: Option<u32>, // set by binder
 }
 
 /// A CLEAR, emptying the named table's rows but keeping its definition.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Clear {
     pub name: String,
     pub oid: Option<u32>, // set by binder
@@ -170,6 +170,11 @@ pub enum Source {
     Table(String),
     Value(Box<Expr>),
     Unpivot(Unpivot),
+    /// A keyed-table prefix range, scanned directly off the btree (no array
+    /// materialization). The binder lowers a partial-key subscript in FROM
+    /// position to this; the compiler encodes its `args`/`keys` into the
+    /// leading-key prefix and emits a prefix [`Scan`](crate::vm::Vop::Scan).
+    Range(Get),
 }
 
 /// An `unpivot expr as value at name` source. It ranges over the attribute-value
@@ -553,28 +558,24 @@ pub fn clear_table(name: String) -> Clear {
     Clear { name, oid: None }
 }
 
-/// Strips quotes from a SQL string literal token.
+/// Builds `COPY <table> FROM <file> [<options>]`. The lexer has already decoded
+/// the `path` string literal (delimiters stripped, escapes resolved).
 #[inline]
-pub fn string_path(raw: String) -> String {
-    Value::string(raw).as_str().expect("string literal").to_string()
-}
-
-/// Builds `COPY <table> FROM <file> [<options>]`.
-#[inline]
-pub fn copy_from(target: TableDefinition, raw_path: String, options: Obj) -> Copy {
+pub fn copy_from(target: TableDefinition, path: String, options: Obj) -> Copy {
     Copy::From {
         target,
-        path: string_path(raw_path),
+        path,
         options,
     }
 }
 
-/// Builds `COPY <source> TO <file> [<options>]`.
+/// Builds `COPY <source> TO <file> [<options>]`. The lexer has already decoded
+/// the `path` string literal (delimiters stripped, escapes resolved).
 #[inline]
-pub fn copy_to(source: CopySource, raw_path: String, options: Obj) -> Copy {
+pub fn copy_to(source: CopySource, path: String, options: Obj) -> Copy {
     Copy::To {
         source,
-        path: string_path(raw_path),
+        path,
         options,
     }
 }

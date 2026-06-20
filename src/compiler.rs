@@ -72,6 +72,8 @@ pub struct Compiler {
     sink: Sink,
     /// The transaction mode this program requires
     txm: Option<TransactionMode>,
+    /// Set when the statement changes catalog membership (CREATE/DROP).
+    mutates_catalog: bool,
 }
 
 impl Compiler {
@@ -104,9 +106,15 @@ impl Compiler {
         #[allow(clippy::single_match_else)]
         match statement {
             Statement::Copy(copy) => self.cc_copy(copy)?,
-            Statement::Create(create) => self.cc_create(create)?,
+            Statement::Create(create) => {
+                self.mutates_catalog = true;
+                self.cc_create(create)?;
+            }
             Statement::Delete(delete) => self.cc_delete(delete)?,
-            Statement::Drop(drop) => self.cc_drop(drop),
+            Statement::Drop(drop) => {
+                self.mutates_catalog = true;
+                self.cc_drop(drop);
+            }
             Statement::Clear(clear) => self.cc_clear(clear),
             Statement::Insert(insert) => self.cc_insert(insert)?,
             Statement::Select(select) => self.cc_select(select)?,
@@ -127,6 +135,7 @@ impl Compiler {
             cursors: self.cursor_slots,
             counters: self.counter_slots,
             aggs: self.agg_slots,
+            mutates_catalog: self.mutates_catalog,
             instructions: self.code,
         })
     }
@@ -628,9 +637,9 @@ impl Compiler {
     /// sources need no open.
     fn open_tables(&mut self, from: &[crate::ir::From]) {
         for f in from {
-            if let Source::Table(_) = &f.src {
+            if let Source::Table(_) | Source::Range(_) = &f.src {
                 let csr = f.csr.expect("from item should be bound") as usize;
-                let oid = f.oid.expect("bind pass must set oid for Table");
+                let oid = f.oid.expect("bind pass must set oid for Table/Range");
                 self.emit_open(csr, oid);
             }
         }
@@ -645,6 +654,13 @@ impl Compiler {
         let entry = match f.src {
             Source::Table(_) => {
                 self.emit_scan(csr, 0);
+                self.pc()
+            }
+            Source::Range(g) => {
+                // A partial-key keyed source: scan the btree prefix directly,
+                // streaming rows like a table scan — no `GetRange` array.
+                let prefix = schema::encode_key_tuple(&g.args, &g.keys)?;
+                self.emit_scan_prefix(csr, prefix, 0);
                 self.pc()
             }
             Source::Value(expr) => {
@@ -1236,7 +1252,7 @@ impl Compiler {
         match op {
             Vop::Init { jmp }
             | Vop::Next { csr: _, jmp }
-            | Vop::Scan { csr: _, jmp }
+            | Vop::Scan { csr: _, jmp, .. }
             | Vop::Iter { csr: _, jmp }
             | Vop::If(jmp)
             | Vop::IfNot(jmp)
@@ -1691,7 +1707,14 @@ impl Compiler {
 
     fn emit_scan(&mut self, csr: usize, jmp: usize) {
         self.use_cursor(csr);
-        self.code.push(Vop::Scan { csr, jmp });
+        self.code.push(Vop::Scan { csr, jmp, prefix: None });
+    }
+
+    /// Emits a forward scan of cursor `csr` restricted to the encoded key
+    /// `prefix` (a keyed-table leading-key range).
+    fn emit_scan_prefix(&mut self, csr: usize, prefix: Vec<u8>, jmp: usize) {
+        self.use_cursor(csr);
+        self.code.push(Vop::Scan { csr, jmp, prefix: Some(prefix.into()) });
     }
 
     fn emit_iter(&mut self, csr: usize, jmp: usize) {
@@ -2399,7 +2422,7 @@ mod tests {
         let mut stmt = SqlParser::new()
             .parse(
                 &std::cell::Cell::new(0),
-                SqlLexer::new("insert into t ({a: 1, b: \"x\"});"),
+                SqlLexer::new("insert into t ({\"a\": 1, \"b\": \"x\"});"),
             )
             .unwrap();
         let Statement::Insert(ins) = &mut stmt else {
@@ -2440,7 +2463,7 @@ mod tests {
         let program = compile_sql(
             &storage,
             &catalog,
-            "select price from unpivot {a: 1, b: 2} as price at sym;",
+            "select price from unpivot {\"a\": 1, \"b\": 2} as price at sym;",
         );
         let code = program.instructions;
         let entries = code
@@ -2681,7 +2704,11 @@ mod tests {
         let (_dir, storage, catalog) = fixture();
         let sql = "create table people as select * from 'tests/fixtures/people.csv';";
         let program = compile_sql(&storage, &catalog, sql);
-        let vm = crate::vm::VM::init(storage.clone(), program);
+        let vm = crate::vm::VM::init(
+            storage.clone(),
+            std::rc::Rc::new(std::cell::Cell::new(0)),
+            program,
+        );
         let rows = crate::vm::Rows::new(vm);
         rows.finish().expect("ctas should complete");
     }

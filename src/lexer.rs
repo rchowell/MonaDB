@@ -6,7 +6,7 @@
 use logos::{Logos, SpannedIter};
 use std::fmt;
 
-use crate::error::Error;
+use crate::error::{Error, Hint};
 
 /// A lexer item: a token bracketed by its start/end byte offsets, or an error.
 pub type Spanned<Tok, Loc, Error> = Result<(Loc, Tok, Loc), Error>;
@@ -194,9 +194,11 @@ pub enum Token {
     /// A numeric literal, as its raw source text.
     #[regex(r"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?", |lex| lex.slice().to_owned())]
     Number(String),
-    /// A quoted string literal, with quotes still attached.
-    #[regex(r#""([^"\\]|\\.)*""#, |lex| lex.slice().to_owned())]
-    #[regex(r#"'([^'\\]|\\.)*'"#, |lex| lex.slice().to_owned())]
+    /// A quoted string literal — `'…'` or `"…"` — decoded to its content: the
+    /// delimiters are stripped and backslash escapes resolved (see
+    /// [`decode_string_literal`]). An unknown escape is a syntax error.
+    #[regex(r#""([^"\\]|\\.)*""#, |lex| decode_string_literal(lex.slice(), lex.span().start))]
+    #[regex(r#"'([^'\\]|\\.)*'"#, |lex| decode_string_literal(lex.slice(), lex.span().start))]
     String(String),
     //-------------------------
     // Query Parameters
@@ -222,4 +224,55 @@ impl fmt::Display for Token {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{self:?}")
     }
+}
+
+/// Builds the syntax error raised for a malformed escape at byte offset `at`.
+fn bad_escape(at: usize) -> Error {
+    Error::SyntaxError(Hint {
+        message: "invalid string escape".to_string(),
+        location: at,
+        expected: vec![],
+    })
+}
+
+/// Decodes a quoted string literal token to its content.
+///
+/// Strips the surrounding `'`/`"` delimiters (the regex guarantees a matching
+/// pair) and resolves backslash escapes: `\" \' \\ \/ \n \t \r \b \f` and
+/// `\uXXXX` (four hex digits). Any other escape — or a truncated `\u` — is a
+/// syntax error located at the token's start offset `at`.
+fn decode_string_literal(raw: &str, at: usize) -> Result<String, Error> {
+    let inner = &raw[1..raw.len() - 1];
+    let mut out = String::with_capacity(inner.len());
+    let mut chars = inner.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next().ok_or_else(|| bad_escape(at))? {
+            '"' => out.push('"'),
+            '\'' => out.push('\''),
+            '\\' => out.push('\\'),
+            '/' => out.push('/'),
+            'n' => out.push('\n'),
+            't' => out.push('\t'),
+            'r' => out.push('\r'),
+            'b' => out.push('\u{08}'),
+            'f' => out.push('\u{0C}'),
+            'u' => {
+                let mut code = 0u32;
+                for _ in 0..4 {
+                    let digit = chars
+                        .next()
+                        .and_then(|h| h.to_digit(16))
+                        .ok_or_else(|| bad_escape(at))?;
+                    code = code * 16 + digit;
+                }
+                out.push(char::from_u32(code).ok_or_else(|| bad_escape(at))?);
+            }
+            _ => return Err(bad_escape(at)),
+        }
+    }
+    Ok(out)
 }

@@ -4,6 +4,7 @@
 //!
 //! Feature-gated behind `python`; the default build never compiles this module.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -15,6 +16,7 @@ use serde_json::Value as JsonValue;
 
 use crate::MonaDB;
 use crate::error::Error;
+use crate::prepared::PreparedStatement as RustPreparedStatement;
 use crate::value::{Object, Params, Value};
 
 create_exception!(_monadb, MonaDBError, PyException);
@@ -152,7 +154,16 @@ fn py_to_value(obj: &Bound<'_, PyAny>) -> PyResult<Value> {
 pub struct Connection {
     /// `None` once closed — dropping the handle releases the LMDB environment so
     /// the same path can be reopened (heed forbids opening an env twice at once).
-    db: Option<MonaDB>,
+    db: Option<Rc<RefCell<MonaDB>>>,
+    result: Vec<Value>,
+    cursor: usize,
+}
+
+/// A prepared statement cached from a prior `prepare` call.
+#[pyclass(unsendable, name = "PreparedStatement")]
+pub struct PreparedStatement {
+    stmt: RustPreparedStatement,
+    db: Rc<RefCell<MonaDB>>,
     result: Vec<Value>,
     cursor: usize,
 }
@@ -164,9 +175,12 @@ impl Connection {
         let out = {
             let db = self
                 .db
-                .as_mut()
+                .as_ref()
                 .ok_or_else(|| MonaDBError::new_err("connection is closed"))?;
-            let mut rows = db.query_with(sql, params, false).map_err(|e| to_pyerr(&e, sql))?;
+            let mut rows = db
+                .borrow_mut()
+                .query_with(sql, params, false)
+                .map_err(|e| to_pyerr(&e, sql))?;
             let mut out = Vec::new();
             while let Some(row) = rows.next().map_err(|e| to_pyerr(&e, sql))? {
                 out.push(row);
@@ -225,6 +239,22 @@ impl Connection {
         parameters: Option<PyObject>,
     ) -> PyResult<PyRefMut<'py, Self>> {
         Self::execute(slf, query, parameters)
+    }
+
+    /// Parse and cache `sql` for repeated execution via [`PreparedStatement`].
+    fn prepare(&self, sql: &str) -> PyResult<PreparedStatement> {
+        self.ensure_open()?;
+        let db = self.db.as_ref().expect("ensure_open");
+        let stmt = db
+            .borrow()
+            .prepare(sql)
+            .map_err(|e| to_pyerr(&e, sql))?;
+        Ok(PreparedStatement {
+            stmt,
+            db: Rc::clone(db),
+            result: Vec::new(),
+            cursor: 0,
+        })
     }
 
     /// Return the next row (a Python object) or `None` when exhausted.
@@ -304,6 +334,71 @@ impl Connection {
     }
 }
 
+#[pymethods]
+impl PreparedStatement {
+    /// Execute the prepared statement and return it for chaining.
+    #[pyo3(signature = (parameters=None))]
+    fn execute<'py>(
+        mut slf: PyRefMut<'py, Self>,
+        parameters: Option<PyObject>,
+    ) -> PyResult<PyRefMut<'py, Self>> {
+        let py = slf.py();
+        let params = match &parameters {
+            None => Params::none(),
+            Some(obj) => py_to_params(obj.bind(py))?,
+        };
+        let sql = slf.stmt.sql().to_string();
+        let out = {
+            let mut rows = slf
+                .db
+                .borrow_mut()
+                .execute_prepared(&slf.stmt, &params, false)
+                .map_err(|e| to_pyerr(&e, &sql))?;
+            let mut out = Vec::new();
+            while let Some(row) = rows.next().map_err(|e| to_pyerr(&e, &sql))? {
+                out.push(row);
+            }
+            out
+        };
+        // Stash rows on the prepared statement for fetch*.
+        slf.result = out;
+        slf.cursor = 0;
+        Ok(slf)
+    }
+
+    /// Return the next buffered row, or `None` when exhausted.
+    fn fetchone(&mut self, py: Python<'_>) -> PyResult<PyObject> {
+        if self.cursor < self.result.len() {
+            let idx = self.cursor;
+            self.cursor += 1;
+            Ok(value_to_py(py, &self.result[idx]))
+        } else {
+            Ok(py.None())
+        }
+    }
+
+    #[pyo3(signature = (size=1))]
+    fn fetchmany(&mut self, py: Python<'_>, size: usize) -> PyResult<Vec<PyObject>> {
+        let end = self.cursor.saturating_add(size).min(self.result.len());
+        let rows = self.result[self.cursor..end]
+            .iter()
+            .map(|v| value_to_py(py, v))
+            .collect();
+        self.cursor = end;
+        Ok(rows)
+    }
+
+    fn fetchall(&mut self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        let end = self.result.len();
+        let rows = self.result[self.cursor..end]
+            .iter()
+            .map(|v| value_to_py(py, v))
+            .collect();
+        self.cursor = end;
+        Ok(rows)
+    }
+}
+
 /// Open a connection. `":memory:"` (or omitted) opens an in-memory database;
 /// any other string is treated as a filesystem path.
 #[pyfunction]
@@ -321,7 +416,7 @@ fn connect(database: Option<&str>, read_only: bool) -> PyResult<Connection> {
     .map_err(|e| to_pyerr(&e, ""))?;
 
     Ok(Connection {
-        db: Some(db),
+        db: Some(Rc::new(RefCell::new(db))),
         result: Vec::new(),
         cursor: 0,
     })
@@ -330,6 +425,7 @@ fn connect(database: Option<&str>, read_only: bool) -> PyResult<Connection> {
 #[pymodule]
 fn _monadb(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Connection>()?;
+    m.add_class::<PreparedStatement>()?;
     m.add_function(wrap_pyfunction!(connect, m)?)?;
     m.add("Error", m.py().get_type::<MonaDBError>())?;
     Ok(())

@@ -20,6 +20,7 @@ mod display;
 mod functions;
 pub mod highlight;
 pub mod lexer;
+mod prepared;
 mod read;
 mod storage;
 mod transaction;
@@ -39,7 +40,9 @@ lalrpop_mod!(
     pub parser
 );
 
+use std::cell::Cell;
 use std::path::Path;
+use std::rc::Rc;
 
 use compiler::Compiler;
 use error::Result;
@@ -52,10 +55,11 @@ use crate::{
     catalog::Catalog,
     ir::Statement,
     parser::SqlParser,
-    vm::{Program, Rows, VM},
+    vm::{Program, Rows},
 };
 
 pub use crate::lexer::{SqlLexer, Token};
+pub use crate::prepared::PreparedStatement;
 pub use crate::value::{Params, Value};
 
 /// The user-facing database handle.
@@ -64,6 +68,9 @@ pub struct MonaDB {
     storage: Storage,
     /// The catalog reference for semantic analysis.
     catalog: Catalog,
+    /// Incremented when CREATE/DROP changes catalog membership; compiled prepares
+    /// snapshot this to detect staleness.
+    catalog_generation: Rc<Cell<u64>>,
 }
 
 impl MonaDB {
@@ -71,7 +78,11 @@ impl MonaDB {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<MonaDB> {
         let storage = Storage::open(path)?;
         let catalog = Catalog::load(&storage)?;
-        Ok(MonaDB { storage, catalog })
+        Ok(MonaDB {
+            storage,
+            catalog,
+            catalog_generation: Rc::new(Cell::new(0)),
+        })
     }
 
     /// Open an in-memory database.
@@ -91,14 +102,8 @@ impl MonaDB {
     /// Run a parameterized query, binding `?`/`$N`/`$name` placeholders against
     /// `params` before compilation. `query` is the no-parameter form.
     pub fn query_with(&mut self, sql: &str, params: &Params, debug: bool) -> Result<Rows> {
-        let mut stmt = Self::parse(sql)?;
-        self.bind(&mut stmt, params)?;
-        let program = self.compile(stmt)?;
-        if debug {
-            Self::debug(&program);
-        }
-        let vm = VM::init(self.storage.clone(), program);
-        Ok(Rows::new(vm))
+        let stmt = self.prepare(sql)?;
+        self.execute_prepared(&stmt, params, debug)
     }
 
     /// Run a statement to completion, committing it, and return the number of
@@ -110,6 +115,11 @@ impl MonaDB {
     /// Run a parameterized statement to completion, returning its row count.
     pub fn execute_with(&mut self, sql: &str, params: &Params) -> Result<u64> {
         self.query_with(sql, params, false)?.finish()
+    }
+
+    /// Returns the current catalog generation (for stale-prepare detection).
+    pub(crate) fn catalog_generation(&self) -> u64 {
+        self.catalog_generation.get()
     }
 
     /// Phase 1: Parse input string into our AST (no binding or compilation).

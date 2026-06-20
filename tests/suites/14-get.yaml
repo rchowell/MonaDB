@@ -188,6 +188,73 @@ tests:
           - {a: "x", b: 1, v: "p"}
           - {a: "x", b: 2, v: "q"}
 
+  # Streaming prefix FROM-source: a partial-key access in `from` position scans
+  # the btree directly (no materialized array), so a miss yields ZERO rows (an
+  # empty stream) — distinct from the array form's single `[]` row — and it
+  # composes with where/limit.
+
+  - id: range-from-source-empty-miss
+    description: a partial-key source with no match yields zero rows (empty stream, not [])
+    steps:
+      - sql: |
+          create table c (a string, b int);
+      - sql: |
+          insert into c ({"a": "x", "b": 1, "v": "p"});
+      - sql: |
+          select r from c["z"] as r;
+        result: []
+
+  - id: range-from-source-where
+    description: a partial-key source composes with a where filter over the stream
+    steps:
+      - sql: |
+          create table c (a string, b int);
+      - sql: |
+          insert into c ({"a": "x", "b": 1, "v": "p"}, {"a": "x", "b": 2, "v": "q"}, {"a": "x", "b": 3, "v": "s"});
+      - sql: |
+          select r from c["x"] as r where r.b > 1;
+        result:
+          - {a: "x", b: 2, v: "q"}
+          - {a: "x", b: 3, v: "s"}
+
+  - id: range-from-source-limit
+    description: a partial-key source composes with limit (streamed early termination)
+    steps:
+      - sql: |
+          create table c (a string, b int);
+      - sql: |
+          insert into c ({"a": "x", "b": 1, "v": "p"}, {"a": "x", "b": 2, "v": "q"}, {"a": "x", "b": 3, "v": "s"});
+      - sql: |
+          select r from c["x"] as r limit 1;
+        result:
+          - {a: "x", b: 1, v: "p"}
+
+  - id: range-from-source-3col-prefix
+    description: a two-column prefix of a three-column key streams only the matching prefix
+    steps:
+      - sql: |
+          create table k (a string, b int, c int);
+      - sql: |
+          insert into k ({"a": "x", "b": 7, "c": 2, "v": "n"}, {"a": "x", "b": 7, "c": 1, "v": "m"}, {"a": "x", "b": 8, "c": 9, "v": "o"});
+      - sql: |
+          select r from k["x", 7] as r;
+        result:
+          - {a: "x", b: 7, c: 1, v: "m"}
+          - {a: "x", b: 7, c: 2, v: "n"}
+
+  - id: range-from-source-parity
+    description: the streamed sub-sequence matches the element order of the array form, skipping non-prefix rows
+    steps:
+      - sql: |
+          create table c (a string, b int);
+      - sql: |
+          insert into c ({"a": "x", "b": 2, "v": "q"}, {"a": "x", "b": 1, "v": "p"}, {"a": "y", "b": 9, "v": "r"});
+      - sql: |
+          select r from c["x"] as r;
+        result:
+          - {a: "x", b: 1, v: "p"}
+          - {a: "x", b: 2, v: "q"}
+
   - id: get-composite-miss
     description: a full composite key with no matching row yields null
     steps:

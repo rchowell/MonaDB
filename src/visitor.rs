@@ -266,7 +266,7 @@ pub mod visit {
         V: Visit<'ast> + ?Sized,
     {
         match i {
-            Source::Table(_) => {}
+            Source::Table(_) | Source::Range(_) => {}
             Source::Value(expr) => v.visit_expr(expr),
             Source::Unpivot(u) => v.visit_expr(&u.expr),
         }
@@ -676,7 +676,7 @@ pub mod visit_mut {
 
     pub fn visit_source_mut<V: VisitMut + ?Sized>(v: &mut V, i: &mut Source) {
         match i {
-            Source::Table(_) => {}
+            Source::Table(_) | Source::Range(_) => {}
             Source::Value(expr) => v.visit_expr_mut(expr),
             Source::Unpivot(u) => v.visit_expr_mut(&mut u.expr),
         }
@@ -1028,6 +1028,7 @@ pub mod fold {
     pub fn fold_source<F: Fold + ?Sized>(f: &mut F, i: Source) -> Source {
         match i {
             Source::Table(name) => Source::Table(name),
+            Source::Range(g) => Source::Range(g),
             Source::Value(expr) => Source::Value(Box::new(f.fold_expr(*expr))),
             Source::Unpivot(u) => Source::Unpivot(Unpivot {
                 expr: Box::new(f.fold_expr(*u.expr)),

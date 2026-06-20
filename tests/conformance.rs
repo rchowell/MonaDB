@@ -172,6 +172,7 @@ fn error_category(err: &Error) -> &'static str {
         Error::InternalError(_) | Error::Unknown => "runtime",
         Error::Transaction(_) => "transaction",
         Error::Schema(_) => "schema",
+        Error::StalePreparedStatement => "static",
     }
 }
 

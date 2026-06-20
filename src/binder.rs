@@ -128,6 +128,9 @@ impl VisitMut for Binder<'_> {
                 i.oid = self.get_table(name).and_then(|d| d.oid);
                 self.scope.push(var, csr);
             }
+            // Produced later in this pass (a partial-key FROM source), never
+            // parsed, so it is not yet present when this match runs.
+            Source::Range(_) => self.scope.push(var, csr),
             Source::Value(expr) => {
                 // TODO derived binding names?
                 if var.is_empty() {
@@ -163,6 +166,22 @@ impl VisitMut for Binder<'_> {
                     u.att_csr = Some(att_csr);
                     self.scope.push(att, att_csr);
                 }
+            }
+        }
+
+        // A partial-key keyed access used as a FROM source streams the btree
+        // prefix directly (`Source::Range`) rather than materializing a
+        // `GetRange` array and iterating it. Binding rewrote the subscript into
+        // an `Expr::Get`; a leading prefix (`args < keys`) is the range case.
+        let is_range = matches!(&i.src, Source::Value(e)
+            if matches!(e.as_ref(), Expr::Get(g) if g.args.len() < g.keys.len()));
+        if is_range {
+            if let Source::Value(expr) =
+                std::mem::replace(&mut i.src, Source::Table(String::new()))
+                && let Expr::Get(g) = *expr
+            {
+                i.oid = Some(g.oid);
+                i.src = Source::Range(g);
             }
         }
     }
@@ -697,7 +716,7 @@ mod test {
     #[test]
     fn test_bind_insert_target_oid() {
         let db = db_fixture();
-        let mut stmt = MonaDB::parse("insert into users ({id: 1});").unwrap();
+        let mut stmt = MonaDB::parse("insert into users ({\"id\": 1});").unwrap();
         db.bind(&mut stmt, &Params::none()).unwrap();
         let Statement::Insert(ins) = stmt else {
             panic!("expected Insert")
@@ -775,7 +794,7 @@ mod test {
     fn test_exec_select_with_explicit_alias() {
         let mut db = MonaDB::memory().unwrap();
         db.execute("create table items (id int);").unwrap();
-        db.execute("insert into items ({id: 1});").unwrap();
+        db.execute("insert into items ({\"id\": 1});").unwrap();
         let mut rows = db.query("select u.id from items as u;", false).unwrap();
         let row = rows.next().unwrap();
         assert!(row.is_some());

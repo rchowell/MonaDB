@@ -84,11 +84,11 @@ impl Value {
         }
     }
 
-    /// Builds a string from a raw literal, stripping quotes and unescaping.
+    /// Builds a string from a literal that the lexer has already decoded
+    /// (delimiters stripped, escapes resolved — see `decode_string_literal`).
     #[inline]
-    #[allow(clippy::needless_pass_by_value)] // for .lalrpop
-    pub fn string(raw: String) -> Value {
-        Value::String(Rc::from(parse_string_literal(&raw)))
+    pub fn string(decoded: String) -> Value {
+        Value::String(Rc::from(decoded))
     }
 
     /// Returns a new empty object.
@@ -571,32 +571,6 @@ impl Debug for Value {
     }
 }
 
-/// Unquotes a string literal: strips matching `'`/`"` delimiters and collapses
-/// a doubled quote (`''`/`""`) to a single one. Returns unquoted input as-is.
-fn parse_string_literal(raw: &str) -> String {
-    let bytes = raw.as_bytes();
-    if raw.len() >= 2
-        && ((bytes[0] == b'\'' && bytes[raw.len() - 1] == b'\'')
-            || (bytes[0] == b'"' && bytes[raw.len() - 1] == b'"'))
-    {
-        let quote = bytes[0] as char;
-        let inner = &raw[1..raw.len() - 1];
-        let mut out = String::new();
-        let mut chars = inner.chars().peekable();
-        while let Some(c) = chars.next() {
-            if c == quote && chars.peek() == Some(&quote) {
-                chars.next();
-                out.push(quote);
-            } else {
-                out.push(c);
-            }
-        }
-        out
-    } else {
-        raw.to_string()
-    }
-}
-
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
         self.eq(other)
@@ -717,7 +691,7 @@ mod tests {
 
     #[test]
     fn add_non_numbers_is_err() {
-        assert!(Value::string("'a'".to_string()).add(Value::int(1)).is_err());
+        assert!(Value::string("a".to_string()).add(Value::int(1)).is_err());
     }
 
     #[test]

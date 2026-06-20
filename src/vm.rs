@@ -4,8 +4,10 @@
 //! stream, operating on a value stack plus fixed banks of cursors and counters.
 //! Each `Yield` pauses the loop with one result row; `Halt` commits and stops.
 
+use std::cell::Cell;
 use std::cmp::Ordering;
 use std::mem::take;
+use std::rc::Rc;
 use std::vec;
 
 use crate::Result;
@@ -21,6 +23,7 @@ use heed::byteorder::BigEndian;
 use heed::byteorder::ByteOrder;
 
 /// Program is a sequence of virtual machine instructions and relevant state.
+#[derive(Debug, Clone)]
 pub struct Program {
     /// The number of cursor slots needed
     pub cursors: usize,
@@ -28,6 +31,8 @@ pub struct Program {
     pub counters: usize,
     /// The number of aggregate-accumulator slots needed
     pub aggs: usize,
+    /// Whether a successful run changes catalog membership (CREATE/DROP).
+    pub mutates_catalog: bool,
     /// The program's instruction set
     pub instructions: Vec<Vop>,
 }
@@ -235,8 +240,15 @@ pub enum Vop {
     Push { val: Value },
     /// Yields the top value from the stack, pausing the VM step
     Yield,
-    /// Initializes a cursor's scan state
-    Scan { csr: usize, jmp: usize },
+    /// Initializes a cursor's forward scan, jumping to `jmp` if empty. With a
+    /// `prefix`, the scan is restricted to the contiguous run of keys sharing
+    /// it (a keyed-table leading-key range); without one it scans the whole
+    /// table.
+    Scan {
+        csr: usize,
+        jmp: usize,
+        prefix: Option<Rc<[u8]>>,
+    },
     /// Pops a value off the stack and iterates its array elements on cursors[csr], jumping to jmp if empty.
     Iter { csr: usize, jmp: usize },
     /// Open a transaction with the given mode
@@ -269,16 +281,21 @@ pub struct VM {
     /// Rows changed by mutations (inserts, updates, deletes). Reported by
     /// `Rows::finish`, so `execute` returns a real affected-row count.
     affected: u64,
+    /// Shared catalog generation counter; bumped on Halt when `mutates_catalog`.
+    catalog_generation: Rc<Cell<u64>>,
+    /// Whether this program changes catalog membership on success.
+    mutates_catalog: bool,
     /// The open transaction handle; dropped last.
     txn: Option<Transaction>,
 }
 
 impl VM {
     /// Builds a VM primed to run `program` against `storage`.
-    pub fn init(storage: Storage, program: Program) -> VM {
+    pub fn init(storage: Storage, catalog_generation: Rc<Cell<u64>>, program: Program) -> VM {
         // Allocate an unopened cursor for each slot
         let mut cursors = Vec::with_capacity(program.cursors);
         cursors.resize_with(program.cursors, Cursor::new);
+        let mutates_catalog = program.mutates_catalog;
         VM {
             storage,
             pc: 0,
@@ -289,6 +306,8 @@ impl VM {
             counters: vec![0; program.counters],
             aggs: vec![Value::Null; program.aggs],
             affected: 0,
+            catalog_generation,
+            mutates_catalog,
         }
     }
 
@@ -508,6 +527,10 @@ impl VM {
                     if let Some(txn) = take(&mut self.txn) {
                         txn.commit()?;
                     }
+                    if self.mutates_catalog {
+                        let generation = self.catalog_generation.get();
+                        self.catalog_generation.set(generation + 1);
+                    }
                     return Ok(None);
                 }
                 Vop::Add => {
@@ -710,9 +733,9 @@ impl VM {
                     }
                     self.push(arr);
                 }
-                Vop::Scan { csr, jmp } => {
+                Vop::Scan { csr, jmp, prefix } => {
                     let txn = self.txn.as_ref().expect("Scan before Transaction");
-                    if !self.cursors[*csr].scan(txn, None)? {
+                    if !self.cursors[*csr].scan(txn, prefix.as_deref())? {
                         self.pc = *jmp;
                     }
                 }
