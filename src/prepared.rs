@@ -1,40 +1,25 @@
-//! Prepared statements: parse/compile caching for repeated execution.
+//! Prepared statements: parse/bind/compile caching for repeated execution.
 //!
-//! Parameter-free statements are fully compiled at prepare time; parameterized
-//! statements cache the parsed AST and re-bind on each execute.
+//! Every statement — parameter-free or not — is bound and compiled once at
+//! prepare time. Parameter placeholders compile to runtime slots (`Vop::LoadParam`),
+//! so the same program serves any bound values: `execute_prepared` just hands the
+//! `Params` to the VM.
+
+use std::rc::Rc;
 
 use crate::MonaDB;
 use crate::error::{Error, Result};
-use crate::ir::Statement;
 use crate::value::Params;
-use crate::visitor::visit::{Visit, visit_expr};
 use crate::vm::{Program, Rows, VM};
 
-/// Returns true when the statement contains any `?`/`$N`/`$name` placeholder.
-pub fn has_params(stmt: &Statement) -> bool {
-    let mut scan = ParamScan(false);
-    scan.visit_statement(stmt);
-    scan.0
-}
-
-/// A prepared statement — either a compiled program or a parsed AST awaiting bind.
+/// A prepared statement: a compiled program plus the catalog generation it was
+/// bound against (to detect a CREATE/DROP that would invalidate it). The program
+/// is `Rc`-shared so re-executing a cached plan is a refcount bump, not a copy.
 #[derive(Debug)]
 pub struct PreparedStatement {
     sql: String,
-    kind: PreparedKind,
-}
-
-#[derive(Debug)]
-enum PreparedKind {
-    /// Parameter-free: bound and compiled at prepare time.
-    Compiled {
-        program: Program,
-        catalog_generation: u64,
-    },
-    /// Parameterized: parsed AST retained; bind + compile run on each execute.
-    Parsed {
-        stmt: Statement,
-    },
+    program: Rc<Program>,
+    catalog_generation: u64,
 }
 
 impl PreparedStatement {
@@ -45,23 +30,17 @@ impl PreparedStatement {
 }
 
 impl MonaDB {
-    /// Parses `sql` and caches whatever is safe to reuse across executions.
+    /// Parses, binds, and compiles `sql` into a reusable program. Parameter
+    /// placeholders become runtime slots, so the result is reusable across any
+    /// bound values.
     pub fn prepare(&self, sql: &str) -> Result<PreparedStatement> {
-        let stmt = Self::parse(sql)?;
-        let kind = if has_params(&stmt) {
-            PreparedKind::Parsed { stmt }
-        } else {
-            let mut bound = stmt;
-            self.bind(&mut bound, &Params::none())?;
-            let program = self.compile(bound)?;
-            PreparedKind::Compiled {
-                program,
-                catalog_generation: self.catalog_generation(),
-            }
-        };
+        let mut bound = Self::parse(sql)?;
+        self.bind(&mut bound)?;
+        let program = self.compile(bound)?;
         Ok(PreparedStatement {
             sql: sql.to_string(),
-            kind,
+            program: Rc::new(program),
+            catalog_generation: self.catalog_generation(),
         })
     }
 
@@ -72,53 +51,18 @@ impl MonaDB {
         params: &Params,
         debug: bool,
     ) -> Result<Rows> {
-        match &stmt.kind {
-            PreparedKind::Compiled {
-                program,
-                catalog_generation,
-            } => {
-                if self.catalog_generation() != *catalog_generation {
-                    return Err(Error::StalePreparedStatement);
-                }
-                if debug {
-                    Self::debug(program);
-                }
-                Ok(Rows::new(VM::init(
-                    self.storage.clone(),
-                    self.catalog_generation.clone(),
-                    program.clone(),
-                )))
-            }
-            PreparedKind::Parsed { stmt } => {
-                let mut bound = stmt.clone();
-                self.bind(&mut bound, params)?;
-                let program = self.compile(bound)?;
-                if debug {
-                    Self::debug(&program);
-                }
-                Ok(Rows::new(VM::init(
-                    self.storage.clone(),
-                    self.catalog_generation.clone(),
-                    program,
-                )))
-            }
+        if self.catalog_generation() != stmt.catalog_generation {
+            return Err(Error::StalePreparedStatement);
         }
-    }
-}
-
-/// A `Visit` that trips on the first `Expr::Param`.
-struct ParamScan(bool);
-
-impl<'ast> Visit<'ast> for ParamScan {
-    fn visit_expr(&mut self, e: &'ast crate::ir::Expr) {
-        if self.0 {
-            return;
+        if debug {
+            Self::debug(&stmt.program);
         }
-        if matches!(e, crate::ir::Expr::Param(_)) {
-            self.0 = true;
-            return;
-        }
-        visit_expr(self, e);
+        Ok(Rows::new(VM::init(
+            self.storage.clone(),
+            self.catalog_generation.clone(),
+            stmt.program.clone(),
+            params.clone(),
+        )))
     }
 }
 
@@ -126,14 +70,6 @@ impl<'ast> Visit<'ast> for ParamScan {
 mod tests {
     use super::*;
     use crate::value::Value;
-
-    #[test]
-    fn has_params_detects_placeholders() {
-        let stmt = MonaDB::parse("select ?;").unwrap();
-        assert!(has_params(&stmt));
-        let stmt = MonaDB::parse("select 1;").unwrap();
-        assert!(!has_params(&stmt));
-    }
 
     #[test]
     fn compiled_prepare_reuses_program() {
@@ -150,7 +86,8 @@ mod tests {
     }
 
     #[test]
-    fn parsed_prepare_binds_different_params() {
+    fn prepared_param_reuses_program_across_values() {
+        // One compiled program (runtime param slot) serves different bound values.
         let stmt = {
             let db = MonaDB::memory().unwrap();
             db.prepare("select ?;").unwrap()

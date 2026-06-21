@@ -5,6 +5,9 @@
 //! rows are written through the ordinary insert path (`Vop::Insert`), so they use
 //! the same flat storage codec as data rows (see [`crate::value::Value::encode`]).
 
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use heed::byteorder::{BigEndian, ByteOrder};
@@ -34,6 +37,21 @@ fn parse_table_definition(sql: &str, name: &str) -> Result<TableDefinition> {
 pub struct Catalog {
     /// The 'catalog' table holds all objects (tables) like `sqlite_master`.
     catalog: Arc<BTree>,
+    /// In-memory schema cache: table name → parsed definition, populated lazily
+    /// on lookup. Shared across clones (an `Rc` bump per bind) and flushed
+    /// wholesale when the catalog generation advances. Mirrors SQLite's
+    /// connection-resident parsed schema, so a bind that hits the cache avoids
+    /// the catalog btree scan and the re-parse of the stored `create table` DDL.
+    cache: Rc<RefCell<CatalogCache>>,
+}
+
+/// The cached schema and the catalog generation it was captured at. A bump in
+/// the generation (any CREATE/DROP) invalidates the whole snapshot.
+struct CatalogCache {
+    /// The generation this snapshot is valid for.
+    generation: u64,
+    /// Parsed table definitions, keyed by name.
+    tables: HashMap<String, TableDefinition>,
 }
 
 impl Catalog {
@@ -54,11 +72,42 @@ impl Catalog {
         txn.commit()?;
         Ok(Self {
             catalog: Arc::new(btree),
+            cache: Rc::new(RefCell::new(CatalogCache {
+                generation: 0,
+                tables: HashMap::new(),
+            })),
         })
     }
 
-    /// Looks up a table by name, returning its full definition: oid, name, keys.
-    pub fn get_table(&self, txn: &Transaction, name: &str) -> Result<TableDefinition> {
+    /// Returns a cached table definition, or `None` on a miss. Flushes the whole
+    /// cache first if `generation` has advanced past the captured snapshot.
+    ///
+    /// Touches no storage and opens no transaction — the binder's fast path.
+    pub fn cached(&self, name: &str, generation: u64) -> Option<TableDefinition> {
+        let mut cache = self.cache.borrow_mut();
+        if cache.generation != generation {
+            cache.tables.clear();
+            cache.generation = generation;
+        }
+        cache.tables.get(name).cloned()
+    }
+
+    /// Cold path: scans the catalog btree for `name`, parses its stored DDL, and
+    /// caches the result. Call only after [`cached`] has returned `None` (so the
+    /// cache generation is already current). A `UnboundTable` miss is *not*
+    /// cached — a table created later must still resolve (and a CREATE bumps the
+    /// generation, flushing anyway). This is the per-row work the cache elides.
+    pub fn scan_and_cache(&self, txn: &Transaction, name: &str) -> Result<TableDefinition> {
+        let def = self.scan_table(txn, name)?;
+        self.cache
+            .borrow_mut()
+            .tables
+            .insert(name.to_owned(), def.clone());
+        Ok(def)
+    }
+
+    /// Scans the catalog btree for `name`, parsing its stored DDL (no caching).
+    fn scan_table(&self, txn: &Transaction, name: &str) -> Result<TableDefinition> {
         for entry in self.catalog.iter(txn.as_ro())? {
             let (key, val) = entry?;
             let row = Value::from_storage(val)?;

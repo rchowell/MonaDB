@@ -469,14 +469,16 @@ pub struct Subscript {
     pub args: Vec<Expr>,
 }
 
-/// A bound keyed-table point lookup. `args` are the literal key values in key
-/// column order; the compiler encodes them into the composite key (Task 3).
+/// A bound keyed-table point lookup. `args` are the key argument expressions in
+/// key column order — each a literal (`Expr::Lit`) or a parameter (`Expr::Param`).
+/// All-literal keys are encoded into the composite key at compile time; a key
+/// with any parameter is encoded at runtime (`Vop::EncodeKeyTuple`).
 #[derive(Debug, Clone)]
 pub struct Get {
     pub csr: u32,
     pub oid: u32,
     pub keys: Vec<Key>,
-    pub args: Vec<Value>,
+    pub args: Vec<Expr>,
 }
 
 /// Equality ignores the binder-assigned cursor slot (`csr`), which is allocated

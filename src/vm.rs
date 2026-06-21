@@ -14,11 +14,11 @@ use crate::Result;
 use crate::cursor::Cursor;
 use crate::error::Error;
 use crate::functions;
-use crate::ir::{AggKind, CmpOp, Key};
+use crate::ir::{AggKind, CmpOp, Key, Param};
 use crate::schema;
 use crate::storage::Storage;
 use crate::transaction::{Transaction, TransactionMode};
-use crate::value::Value;
+use crate::value::{Params, Value};
 use heed::byteorder::BigEndian;
 use heed::byteorder::ByteOrder;
 
@@ -87,6 +87,18 @@ pub enum Vop {
     NewOid { csr: usize },
     /// Encodes the row's declared key columns into a composite key and pushes it onto the stack.
     EncodeKey { keys: Vec<Key> },
+    /// Encodes a key tuple from the top `cnt` stack values (pushed in key
+    /// column order) into a composite key, replacing them with the key bytes.
+    /// The runtime counterpart of compile-time key encoding, used when a keyed
+    /// access has a parameter key.
+    ///
+    ///   stack:  … v0 v1 … v{cnt-1}  ─▶  … key
+    EncodeKeyTuple { keys: Vec<Key>, cnt: usize },
+    /// Pushes the value bound to parameter `p` (`?`/`$N`/`$name`). A missing
+    /// binding is a `BindError` (raised here, at run time).
+    ///
+    ///   stack:  …  ─▶  … param
+    LoadParam(Param),
     /// Creates a new btree named by the stack[0] oid.
     NewBtree,
     /// Opens the table at the given table oid and binds to cursors[csr].
@@ -267,8 +279,9 @@ pub struct VM {
     storage: Storage,
     /// The program counter.
     pc: usize,
-    /// The program instructions
-    instructions: Vec<Vop>,
+    /// The program being run, shared by `Rc` so a prepared plan is reused across
+    /// executions without deep-copying its instruction stream.
+    program: Rc<Program>,
     /// The stack.
     stack: Vec<Value>,
     /// The open cursors, addressed by index; dropped before the transaction.
@@ -285,13 +298,20 @@ pub struct VM {
     catalog_generation: Rc<Cell<u64>>,
     /// Whether this program changes catalog membership on success.
     mutates_catalog: bool,
+    /// Bound query parameters, resolved by `Vop::LoadParam` at run time.
+    params: Params,
     /// The open transaction handle; dropped last.
     txn: Option<Transaction>,
 }
 
 impl VM {
-    /// Builds a VM primed to run `program` against `storage`.
-    pub fn init(storage: Storage, catalog_generation: Rc<Cell<u64>>, program: Program) -> VM {
+    /// Builds a VM primed to run `program` against `storage` with bound `params`.
+    pub fn init(
+        storage: Storage,
+        catalog_generation: Rc<Cell<u64>>,
+        program: Rc<Program>,
+        params: Params,
+    ) -> VM {
         // Allocate an unopened cursor for each slot
         let mut cursors = Vec::with_capacity(program.cursors);
         cursors.resize_with(program.cursors, Cursor::new);
@@ -299,7 +319,6 @@ impl VM {
         VM {
             storage,
             pc: 0,
-            instructions: program.instructions,
             stack: vec![],
             txn: None,
             cursors,
@@ -308,6 +327,8 @@ impl VM {
             affected: 0,
             catalog_generation,
             mutates_catalog,
+            params,
+            program,
         }
     }
 
@@ -345,7 +366,7 @@ impl VM {
     pub fn next(&mut self) -> Result<Option<Value>> {
         loop {
             // TODO: make vop 'Copy' then deref
-            let op = self.instructions[self.pc].clone();
+            let op = self.program.instructions[self.pc].clone();
             self.pc += 1;
             match &op {
                 Vop::Init { jmp } => {
@@ -406,6 +427,31 @@ impl VM {
                     let key = schema::encode_key(&val, keys)?;
                     self.stack.push(val);
                     self.stack.push(Value::Bytes(key.into()));
+                }
+                Vop::EncodeKeyTuple { keys, cnt } => {
+                    // The arg values were pushed in key-column order, so the
+                    // tuple is the top `cnt` of the stack in that order. Encode
+                    // straight from the stack slice, then drop them — no temp Vec.
+                    let at = self.stack.len() - *cnt;
+                    let key = schema::encode_key_tuple(&self.stack[at..], keys)?;
+                    self.stack.truncate(at);
+                    self.push(Value::Bytes(key.into()));
+                }
+                Vop::LoadParam(p) => {
+                    let v = match p {
+                        Param::Numbered(n) => self.params.get_numbered(*n),
+                        Param::Named(name) => self.params.get_named(name),
+                    };
+                    match v {
+                        Some(v) => self.push(v.clone()),
+                        None => {
+                            let name = match p {
+                                Param::Numbered(n) => format!("${n}"),
+                                Param::Named(name) => format!("${name}"),
+                            };
+                            return Err(Error::BindError(format!("missing parameter {name}")));
+                        }
+                    }
                 }
                 Vop::NewBtree => {
                     let tbl = self.peek().as_oid();

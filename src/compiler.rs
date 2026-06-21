@@ -658,8 +658,13 @@ impl Compiler {
             }
             Source::Range(g) => {
                 // A partial-key keyed source: scan the btree prefix directly,
-                // streaming rows like a table scan — no `GetRange` array.
-                let prefix = schema::encode_key_tuple(&g.args, &g.keys)?;
+                // streaming rows like a table scan — no `GetRange` array. The
+                // prefix is encoded at compile time, so a keyed FROM source
+                // requires literal keys (a parameter prefix is not supported).
+                let Some(lits) = Self::all_literal_keys(&g.args) else {
+                    unsupported!("a parameter key in a FROM keyed source is not supported");
+                };
+                let prefix = schema::encode_key_tuple(&lits, &g.keys)?;
                 self.emit_scan_prefix(csr, prefix, 0);
                 self.pc()
             }
@@ -1292,7 +1297,7 @@ impl Compiler {
             }
             // Binding already lowered a full-key table subscript to this node;
             // we encode the literal key and emit the point lookup.
-            Expr::Get(get) => self.cc_expr_get(&get),
+            Expr::Get(get) => self.cc_expr_get(get),
             // cc_aggregate assigned this term's slot; emit its finalized value.
             // (Reaching here outside cc_aggregate is a compiler invariant break.)
             Expr::Agg(agg) => {
@@ -1305,9 +1310,12 @@ impl Compiler {
             Expr::Subscript(_) => {
                 unsupported!("multi-element subscript on a value is not supported")
             }
-            // The binder substitutes every parameter with its literal; one
-            // reaching here is a compiler invariant break.
-            Expr::Param(_) => crate::error!("unbound parameter reached the compiler"),
+            // A parameter compiles to a runtime slot load — the VM resolves it
+            // from the bound params, so one program serves every bound value.
+            Expr::Param(p) => {
+                self.code.push(Vop::LoadParam(p));
+                Ok(())
+            }
             // A subquery in scalar position: materialize its bag, then coerce
             // the array to a single value (empty → null, >1 row → runtime error).
             Expr::Subquery(select) => {
@@ -1347,23 +1355,47 @@ impl Compiler {
         result
     }
 
-    /// Keyed-table access `table[key, ...]`. Literal keys are encoded at COMPILE
-    /// time (v1: literal keys only); a type mismatch surfaces here as an
-    /// `Error::Schema` (e.g. `t["a"]` on an int key). A full key (arity == key
-    /// count) is a point lookup (`Get` → the one row or null); a leading prefix
-    /// (arity < key count) is a range lookup (`GetRange` → the matching rows as
-    /// an array, in key order). The surrounding `select` has already emitted
-    /// `Transaction(Read)`, so the cursor ops run under it.
-    fn cc_expr_get(&mut self, get: &Get) -> Result<()> {
-        let key = schema::encode_key_tuple(&get.args, &get.keys)?;
-        self.emit_open(get.csr as usize, get.oid);
-        self.emit_push(Value::Bytes(key.into()));
-        if get.args.len() == get.keys.len() {
-            self.emit_get(get.csr as usize);
+    /// Keyed-table access `table[key, ...]`. An all-literal key is encoded at
+    /// COMPILE time (a type mismatch surfaces here as an `Error::Schema`, e.g.
+    /// `t["a"]` on an int key); a key with any parameter is encoded at RUN time
+    /// (`EncodeKeyTuple`) from the evaluated arg values, so one program serves
+    /// every bound value. A full key (arity == key count) is a point lookup
+    /// (`Get` → the one row or null); a leading prefix (arity < key count) is a
+    /// range lookup (`GetRange` → the matching rows as an array, in key order).
+    /// The surrounding `select` has already emitted `Transaction(Read)`, so the
+    /// cursor ops run under it.
+    fn cc_expr_get(&mut self, get: Get) -> Result<()> {
+        let Get { csr, oid, keys, args } = get;
+        let cnt = args.len();
+        // Full key (arity == key count) → point lookup; a leading prefix → range.
+        let full = cnt == keys.len();
+        self.emit_open(csr as usize, oid);
+        if let Some(lits) = Self::all_literal_keys(&args) {
+            let key = schema::encode_key_tuple(&lits, &keys)?;
+            self.emit_push(Value::Bytes(key.into()));
         } else {
-            self.emit_get_range(get.csr as usize);
+            for arg in args {
+                self.cc_expr(arg)?;
+            }
+            self.emit_encode_key_tuple(keys, cnt);
+        }
+        if full {
+            self.emit_get(csr as usize);
+        } else {
+            self.emit_get_range(csr as usize);
         }
         Ok(())
+    }
+
+    /// Returns the key argument values iff every arg is a literal (`Expr::Lit`),
+    /// enabling compile-time key encoding; `None` if any arg is a parameter.
+    fn all_literal_keys(args: &[Expr]) -> Option<Vec<Value>> {
+        args.iter()
+            .map(|a| match a {
+                Expr::Lit(v) => Some(v.clone()),
+                _ => None,
+            })
+            .collect()
     }
 
     /// Compiles a builtin call. A built-in operator (arithmetic, comparison, 3VL
@@ -1530,6 +1562,10 @@ impl Compiler {
 
     fn emit_encode_key(&mut self, keys: Vec<Key>) {
         self.code.push(Vop::EncodeKey { keys });
+    }
+
+    fn emit_encode_key_tuple(&mut self, keys: Vec<Key>, cnt: usize) {
+        self.code.push(Vop::EncodeKeyTuple { keys, cnt });
     }
 
     fn emit_delete(&mut self, csr: usize) {
@@ -1974,12 +2010,10 @@ mod tests {
         let mut stmt = SqlParser::new()
             .parse(&std::cell::Cell::new(0), SqlLexer::new(sql))
             .unwrap();
-        let txn = storage.read_txn().unwrap();
-        let mut binder = Binder::new(catalog.clone(), &txn);
+        let mut binder = Binder::new(catalog.clone(), storage.clone(), 0);
         binder
-            .bind(&mut stmt, &crate::value::Params::none())
+            .bind(&mut stmt)
             .unwrap();
-        txn.commit().unwrap();
         Compiler::new().compile(stmt).unwrap()
     }
 
@@ -2632,12 +2666,10 @@ mod tests {
         let mut stmt = SqlParser::new()
             .parse(&std::cell::Cell::new(0), SqlLexer::new(sql))
             .unwrap();
-        let txn = storage.read_txn().unwrap();
-        let mut binder = Binder::new(catalog.clone(), &txn);
+        let mut binder = Binder::new(catalog.clone(), storage.clone(), 0);
         binder
-            .bind(&mut stmt, &crate::value::Params::none())
+            .bind(&mut stmt)
             .unwrap();
-        txn.commit().unwrap();
         let Statement::Select(select) = stmt else {
             panic!("expected a SELECT statement");
         };
@@ -2707,7 +2739,8 @@ mod tests {
         let vm = crate::vm::VM::init(
             storage.clone(),
             std::rc::Rc::new(std::cell::Cell::new(0)),
-            program,
+            std::rc::Rc::new(program),
+            crate::value::Params::none(),
         );
         let rows = crate::vm::Rows::new(vm);
         rows.finish().expect("ctas should complete");
