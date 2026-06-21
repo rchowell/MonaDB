@@ -147,6 +147,25 @@ fn encode_order_value(out: &mut Vec<u8>, val: &Value) {
         Value::Null => {
             out.push(0xFF);
         }
+        // A flat-backed value: navigate through the scalar accessors so only the
+        // tag (and a scalar body) is read — never materialize the whole subtree.
+        // Containers report none of `is_*` below and fall into the 0xFE bucket.
+        Value::Raw(_) => {
+            if val.is_null() {
+                out.push(0xFF);
+            } else if val.is_bool() {
+                out.push(0x01);
+                out.push(u8::from(val.as_bool().unwrap_or(false)));
+            } else if val.is_number() {
+                out.push(0x02);
+                out.extend_from_slice(&order_f64(val.as_f64().unwrap_or(0.0)));
+            } else if val.is_string() {
+                out.push(0x03);
+                out.extend(encode_str(val.as_str().unwrap_or("")));
+            } else {
+                out.push(0xFE);
+            }
+        }
     }
 }
 

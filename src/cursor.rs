@@ -157,7 +157,7 @@ impl Cursor {
     /// Returns the value at the given key or null.
     pub fn get(&self, txn: &Transaction, key: &[u8]) -> Result<Value> {
         match self.btree().get(txn.as_ro(), key)? {
-            Some(bytes) => Value::decode(bytes),
+            Some(bytes) => Value::from_storage(bytes),
             None => Ok(Value::Null),
         }
     }
@@ -244,7 +244,7 @@ impl TableScan {
 
     fn load(&self) -> Result<Value> {
         let (_, val) = self.current().ok_or_else(unpositioned_cursor)?;
-        Value::decode(val)
+        Value::from_storage(val)
     }
 
     fn current(&self) -> Option<(&[u8], &[u8])> {
@@ -392,13 +392,15 @@ mod tests {
 
     #[test]
     fn get_existing_key_returns_row() {
-        let row: &[u8] = br#"{"id":1,"v":"a"}"#;
-        let (_dir, storage) = fixture(&[(b"k1", row)]);
+        // Rows are stored in the flat layout, so encode the value before storing.
+        let row = Value::decode(br#"{"id":1,"v":"a"}"#).unwrap();
+        let bytes = row.encode().unwrap();
+        let (_dir, storage) = fixture(&[(b"k1", bytes.as_slice())]);
         let (txn, btree) = open_read(&storage);
         let mut cursor = Cursor::new();
         cursor.open(btree);
         let got = cursor.get(&txn, b"k1").unwrap();
-        assert_eq!(got, Value::decode(row).unwrap());
+        assert!(got == row);
     }
 
     #[test]
@@ -412,11 +414,14 @@ mod tests {
 
     #[test]
     fn get_among_many_picks_one() {
-        let rows: &[(&[u8], &[u8])] = &[
-            (b"k1", br#"{"id":1}"#),
-            (b"k2", br#"{"id":2}"#),
-            (b"k3", br#"{"id":3}"#),
-        ];
+        // Rows are stored in the flat layout, so encode each value before storing.
+        let enc = |json: &[u8]| Value::decode(json).unwrap().encode().unwrap();
+        let (v1, v2, v3) = (
+            enc(br#"{"id":1}"#),
+            enc(br#"{"id":2}"#),
+            enc(br#"{"id":3}"#),
+        );
+        let rows: &[(&[u8], &[u8])] = &[(b"k1", &v1), (b"k2", &v2), (b"k3", &v3)];
         let (_dir, storage) = fixture(rows);
         let (txn, btree) = open_read(&storage);
         let mut cursor = Cursor::new();

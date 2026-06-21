@@ -377,26 +377,10 @@ fn render_monadb_value(value: &Value) -> String {
     }
 }
 
-/// MonaDB reserved keywords that cannot appear as bare object keys.
-const MONADB_KEYWORDS: &[&str] = &[
-    "all", "and", "any", "array", "as", "asc", "at", "between", "bool", "by", "clear", "copy",
-    "create", "delete", "desc", "drop", "exists", "false", "float", "from", "group", "having", "in",
-    "insert", "int", "into", "is", "limit", "not", "null", "number", "object", "or", "order",
-    "pivot", "select", "string", "table", "to", "true", "unknown", "unpivot", "where",
-];
-
 fn render_monadb_string_key(key: &str) -> String {
-    // Declared key columns must be matched by bare identifiers, but reserved
-    // words (e.g. `at`) and non-identifiers must be quoted strings.
-    let bare = !key.is_empty()
-        && !key.starts_with(|c: char| c.is_ascii_digit())
-        && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
-        && !MONADB_KEYWORDS.contains(&key);
-    if bare {
-        key.to_string()
-    } else {
-        render_monadb_value(&Value::String(key.into()))
-    }
+    // Object keys are quoted strings only (see the `Member` rule in
+    // `src/parser.lalrpop`); a bare identifier key is a syntax error.
+    render_monadb_value(&Value::String(key.into()))
 }
 
 fn escape_sql_string(raw: &str) -> String {

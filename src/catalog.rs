@@ -1,45 +1,31 @@
 //! The catalog: table metadata, stored as rows in a reserved system table.
 //!
 //! Table definitions live as catalog rows (oid 0), like SQLite's
-//! `sqlite_master` — each row is an [`Object`] carrying the original DDL.
+//! `sqlite_master` — each row is an object carrying the original DDL. Catalog
+//! rows are written through the ordinary insert path (`Vop::Insert`), so they use
+//! the same flat storage codec as data rows (see [`crate::value::Value::encode`]).
 
 use std::sync::Arc;
 
 use heed::byteorder::{BigEndian, ByteOrder};
-use serde::{Deserialize, Serialize};
 
 use crate::MonaDB;
 use crate::error::{Error, Result};
 use crate::ir::{Create, Statement, TableDefinition};
 use crate::storage::{BTree, Storage};
 use crate::transaction::Transaction;
+use crate::value::Value;
 
 /// Reserved oid for the catalog table itself.
 pub const CATALOG_OID: u32 = 0;
 
-/// The single catalog object value, for now only tables.
-#[derive(Serialize, Deserialize)]
-pub struct Object {
-    /// The object name, e.g. "catalog" or "users".
-    pub name: String,
-    /// The object kind, e.g. "table" or "view".
-    #[serde(rename = "type")]
-    pub kind: String,
-    /// The original SQL statement that created the object.
-    pub sql: String,
-}
-
-impl Object {
-    /// Parses the stored `sql` back into its table definition.
-    fn table_definition(&self) -> Result<TableDefinition> {
-        match MonaDB::parse(&self.sql)? {
-            Statement::Create(Create::Table(def)) => Ok(def),
-            Statement::Create(Create::TableAs { def, .. }) => Ok(def),
-            _ => Err(Error::InternalError(format!(
-                "catalog row for table '{}' is not a create table",
-                self.name
-            ))),
-        }
+/// Parses a catalog row's stored `sql` back into its table definition.
+fn parse_table_definition(sql: &str, name: &str) -> Result<TableDefinition> {
+    match MonaDB::parse(sql)? {
+        Statement::Create(Create::Table(def) | Create::TableAs { def, .. }) => Ok(def),
+        _ => Err(Error::InternalError(format!(
+            "catalog row for table '{name}' is not a create table"
+        ))),
     }
 }
 
@@ -58,13 +44,12 @@ impl Catalog {
         let key = CATALOG_OID.to_be_bytes();
         let btree: BTree = storage.create_btree(&mut txn, CATALOG_OID)?;
         if btree.get(txn.as_ro(), &key)?.is_none() {
-            let obj = Object {
-                name: "catalog".to_string(),
-                kind: "table".to_string(),
-                sql: "create table catalog;".to_string(),
-            };
-            let bytes = serde_json::to_vec(&obj)?;
-            btree.put(txn.as_rw()?, &key, bytes.as_slice())?;
+            let row = Value::from(serde_json::json!({
+                "name": "catalog",
+                "type": "table",
+                "sql": "create table catalog;",
+            }));
+            btree.put(txn.as_rw()?, &key, row.encode()?.as_slice())?;
         }
         txn.commit()?;
         Ok(Self {
@@ -76,9 +61,15 @@ impl Catalog {
     pub fn get_table(&self, txn: &Transaction, name: &str) -> Result<TableDefinition> {
         for entry in self.catalog.iter(txn.as_ro())? {
             let (key, val) = entry?;
-            let obj: Object = serde_json::from_slice(val)?;
-            if obj.kind == "table" && obj.name == name {
-                let mut def = obj.table_definition()?;
+            let row = Value::from_storage(val)?;
+            let is_table = row.jpk("type").as_ref().and_then(Value::as_str) == Some("table");
+            let row_name = row.jpk("name");
+            if is_table && row_name.as_ref().and_then(Value::as_str) == Some(name) {
+                let sql = row.jpk("sql").and_then(|v| v.as_str().map(str::to_owned));
+                let sql = sql.ok_or_else(|| {
+                    Error::InternalError(format!("catalog row for table '{name}' missing sql"))
+                })?;
+                let mut def = parse_table_definition(&sql, name)?;
                 def.oid = Some(BigEndian::read_u32(key));
                 return Ok(def);
             }

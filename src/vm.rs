@@ -444,11 +444,11 @@ impl VM {
                 Vop::Entries => {
                     let val = self.pop();
                     let mut arr = Value::array();
-                    if let Value::Object(obj) = &val {
-                        for (name, value) in obj.iter() {
+                    if let Some(members) = val.members() {
+                        for (name, value) in members {
                             let mut pair = Value::array();
                             pair.push(Value::String(name.into()));
-                            pair.push(value.clone());
+                            pair.push(value);
                             arr.push(pair);
                         }
                     }
@@ -958,6 +958,9 @@ fn avg_parts(cell: &Value) -> (f64, i64) {
 fn pop_key(val: Value) -> Result<Vec<u8>> {
     match val {
         Value::Bytes(bytes) => Ok(bytes.to_vec()),
+        // A catalog key is a bare oid: 4 raw big-endian bytes (`get_table` reads
+        // it back with `BigEndian::read_u32`), not the tagged flat value form.
+        Value::Oid(oid) => Ok(oid.to_be_bytes().to_vec()),
         val => val.encode(),
     }
 }

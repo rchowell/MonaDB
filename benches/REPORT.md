@@ -4,11 +4,11 @@ Generated from the `metrics` harness (`cargo bench --bench metrics`).
 
 | | |
 |---|---|
-| **MonaDB** | 0.1.0 (LMDB / heed backend) |
+| **MonaDB** | 0.1.0 (LMDB / heed backend, flat lazy value codec) |
 | **SQLite** | 3.46.0 (bundled, `rusqlite`) — `TEXT` and `JSONB` doc columns |
 | **Build** | `--release` (optimized) |
 | **Platform** | macOS (darwin), arm64 |
-| **Date** | 2026-06-19 |
+| **Date** | 2026-06-21 |
 | **Config** | preload `N = 2000`, timed ops `M = 500`, seed `0x0ADB00EC` |
 | **Method** | Ad-hoc SQL end-to-end (no prepared statements on either engine); each result fully decoded |
 
@@ -17,24 +17,32 @@ Generated from the `metrics` harness (`cargo bench --bench metrics`).
 > Rust global allocator: **exact for MonaDB, undercounted for SQLite** (its C heap is
 > invisible to the Rust allocator). So compare *latency* across engines directly, but
 > treat MonaDB's allocation figures as a self-improvement signal, not a like-for-like
-> memory comparison. `Δ` columns are MonaDB ÷ SQLite-`TEXT`.
+> memory comparison. `Δ` columns are MonaDB ÷ SQLite-`TEXT` (so `<1.0` = MonaDB faster).
+
+> **What changed since the prior report.** MonaDB now stores document values in a
+> flat, JSONB-style binary layout read lazily (`Value::Raw`, an `Rc<[u8]>` view):
+> a read copies the row bytes once, then navigates by offset with no per-field
+> allocation, and re-encoding is a `memcpy`. **Read allocation count is now flat
+> with respect to document size** and reads are dramatically faster, flipping the
+> earlier "SQLite wins everything" result on medium/large documents. Inserts are
+> unchanged (still one durable commit per `execute`).
 
 ---
 
 ## TL;DR
 
-- **SQLite is faster on every workload at this scale**, by ~7× on point lookups up to
-  ~100× on small single-row inserts. The gap **shrinks as documents grow** (to ~6–8×)
-  because large-payload serialization cost dominates and converges across engines.
-- **Inserts are MonaDB's biggest gap.** MonaDB spends ~3.7–5 ms per insert almost
-  regardless of document size — consistent with **committing a write transaction
-  (fsync) per `execute`**. SQLite (WAL + `synchronous=NORMAL`) is 1–2 orders of
-  magnitude cheaper on small docs.
-- **MonaDB's allocation count scales with rows/values touched**; SQLite stays near
-  constant (≈2 allocations per point read vs MonaDB's 84–2,800+). This is the clearest,
-  most actionable optimization target.
-- **Range/prefix reads amplify both effects** — MonaDB's batch-get array construction
-  allocates heavily (up to ~105 MB of churn for a 100-row `lg` range read).
+- **Reads are now competitive, and faster than SQLite on large documents.** Point
+  lookups are within ~2.5× at `md` and **on par at `lg`** (0.9×); 100-row range reads
+  are **2.5× faster than SQLite at `lg`** (0.40×); prefix reads are **~1.75× faster
+  at `lg`** (0.57×). MonaDB still trails ~3–4× on **small** documents (`xs`/`sm`),
+  where fixed per-op overhead dominates a tiny payload.
+- **The flat lazy codec decoupled read cost from document size.** A point lookup
+  now allocates **43 times regardless of profile** (was ~1,091 at `md`); range and
+  prefix reads allocate a constant ~3,236 / ~131 times across `xs`→`lg`.
+- **Inserts remain MonaDB's dominant gap** — ~3.1–4.6 ms, roughly flat across
+  document size (≈6× SQLite at `lg`, up to ~150× on tiny single-row inserts) — the
+  signature of **committing a durable write transaction (fsync) per `execute`**.
+  This is now the clear #1 optimization target.
 
 ---
 
@@ -44,112 +52,123 @@ Generated from the `metrics` harness (`cargo bench --bench metrics`).
 
 | Profile | MonaDB | SQLite TEXT | SQLite JSONB | Δ |
 |---|--:|--:|--:|--:|
-| xs (256 B) | 15,400 | 2,143 | 1,738 | **7.2×** |
-| sm (2 KiB) | 22,453 | 2,076 | 1,914 | **10.8×** |
-| md (16 KiB) | 90,473 | 4,516 | 4,589 | **20.0×** |
-| lg (128 KiB) | 178,736 | 23,552 | 23,585 | **7.6×** |
+| xs (256 B) | 9,427 | 2,441 | 1,916 | **3.9×** |
+| sm (2 KiB) | 11,220 | 2,591 | 2,092 | **4.3×** |
+| md (16 KiB) | 14,105 | 5,664 | 4,922 | **2.5×** |
+| lg (128 KiB) | 27,068 | 30,136 | 25,294 | **0.90×** |
 
 ### Composite point lookup — `composite_key_select_1` (`docs["t007", seq]`)
 
 | Profile | MonaDB | SQLite TEXT | SQLite JSONB | Δ |
 |---|--:|--:|--:|--:|
-| xs | 18,838 | 2,749 | 2,158 | **6.9×** |
-| sm | 28,725 | 2,761 | 2,489 | **10.4×** |
-| md | 87,163 | 5,126 | 5,391 | **17.0×** |
-| lg | 179,059 | 23,601 | 25,076 | **7.6×** |
+| xs | 9,518 | 2,847 | 2,569 | **3.3×** |
+| sm | 12,245 | 3,118 | 2,815 | **3.9×** |
+| md | 14,951 | 5,743 | 5,455 | **2.6×** |
+| lg | 24,434 | 25,710 | 24,871 | **0.95×** |
 
 ### Range read — `single_key_select_range` (100 contiguous keys)
 
 | Profile | MonaDB | SQLite TEXT | SQLite JSONB | Δ |
 |---|--:|--:|--:|--:|
-| xs | 361,048 | 9,194 | 9,646 | **39.3×** |
-| sm | 704,962 | 22,201 | 22,369 | **31.8×** |
-| md | 5,086,700 | 261,545 | 260,724 | **19.4×** |
-| lg | 16,839,432 | 2,101,046 | 2,141,139 | **8.0×** |
+| xs | 206,870 | 10,124 | 9,738 | **20.4×** |
+| sm | 220,097 | 23,421 | 22,762 | **9.4×** |
+| md | 358,703 | 266,685 | 270,506 | **1.3×** |
+| lg | 868,664 | 2,178,051 | 2,287,643 | **0.40×** |
 
 ### Prefix / partition read — `composite_key_select_prefix` (~20 rows/tenant)
 
 | Profile | MonaDB | SQLite TEXT | SQLite JSONB | Δ |
 |---|--:|--:|--:|--:|
-| xs | 78,542 | 4,155 | 3,928 | **18.9×** |
-| sm | 156,249 | 6,824 | 6,725 | **22.9×** |
-| md | 964,690 | 54,043 | 53,432 | **17.9×** |
-| lg | 3,372,940 | 419,536 | 421,926 | **8.0×** |
+| xs | 18,767 | 4,297 | 4,440 | **4.4×** |
+| sm | 31,110 | 8,917 | 11,041 | **3.5×** |
+| md | 54,368 | 57,434 | 57,583 | **0.95×** |
+| lg | 258,574 | 454,052 | 551,568 | **0.57×** |
 
 ### Insert — `single_key_insert` / `composite_key_insert`
 
 | Profile | MonaDB single | SQLite TEXT | SQLite JSONB | Δ |
 |---|--:|--:|--:|--:|
-| xs | 3,735,104 | 37,284 | 22,344 | **100×** |
-| sm | 3,623,364 | 65,602 | 42,017 | **55×** |
-| md | 3,972,083 | 188,283 | 134,535 | **21×** |
-| lg | 4,741,833 | 727,995 | 766,344 | **6.5×** |
+| xs | 3,220,385 | 20,907 | 17,112 | **154×** |
+| sm | 3,159,391 | 63,709 | 42,274 | **50×** |
+| md | 3,929,919 | 171,353 | 142,029 | **23×** |
+| lg | 4,587,978 | 750,118 | 829,827 | **6.1×** |
 
 | Profile | MonaDB composite | SQLite TEXT | SQLite JSONB | Δ |
 |---|--:|--:|--:|--:|
-| xs | 3,868,180 | 49,219 | 32,965 | **79×** |
-| sm | 3,674,055 | 83,008 | 51,542 | **44×** |
-| md | 4,298,223 | 187,950 | 135,773 | **23×** |
-| lg | 4,971,766 | 725,914 | 763,282 | **6.8×** |
+| xs | 3,132,165 | 47,016 | 31,825 | **67×** |
+| sm | 3,256,023 | 81,566 | 52,618 | **40×** |
+| md | 3,412,811 | 204,276 | 158,176 | **17×** |
+| lg | 4,317,506 | 764,511 | 785,377 | **5.6×** |
 
-> MonaDB's insert latency is roughly **flat at ~3.7–5 ms** until the `lg` payload
+> MonaDB's insert latency is roughly **flat at ~3.1–4.6 ms** until the `lg` payload
 > finally rivals the fixed cost — the signature of a per-insert durable commit. A
-> batched-transaction / bulk-load path would close most of this gap; `TEXT` vs `JSONB`
-> shows SQLite's `json()` parse adds cost on writes but is free-to-cheaper on reads.
+> batched-transaction / bulk-load path (or a relaxed durability mode) would close
+> most of this gap; `TEXT` vs `JSONB` shows SQLite's `json()` parse adds cost on
+> writes but is free-to-cheaper on reads.
 
 ---
 
 ## Memory
 
-Allocation **count** is the cleanest cross-cut: SQLite's Rust surface is ~constant
-per operation while MonaDB allocates proportionally to the values it materializes.
+Allocation **count** is the cleanest cross-cut. With the flat lazy codec, MonaDB's
+per-read allocations no longer scale with the values materialized — a read is one
+buffer copy plus a small, *constant* amount of navigation/result bookkeeping.
 
 | Workload (md profile) | MonaDB allocs/op | MonaDB B/op | SQLite allocs/op | MonaDB peak heap |
 |---|--:|--:|--:|--:|
-| point lookup | 1,091 | 203,158 | 2 | 125 KB |
-| range (100 rows) | 108,036 | 19,901,777 | 101 | 3.3 MB |
-| prefix (~20 rows) | 21,233 | 4,217,869 | 21 | 745 KB |
-| insert | 3,596 | 600,648 | 1,091 | 168 KB |
+| point lookup | 43 | 46,789 | 2 | 37 KB |
+| range (100 rows) | 3,236 | 4,259,074 | 101 | 1.9 MB |
+| prefix (~20 rows) | 131 | 1,108,262 | 21 | 386 KB |
+| insert | 3,306 | 507,628 | 1,091 | 105 KB |
 
 Observations:
 
-- **Per-value allocation churn dominates MonaDB's reads.** A 100-row `md` range read
-  allocates ~108K times (~1,080 allocations *per returned row*) and churns ~20 MB.
-  SQLite issues ~101 allocations for the same query. Reducing per-`Value`/per-row
-  allocations (arena reuse, borrowed decode, fewer `Rc` heap nodes) is the highest-leverage
-  memory win.
-- **MonaDB peak heap tracks payload size** (KB for points, MB for ranges) — expected,
-  but the multiplier over the raw document bytes is large for multi-row reads.
+- **Per-read allocation churn is now flat with document size.** A point lookup
+  allocates **43 times at every profile** (`xs`→`lg`), down from ~1,091 at `md` in
+  the prior tree-materializing decoder (~25× fewer). Range and prefix reads hold at
+  ~3,236 and ~131 allocations across all sizes. The remaining `B/op` is the single
+  `Rc<[u8]>` copy of each row out of the mmap, not a fanned-out object tree.
+- **Reads beat SQLite on latency once the payload is large** because navigation is
+  offset arithmetic over bytes already resident, with no decode and no per-field
+  heap traffic — the gap that remains at `xs`/`sm` is fixed per-op overhead.
+- **Inserts still allocate** to build the row object and its flat encoding
+  (~3,306 allocs/op at `md`, modestly better than the prior ~3,596), but latency is
+  dominated by the per-`execute` fsync, not allocation.
 - **SQLite `B/op` is not comparable** (C-heap invisible); included only to show its
   Rust-binding overhead is minimal and ~flat.
 
 ### Peak RSS caveat
 
 RSS is a process high-water mark, so the single-process matrix run reports cumulative
-RSS (it pins near ~407 MB after the largest `lg` range read and stays there). The early
-cells are still indicative — e.g. point-lookup RSS grew xs→md as 6 MB → 16 MB → 49 MB
-(SQLite) vs 6 MB → 12 MB → 33 MB (MonaDB). For clean per-engine RSS, run one engine per
-process (see `benches/README.md`).
+RSS (it pins near ~391 MB after the largest `lg` range read and stays there). The
+early cells are still indicative — e.g. point-lookup RSS grew xs→md as 6 MB → 16 MB →
+50 MB (SQLite) vs 6 MB → 12 MB → 34 MB (MonaDB). For clean per-engine RSS, run one
+engine per process (see `benches/README.md`).
 
 ---
 
 ## Takeaways
 
-**Where MonaDB is closest:** large-document (`lg`) reads — ~7–8× — where serialization
-cost dominates and the engines converge. **Where it's furthest:** small-document inserts
-(~80–100×) and small-row-count range reads (~30–40×).
+**Where MonaDB now wins:** large-document (`lg`) reads — range (0.40×) and prefix
+(0.57×) reads run faster than SQLite, and point lookups are on par (0.90×), because
+the flat lazy codec turns a read into a single buffer copy plus offset navigation.
+**Where it's competitive:** medium (`md`) reads (~1–2.6×). **Where it still trails:**
+small-document reads (`xs`/`sm`, ~3–4×), where fixed per-op cost dominates a tiny
+payload, and — by a wide margin — **inserts** (~6–150×).
 
 **Highest-leverage optimization targets, in order:**
 
-1. **Batched/bulk insert path.** The ~3.7–5 ms flat insert cost is per-`execute`
-   transaction durability. A multi-row transaction or bulk-load API would likely cut
-   small-insert latency by 1–2 orders of magnitude.
-2. **Cut per-`Value` allocations on reads.** Allocation count scales ~linearly with
-   rows×fields. Arena/borrowed decoding and fewer `Rc` nodes would help both latency and
-   memory, most visibly on range/prefix reads.
-3. **Range-read materialization.** The `select [docs[lo], …]` batch-get builds a large
-   array expression; a streaming cursor scan would avoid constructing (and allocating)
-   the whole result array.
+1. **Batched/bulk insert path (or relaxed durability).** The ~3.1–4.6 ms flat insert
+   cost is per-`execute` transaction durability (one fsync each). A multi-row
+   transaction, bulk-load API, or a `synchronous=NORMAL`-equivalent mode would cut
+   small-insert latency by 1–2 orders of magnitude. This is now the single dominant
+   gap.
+2. **Trim fixed per-op read overhead for small documents.** At `xs`/`sm` the ~3–4×
+   gap is setup cost (cursor open, key encode, result wrapping) amortized over a tiny
+   payload, not allocation — the flat codec already removed the per-value churn.
+3. **Range-read result construction.** The 100-row batch-get (`select [docs[lo], …]`)
+   still constructs an offset key and result-array slot per element; a streaming
+   cursor scan would shave the remaining constant ~32 allocations/row.
 
 ---
 

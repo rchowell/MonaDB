@@ -5,10 +5,11 @@
 //! copy-on-write mutation). `serde_json` bridges to and from stored bytes.
 
 use std::collections::HashMap;
-use std::fmt::{Debug, Display};
+use std::fmt::{self, Debug, Display};
 use std::rc::Rc;
 
 use crate::error::{Error, Result};
+use serde::de::{Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::{Map, Value as JsonValue};
 
 /// A value in the virtual machine: a JSON-like tagged union.
@@ -35,6 +36,22 @@ pub enum Value {
     Array(Rc<Vec<Value>>),
     /// An insertion-ordered object.
     Object(Rc<Object>),
+    /// A lazily-read value backed by flat storage bytes (see [`flat`]).
+    ///
+    /// Produced by [`Value::from_storage`]; only ever wraps an array or object
+    /// (or, defensively, a top-level scalar). Navigation into it returns owned
+    /// scalars and `Raw` sub-views that share the same `Rc<[u8]>` — so reading a
+    /// stored document costs one allocation (the byte buffer), not one per field.
+    Raw(RawValue),
+}
+
+/// A view into a flat-encoded value: the shared byte buffer plus the half-open
+/// span `[at, end)` that this value occupies. `Clone` is an `Rc` refcount bump.
+#[derive(Clone)]
+pub struct RawValue {
+    buf: Rc<[u8]>,
+    at: u32,
+    end: u32,
 }
 
 /// Default is null so `.unwrap_or_default()` yields null.
@@ -152,6 +169,7 @@ impl Value {
                 JsonValue::Array(b.iter().map(|&x| JsonValue::Number(x.into())).collect())
             }
             Value::Array(items) => JsonValue::Array(items.iter().map(Value::to_json).collect()),
+            Value::Raw(r) => r.to_json(),
             Value::Object(obj) => {
                 let mut map = Map::new();
                 for (k, v) in obj.iter() {
@@ -192,23 +210,68 @@ impl Value {
     /// `Float(1.0)`), order-independent object comparison, and element-wise
     /// array comparison. Mirrors the old all-`f64` serde_json semantics.
     fn structural_eq(&self, other: &Self) -> bool {
+        // Fast path: both fully-owned. Handles the common comparisons without
+        // touching the accessor layer.
         match (self, other) {
-            (Value::Null, Value::Null) => true,
-            (Value::Bool(a), Value::Bool(b)) => a == b,
-            (a, b) if a.is_number() && b.is_number() => a.as_f64() == b.as_f64(),
-            (Value::String(a), Value::String(b)) => a == b,
-            (Value::Oid(a), Value::Oid(b)) => a == b,
-            (Value::Bytes(a), Value::Bytes(b)) => a == b,
+            (Value::Null, Value::Null) => return true,
+            (Value::Bool(a), Value::Bool(b)) => return a == b,
+            (a, b) if a.is_number() && b.is_number() => return a.as_f64() == b.as_f64(),
+            (Value::String(a), Value::String(b)) => return a == b,
+            (Value::Oid(a), Value::Oid(b)) => return a == b,
+            (Value::Bytes(a), Value::Bytes(b)) => return a == b,
             (Value::Array(a), Value::Array(b)) => {
-                a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| x.structural_eq(y))
+                return a.len() == b.len()
+                    && a.iter().zip(b.iter()).all(|(x, y)| x.structural_eq(y));
             }
             (Value::Object(a), Value::Object(b)) => {
-                a.len() == b.len()
+                return a.len() == b.len()
                     && a.iter()
-                        .all(|(k, v)| b.get(k).is_some_and(|w| v.structural_eq(w)))
+                        .all(|(k, v)| b.get(k).is_some_and(|w| v.structural_eq(w)));
             }
-            _ => false,
+            _ => {}
         }
+        // General path: at least one side is `Raw`. Compare through accessors so
+        // owned and flat-backed values compare structurally.
+        if self.is_null() || other.is_null() {
+            return self.is_null() && other.is_null();
+        }
+        if self.is_number() && other.is_number() {
+            return self.as_f64() == other.as_f64();
+        }
+        if self.is_bool() && other.is_bool() {
+            return self.as_bool() == other.as_bool();
+        }
+        if self.is_string() && other.is_string() {
+            return self.as_str() == other.as_str();
+        }
+        // Internal scalar kinds (`Oid`/`Bytes`) compare by content too, so a
+        // flat-backed value still equals its owned twin — `type_name` and the
+        // accessors handle both representations.
+        if self.type_name() == "oid" && other.type_name() == "oid" {
+            return self.as_oid() == other.as_oid();
+        }
+        if let (Some(a), Some(b)) = (self.as_bytes(), other.as_bytes()) {
+            return a == b;
+        }
+        if self.is_array() && other.is_array() {
+            let (Some(n), Some(m)) = (self.len(), other.len()) else {
+                return false;
+            };
+            return n == m
+                && (0..n).all(|i| match (self.jpi(i), other.jpi(i)) {
+                    (Some(x), Some(y)) => x.structural_eq(&y),
+                    _ => false,
+                });
+        }
+        if self.is_object() && other.is_object() {
+            let (Some(a), Some(b)) = (self.members(), other.members()) else {
+                return false;
+            };
+            return a.len() == b.len()
+                && a.iter()
+                    .all(|(k, v)| other.jpk(k).is_some_and(|w| v.structural_eq(&w)));
+        }
+        false
     }
 
     //------------------------------
@@ -224,6 +287,7 @@ impl Value {
             Value::Bool(b) => *b,
             Value::Int(i) => *i != 0,
             Value::Float(f) => *f != 0.0,
+            Value::Raw(r) => r.scalar().is_none_or(|v| v.is_truthy()),
             _ => true,
         }
     }
@@ -231,30 +295,59 @@ impl Value {
     /// Returns the object's members as `(name, value)` pairs, or `None` for a
     /// non-object.
     pub fn members(&self) -> Option<Vec<(String, Value)>> {
-        if let Value::Object(obj) = self {
-            Some(
+        match self {
+            Value::Object(obj) => Some(
                 obj.iter()
                     .map(|(k, v)| (k.to_string(), v.clone()))
                     .collect(),
-            )
-        } else {
-            None
+            ),
+            Value::Raw(r) if r.tag() == flat::OBJECT => {
+                let mut out = Vec::with_capacity(r.count());
+                r.for_each_entry(|k, v| out.push((k.to_string(), v)));
+                Some(out)
+            }
+            _ => None,
         }
     }
 
     /// Returns true if this is a boolean.
     pub fn is_bool(&self) -> bool {
-        matches!(self, Value::Bool(_))
+        match self {
+            Value::Bool(_) => true,
+            Value::Raw(r) => matches!(r.tag(), flat::FALSE | flat::TRUE),
+            _ => false,
+        }
+    }
+
+    /// Returns the boolean, or `None` if this is not a boolean.
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            Value::Bool(b) => Some(*b),
+            Value::Raw(r) => match r.tag() {
+                flat::FALSE => Some(false),
+                flat::TRUE => Some(true),
+                _ => None,
+            },
+            _ => None,
+        }
     }
 
     /// Returns true if this is null.
     pub fn is_null(&self) -> bool {
-        matches!(self, Value::Null)
+        match self {
+            Value::Null => true,
+            Value::Raw(r) => r.tag() == flat::NULL,
+            _ => false,
+        }
     }
 
     /// Returns true if this is an int or a float.
     pub fn is_number(&self) -> bool {
-        matches!(self, Value::Int(_) | Value::Float(_))
+        match self {
+            Value::Int(_) | Value::Float(_) => true,
+            Value::Raw(r) => matches!(r.tag(), flat::INT | flat::FLOAT),
+            _ => false,
+        }
     }
 
     /// Returns the value as an `f64` (an `Int` widens), or `None` if non-numeric.
@@ -262,40 +355,89 @@ impl Value {
         match self {
             Value::Int(i) => Some(*i as f64),
             Value::Float(f) => Some(*f),
+            Value::Raw(r) => r.scalar().and_then(|v| v.as_f64()),
             _ => None,
         }
     }
 
     /// Returns true if this is a string.
     pub fn is_string(&self) -> bool {
-        matches!(self, Value::String(_))
+        match self {
+            Value::String(_) => true,
+            Value::Raw(r) => r.tag() == flat::STRING,
+            _ => false,
+        }
     }
 
     /// Returns the string slice, or `None` if this is not a string.
     pub fn as_str(&self) -> Option<&str> {
-        if let Value::String(s) = self {
-            Some(s)
-        } else {
-            None
+        match self {
+            Value::String(s) => Some(s),
+            Value::Raw(r) => r.as_str(),
+            _ => None,
+        }
+    }
+
+    /// Returns the raw bytes, or `None` if this is not a `Bytes` value.
+    pub fn as_bytes(&self) -> Option<&[u8]> {
+        match self {
+            Value::Bytes(b) => Some(b),
+            Value::Raw(r) => r.as_bytes(),
+            _ => None,
         }
     }
 
     /// Returns true if this is an array.
     pub fn is_array(&self) -> bool {
-        matches!(self, Value::Array(_))
+        match self {
+            Value::Array(_) => true,
+            Value::Raw(r) => r.tag() == flat::ARRAY,
+            _ => false,
+        }
     }
 
     /// Returns true if this is an object.
     pub fn is_object(&self) -> bool {
-        matches!(self, Value::Object(_))
+        match self {
+            Value::Object(_) => true,
+            Value::Raw(r) => r.tag() == flat::OBJECT,
+            _ => false,
+        }
     }
 
-    /// The wrapped OID. Panics if not an `Oid` (compiler-guaranteed invariant).
+    /// The runtime type name (`"int"`, `"object"`, …) — the SQL `typeof`.
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Value::Null => "null",
+            Value::Bool(_) => "bool",
+            Value::Int(_) => "int",
+            Value::Float(_) => "float",
+            Value::Oid(_) => "oid",
+            Value::String(_) => "string",
+            Value::Bytes(_) => "bytes",
+            Value::Array(_) => "array",
+            Value::Object(_) => "object",
+            Value::Raw(r) => match r.tag() {
+                flat::NULL => "null",
+                flat::FALSE | flat::TRUE => "bool",
+                flat::INT => "int",
+                flat::FLOAT => "float",
+                flat::OID => "oid",
+                flat::STRING => "string",
+                flat::BYTES => "bytes",
+                flat::ARRAY => "array",
+                _ => "object",
+            },
+        }
+    }
+
+    /// The wrapped OID (owned or flat-backed). Panics if not an `Oid`
+    /// (compiler-guaranteed invariant).
     pub fn as_oid(&self) -> u32 {
-        if let Value::Oid(oid) = self {
-            *oid
-        } else {
-            unreachable!()
+        match self {
+            Value::Oid(oid) => *oid,
+            Value::Raw(r) if r.tag() == flat::OID => flat::u32_at(&r.buf, r.at as usize + 1) as u32,
+            _ => unreachable!(),
         }
     }
 
@@ -306,18 +448,22 @@ impl Value {
     /// Navigates by a value: a non-negative int indexes an array, a string
     /// keys an object (the computed-path step `input[expr]`).
     pub fn jpe(&self, v: Value) -> Option<Value> {
-        match v {
-            Value::Int(i) if i >= 0 => self.jpi(i as usize),
-            Value::Float(f) if f >= 0.0 && f.fract() == 0.0 => self.jpi(f as usize),
-            Value::String(s) => self.jpk(&s),
-            _ => None,
+        if v.is_number() {
+            let f = v.as_f64()?;
+            return if f >= 0.0 && f.fract() == 0.0 {
+                self.jpi(f as usize)
+            } else {
+                None
+            };
         }
+        v.as_str().and_then(|s| self.jpk(s))
     }
 
     /// Number of elements, or `None` if this is not an array.
     pub fn len(&self) -> Option<usize> {
         match self {
             Value::Array(items) => Some(items.len()),
+            Value::Raw(r) if r.tag() == flat::ARRAY => Some(r.count()),
             _ => None,
         }
     }
@@ -327,6 +473,7 @@ impl Value {
     pub fn jpi(&self, idx: usize) -> Option<Value> {
         match self {
             Value::Array(items) => items.get(idx).cloned(),
+            Value::Raw(r) => r.index(idx),
             _ => None,
         }
     }
@@ -336,6 +483,7 @@ impl Value {
     pub fn jpk(&self, key: &str) -> Option<Value> {
         match self {
             Value::Object(obj) => obj.get(key).cloned(),
+            Value::Raw(r) => r.key(key),
             _ => None,
         }
     }
@@ -346,6 +494,7 @@ impl Value {
 
     /// Set a key on an object value (clone-on-write if shared). Non-objects no-op.
     pub fn set(&mut self, key: impl Into<Rc<str>>, value: Value) {
+        self.own();
         if let Value::Object(obj) = self {
             Rc::make_mut(obj).insert(key.into(), value);
         }
@@ -353,6 +502,7 @@ impl Value {
 
     /// Push onto an array value (clone-on-write if shared). Non-arrays no-op.
     pub fn push(&mut self, value: Value) {
+        self.own();
         if let Value::Array(arr) = self {
             Rc::make_mut(arr).push(value);
         }
@@ -360,6 +510,8 @@ impl Value {
 
     /// Merge another object's entries into this one (clone-on-write if shared).
     pub fn spread(&mut self, value: Value) {
+        self.own();
+        let value = value.materialized();
         if let (Value::Object(dst), Value::Object(src)) = (&mut *self, &value) {
             let dst = Rc::make_mut(dst);
             for (k, v) in src.iter() {
@@ -368,24 +520,56 @@ impl Value {
         }
     }
 
+    /// Materializes `self` in place if it is a flat-backed [`Value::Raw`], so the
+    /// clone-on-write mutators below operate on an owned `Rc` tree.
+    #[inline]
+    fn own(&mut self) {
+        if matches!(self, Value::Raw(_)) {
+            *self = std::mem::take(self).materialized();
+        }
+    }
+
     //------------------------------
     // Encoding (JSON bytes for now)
     //------------------------------
 
-    /// Encodes the value to stored bytes: `Oid`/`Bytes` stay raw, everything
-    /// else serializes to JSON.
+    /// Encodes the value to stored bytes in the flat [`flat`] layout.
+    ///
+    /// The inverse of [`Value::from_storage`]. A [`Value::Raw`] is already in
+    /// flat form, so encoding it is a `memcpy`.
     pub fn encode(&self) -> Result<Vec<u8>> {
+        let mut out = Vec::new();
+        flat::encode(self, &mut out);
+        Ok(out)
+    }
+
+    /// Wraps stored flat bytes as a lazy [`Value::Raw`] (the storage read seam).
+    ///
+    /// Costs a single allocation — one copy of the row out of the LMDB mmap into
+    /// an `Rc<[u8]>`; navigation into the result is allocation-free thereafter.
+    pub fn from_storage(bytes: &[u8]) -> Result<Value> {
+        if bytes.is_empty() {
+            return Ok(Value::Null);
+        }
+        let buf: Rc<[u8]> = Rc::from(bytes);
+        let end = buf.len() as u32;
+        Ok(Value::Raw(RawValue { buf, at: 0, end }))
+    }
+
+    /// Returns an owned value: a [`Value::Raw`] is materialized into its `Rc`
+    /// tree; anything else is returned unchanged.
+    pub fn materialized(self) -> Value {
         match self {
-            Value::Oid(oid) => Ok(oid.to_be_bytes().to_vec()),
-            Value::Bytes(bytes) => Ok(bytes.to_vec()),
-            other => Ok(serde_json::to_vec(&other.to_json())?),
+            Value::Raw(r) => r.materialize(),
+            other => other,
         }
     }
 
-    /// Decodes a value from stored JSON bytes.
+    /// Parses a value from external JSON bytes (drives [`Deserialize`] directly,
+    /// no intermediate `serde_json::Value`). Used for JSONL input, *not* the
+    /// storage path — see [`Value::from_storage`].
     pub fn decode(bytes: &[u8]) -> Result<Self> {
-        let json: JsonValue = serde_json::from_slice(bytes)?;
-        Ok(Self::from_json(json))
+        Ok(serde_json::from_slice(bytes)?)
     }
 
     //------------------------------
@@ -579,11 +763,13 @@ impl PartialEq for Value {
 
 impl PartialOrd for Value {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        match (self, other) {
-            (a, b) if a.is_number() && b.is_number() => a.as_f64().partial_cmp(&b.as_f64()),
-            (Value::String(a), Value::String(b)) => Some(a.as_ref().cmp(b.as_ref())),
-            _ => None,
+        if self.is_number() && other.is_number() {
+            return self.as_f64().partial_cmp(&other.as_f64());
         }
+        if self.is_string() && other.is_string() {
+            return Some(self.as_str()?.cmp(other.as_str()?));
+        }
+        None
     }
 
     fn lt(&self, other: &Self) -> bool {
@@ -622,6 +808,16 @@ impl Object {
         Self::default()
     }
 
+    /// Builds an object directly from members, trusting them to be unique.
+    ///
+    /// Used when re-materializing a flat-encoded object ([`RawValue::materialize`]),
+    /// whose keys came from our own encoder and never collide; this skips the
+    /// per-field dedup scan of [`Object::insert`]. Callers handling untrusted input
+    /// (e.g. the JSONL `visit_map` path) must dedup via [`Object::insert`] instead.
+    pub(crate) fn from_members(members: Vec<(Rc<str>, Value)>) -> Self {
+        Self { members }
+    }
+
     /// Returns the value for `key`, or `None` if absent.
     pub fn get(&self, key: &str) -> Option<&Value> {
         self.members
@@ -652,6 +848,449 @@ impl Object {
     /// Returns true if the object has no members.
     pub fn is_empty(&self) -> bool {
         self.members.is_empty()
+    }
+}
+
+/// The flat, JSONB-style storage codec: a self-describing binary layout that
+/// lets reads navigate stored documents by offset arithmetic, with no decode.
+///
+/// The first byte is a type tag; scalars carry an inline body, containers carry
+/// a count and offset table(s) for O(1) child access:
+///
+/// ```text
+///   0x00 null    │ (no body)
+///   0x01 false   │ (no body)
+///   0x02 true    │ (no body)
+///   0x03 int     │ i64                              (8 bytes, little-endian)
+///   0x04 float   │ f64 bits                         (8 bytes, little-endian)
+///   0x05 string  │ len:u32  utf8[len]
+///   0x06 oid     │ u32                              (4 bytes)
+///   0x07 bytes   │ len:u32  raw[len]
+///   0x08 array   │ count:u32  off:[u32; count+1]  payload(values…)
+///   0x09 object  │ count:u32  koff:[u32; count+1]  voff:[u32; count+1]  keys  values
+/// ```
+///
+/// Offsets are relative to their section start; the trailing offset is the
+/// section end. Object keys are stored in insertion order (lookup is a linear
+/// scan, matching the small-object assumption), so encode → decode preserves
+/// member order.
+mod flat {
+    pub const NULL: u8 = 0x00;
+    pub const FALSE: u8 = 0x01;
+    pub const TRUE: u8 = 0x02;
+    pub const INT: u8 = 0x03;
+    pub const FLOAT: u8 = 0x04;
+    pub const STRING: u8 = 0x05;
+    pub const OID: u8 = 0x06;
+    pub const BYTES: u8 = 0x07;
+    pub const ARRAY: u8 = 0x08;
+    pub const OBJECT: u8 = 0x09;
+
+    /// Reads a little-endian `u32` at `at`.
+    #[inline]
+    pub fn u32_at(buf: &[u8], at: usize) -> usize {
+        u32::from_le_bytes([buf[at], buf[at + 1], buf[at + 2], buf[at + 3]]) as usize
+    }
+
+    /// Patches a little-endian `u32` into `buf` at `at`.
+    #[inline]
+    fn put_u32_at(buf: &mut [u8], at: usize, v: u32) {
+        buf[at..at + 4].copy_from_slice(&v.to_le_bytes());
+    }
+
+    /// Appends a little-endian `u32`.
+    #[inline]
+    fn push_u32(out: &mut Vec<u8>, v: u32) {
+        out.extend_from_slice(&v.to_le_bytes());
+    }
+
+    /// The element count of an array/object value at `at`.
+    #[inline]
+    pub fn count(buf: &[u8], at: usize) -> usize {
+        u32_at(buf, at + 1)
+    }
+
+    /// The half-open byte span of array element `i`, or `None` if out of range.
+    pub fn array_span(buf: &[u8], at: usize, i: usize) -> Option<(usize, usize)> {
+        let c = count(buf, at);
+        if i >= c {
+            return None;
+        }
+        let table = at + 5;
+        let payload = table + 4 * (c + 1);
+        let lo = payload + u32_at(buf, table + 4 * i);
+        let hi = payload + u32_at(buf, table + 4 * (i + 1));
+        Some((lo, hi))
+    }
+
+    /// An object's table base offsets, derived once so per-entry span lookups are
+    /// plain offset arithmetic. Shared by the key scan ([`object_span`]) and bulk
+    /// iteration (`RawValue::for_each_entry`).
+    pub struct ObjectLayout {
+        pub count: usize,
+        ktab: usize,
+        vtab: usize,
+        keys_start: usize,
+        values_start: usize,
+    }
+
+    impl ObjectLayout {
+        /// Computes the table bases for the object value at `at`.
+        #[inline]
+        pub fn at(buf: &[u8], at: usize) -> Self {
+            let count = count(buf, at);
+            let ktab = at + 5;
+            let vtab = ktab + 4 * (count + 1);
+            let keys_start = vtab + 4 * (count + 1);
+            let values_start = keys_start + u32_at(buf, ktab + 4 * count);
+            Self { count, ktab, vtab, keys_start, values_start }
+        }
+
+        /// The half-open byte span of key `i` (`i < count`).
+        #[inline]
+        pub fn key_span(&self, buf: &[u8], i: usize) -> (usize, usize) {
+            let ks = self.keys_start + u32_at(buf, self.ktab + 4 * i);
+            let ke = self.keys_start + u32_at(buf, self.ktab + 4 * (i + 1));
+            (ks, ke)
+        }
+
+        /// The half-open byte span of value `i` (`i < count`).
+        #[inline]
+        pub fn value_span(&self, buf: &[u8], i: usize) -> (usize, usize) {
+            let vs = self.values_start + u32_at(buf, self.vtab + 4 * i);
+            let ve = self.values_start + u32_at(buf, self.vtab + 4 * (i + 1));
+            (vs, ve)
+        }
+    }
+
+    /// The half-open byte span of the value for object key `key`, or `None`.
+    pub fn object_span(buf: &[u8], at: usize, key: &str) -> Option<(usize, usize)> {
+        let layout = ObjectLayout::at(buf, at);
+        for i in 0..layout.count {
+            let (ks, ke) = layout.key_span(buf, i);
+            if &buf[ks..ke] == key.as_bytes() {
+                return Some(layout.value_span(buf, i));
+            }
+        }
+        None
+    }
+
+    /// Encodes a value into `out` in the flat layout.
+    pub fn encode(v: &super::Value, out: &mut Vec<u8>) {
+        use super::Value;
+        match v {
+            Value::Null => out.push(NULL),
+            Value::Bool(false) => out.push(FALSE),
+            Value::Bool(true) => out.push(TRUE),
+            Value::Int(i) => {
+                out.push(INT);
+                out.extend_from_slice(&i.to_le_bytes());
+            }
+            Value::Float(f) => {
+                out.push(FLOAT);
+                out.extend_from_slice(&f.to_bits().to_le_bytes());
+            }
+            Value::String(s) => {
+                out.push(STRING);
+                push_u32(out, s.len() as u32);
+                out.extend_from_slice(s.as_bytes());
+            }
+            Value::Oid(o) => {
+                out.push(OID);
+                out.extend_from_slice(&o.to_le_bytes());
+            }
+            Value::Bytes(b) => {
+                out.push(BYTES);
+                push_u32(out, b.len() as u32);
+                out.extend_from_slice(b);
+            }
+            Value::Array(items) => {
+                out.push(ARRAY);
+                push_u32(out, items.len() as u32);
+                let table = out.len();
+                out.resize(table + 4 * (items.len() + 1), 0);
+                let payload = out.len();
+                for (i, it) in items.iter().enumerate() {
+                    let off = (out.len() - payload) as u32;
+                    put_u32_at(out, table + 4 * i, off);
+                    encode(it, out);
+                }
+                let end = (out.len() - payload) as u32;
+                put_u32_at(out, table + 4 * items.len(), end);
+            }
+            Value::Object(obj) => {
+                let n = obj.len();
+                out.push(OBJECT);
+                push_u32(out, n as u32);
+                let ktab = out.len();
+                out.resize(ktab + 4 * (n + 1), 0);
+                let vtab = out.len();
+                out.resize(vtab + 4 * (n + 1), 0);
+                let keys_start = out.len();
+                for (i, (k, _)) in obj.iter().enumerate() {
+                    let off = (out.len() - keys_start) as u32;
+                    put_u32_at(out, ktab + 4 * i, off);
+                    out.extend_from_slice(k.as_bytes());
+                }
+                let keys_end = (out.len() - keys_start) as u32;
+                put_u32_at(out, ktab + 4 * n, keys_end);
+                let values_start = out.len();
+                for (i, (_, v)) in obj.iter().enumerate() {
+                    let off = (out.len() - values_start) as u32;
+                    put_u32_at(out, vtab + 4 * i, off);
+                    encode(v, out);
+                }
+                let values_end = (out.len() - values_start) as u32;
+                put_u32_at(out, vtab + 4 * n, values_end);
+            }
+            // A Raw value is already in flat form — copy its bytes verbatim.
+            Value::Raw(r) => out.extend_from_slice(r.bytes()),
+        }
+    }
+}
+
+impl RawValue {
+    /// The flat bytes this value occupies.
+    #[inline]
+    fn bytes(&self) -> &[u8] {
+        &self.buf[self.at as usize..self.end as usize]
+    }
+
+    /// The type tag at this value's head.
+    #[inline]
+    fn tag(&self) -> u8 {
+        self.buf[self.at as usize]
+    }
+
+    /// Wraps a child span `[lo, hi)` as a new `Value`: an owned scalar for
+    /// scalar tags, a `Raw` sub-view (sharing `buf`) for arrays/objects.
+    fn read(&self, lo: usize, hi: usize) -> Value {
+        let buf = &self.buf;
+        match buf[lo] {
+            flat::NULL => Value::Null,
+            flat::FALSE => Value::Bool(false),
+            flat::TRUE => Value::Bool(true),
+            flat::INT => Value::Int(i64::from_le_bytes(
+                buf[lo + 1..lo + 9].try_into().unwrap(),
+            )),
+            flat::FLOAT => Value::Float(f64::from_bits(u64::from_le_bytes(
+                buf[lo + 1..lo + 9].try_into().unwrap(),
+            ))),
+            flat::STRING => {
+                let n = flat::u32_at(buf, lo + 1);
+                Value::String(Rc::from(
+                    std::str::from_utf8(&buf[lo + 5..lo + 5 + n]).unwrap_or(""),
+                ))
+            }
+            flat::OID => Value::Oid(flat::u32_at(buf, lo + 1) as u32),
+            flat::BYTES => {
+                let n = flat::u32_at(buf, lo + 1);
+                Value::Bytes(Rc::from(&buf[lo + 5..lo + 5 + n]))
+            }
+            _ => Value::Raw(RawValue {
+                buf: self.buf.clone(),
+                at: lo as u32,
+                end: hi as u32,
+            }),
+        }
+    }
+
+    /// The string slice if this value's head is a string tag (zero-copy).
+    fn as_str(&self) -> Option<&str> {
+        let at = self.at as usize;
+        if self.tag() != flat::STRING {
+            return None;
+        }
+        let n = flat::u32_at(&self.buf, at + 1);
+        std::str::from_utf8(&self.buf[at + 5..at + 5 + n]).ok()
+    }
+
+    /// The raw bytes if this value's head is a bytes tag (zero-copy).
+    fn as_bytes(&self) -> Option<&[u8]> {
+        let at = self.at as usize;
+        if self.tag() != flat::BYTES {
+            return None;
+        }
+        let n = flat::u32_at(&self.buf, at + 1);
+        Some(&self.buf[at + 5..at + 5 + n])
+    }
+
+    /// Returns this value as an owned scalar if its head is a scalar tag.
+    fn scalar(&self) -> Option<Value> {
+        match self.tag() {
+            flat::ARRAY | flat::OBJECT => None,
+            _ => Some(self.read(self.at as usize, self.end as usize)),
+        }
+    }
+
+    /// Array index, or `None` if not an array / out of range.
+    fn index(&self, i: usize) -> Option<Value> {
+        if self.tag() != flat::ARRAY {
+            return None;
+        }
+        let (lo, hi) = flat::array_span(&self.buf, self.at as usize, i)?;
+        Some(self.read(lo, hi))
+    }
+
+    /// Object key lookup, or `None` if not an object / key absent.
+    fn key(&self, key: &str) -> Option<Value> {
+        if self.tag() != flat::OBJECT {
+            return None;
+        }
+        let (lo, hi) = flat::object_span(&self.buf, self.at as usize, key)?;
+        Some(self.read(lo, hi))
+    }
+
+    /// Element count for an array or member count for an object.
+    fn count(&self) -> usize {
+        flat::count(&self.buf, self.at as usize)
+    }
+
+    /// Calls `f` with each `(key, value)` of an object, in stored order.
+    fn for_each_entry(&self, mut f: impl FnMut(&str, Value)) {
+        if self.tag() != flat::OBJECT {
+            return;
+        }
+        let buf = &self.buf;
+        let layout = flat::ObjectLayout::at(buf, self.at as usize);
+        for i in 0..layout.count {
+            let (ks, ke) = layout.key_span(buf, i);
+            let (vs, ve) = layout.value_span(buf, i);
+            let k = std::str::from_utf8(&buf[ks..ke]).unwrap_or("");
+            f(k, self.read(vs, ve));
+        }
+    }
+
+    /// Materializes the full owned `Value` tree (used only when a stored value
+    /// must be mutated).
+    fn materialize(&self) -> Value {
+        match self.tag() {
+            flat::ARRAY => {
+                let c = self.count();
+                let mut items = Vec::with_capacity(c);
+                for i in 0..c {
+                    items.push(self.index(i).unwrap_or(Value::Null).materialized());
+                }
+                Value::Array(Rc::new(items))
+            }
+            flat::OBJECT => {
+                let mut members = Vec::with_capacity(self.count());
+                self.for_each_entry(|k, v| members.push((Rc::from(k), v.materialized())));
+                Value::Object(Rc::new(Object::from_members(members)))
+            }
+            _ => self.read(self.at as usize, self.end as usize),
+        }
+    }
+
+    /// A `serde_json::Value` view (drives the JSON bridge for `Raw`).
+    fn to_json(&self) -> JsonValue {
+        match self.tag() {
+            flat::ARRAY => {
+                let c = self.count();
+                let mut items = Vec::with_capacity(c);
+                for i in 0..c {
+                    items.push(self.index(i).unwrap_or(Value::Null).to_json());
+                }
+                JsonValue::Array(items)
+            }
+            flat::OBJECT => {
+                let mut map = Map::new();
+                self.for_each_entry(|k, v| {
+                    map.insert(k.to_string(), v.to_json());
+                });
+                JsonValue::Object(map)
+            }
+            _ => self.read(self.at as usize, self.end as usize).to_json(),
+        }
+    }
+}
+
+/// Deserializes stored JSON bytes straight into a `Value`, with no intermediate
+/// `serde_json::Value` tree. Mirrors [`Value::from_json`]'s numeric policy
+/// (integral fits `i64` → `Int`, else `Float`) so decode round-trips are exact.
+impl<'de> Deserialize<'de> for Value {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_any(ValueVisitor)
+    }
+}
+
+/// The visitor that builds a `Value` from a single deserialization pass.
+struct ValueVisitor;
+
+impl<'de> Visitor<'de> for ValueVisitor {
+    type Value = Value;
+
+    fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("a JSON value")
+    }
+
+    fn visit_unit<E>(self) -> std::result::Result<Value, E> {
+        Ok(Value::Null)
+    }
+
+    fn visit_none<E>(self) -> std::result::Result<Value, E> {
+        Ok(Value::Null)
+    }
+
+    fn visit_some<D>(self, deserializer: D) -> std::result::Result<Value, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_any(self)
+    }
+
+    fn visit_bool<E>(self, v: bool) -> std::result::Result<Value, E> {
+        Ok(Value::Bool(v))
+    }
+
+    fn visit_i64<E>(self, v: i64) -> std::result::Result<Value, E> {
+        Ok(Value::Int(v))
+    }
+
+    fn visit_u64<E>(self, v: u64) -> std::result::Result<Value, E> {
+        // Mirror `from_json`: a `u64` past `i64::MAX` falls back to a float.
+        Ok(i64::try_from(v).map_or_else(|_| Value::Float(v as f64), Value::Int))
+    }
+
+    fn visit_f64<E>(self, v: f64) -> std::result::Result<Value, E> {
+        Ok(Value::Float(v))
+    }
+
+    fn visit_str<E>(self, v: &str) -> std::result::Result<Value, E> {
+        Ok(Value::String(Rc::from(v)))
+    }
+
+    fn visit_string<E>(self, v: String) -> std::result::Result<Value, E> {
+        Ok(Value::String(Rc::from(v)))
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> std::result::Result<Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        let mut items = Vec::with_capacity(seq.size_hint().unwrap_or(0));
+        while let Some(item) = seq.next_element()? {
+            items.push(item);
+        }
+        Ok(Value::Array(Rc::new(items)))
+    }
+
+    fn visit_map<A>(self, mut map: A) -> std::result::Result<Value, A::Error>
+    where
+        A: MapAccess<'de>,
+    {
+        // External JSON may repeat a key; collapse duplicates last-wins via
+        // `insert` (matching `serde_json`'s map semantics and the SQL `{...}`
+        // path) so stored objects keep the unique-key invariant every accessor
+        // assumes. `from_members` is reserved for the trusted re-encode path.
+        let mut obj = Object::new();
+        while let Some((k, v)) = map.next_entry::<String, Value>()? {
+            obj.insert(Rc::from(k), v);
+        }
+        Ok(Value::Object(Rc::new(obj)))
     }
 }
 
@@ -692,6 +1331,91 @@ mod tests {
     #[test]
     fn add_non_numbers_is_err() {
         assert!(Value::string("a".to_string()).add(Value::int(1)).is_err());
+    }
+
+    /// `decode` (single-pass `Deserialize`) must round-trip `encode` exactly,
+    /// including nested arrays/objects, every scalar kind, and wide objects (the
+    /// `visit_map` path that no longer dedup-scans per field).
+    #[test]
+    fn decode_round_trips_encode() {
+        let mut doc = Value::object();
+        doc.set("s", Value::string("hello".into()));
+        doc.set("i", Value::int(-42));
+        doc.set("f", Value::float(1.5));
+        doc.set("b", Value::bool(true));
+        doc.set("n", Value::null());
+
+        let mut arr = Value::array();
+        arr.push(Value::int(1));
+        arr.push(Value::string("two".into()));
+        doc.set("arr", arr);
+
+        let mut nested = Value::object();
+        nested.set("inner", Value::int(7));
+        doc.set("obj", nested);
+
+        // A wide object exercises the visit_map capacity/push path.
+        let mut wide = Value::object();
+        for k in 0..64 {
+            wide.set(format!("k{k}"), Value::int(k));
+        }
+        doc.set("wide", wide);
+
+        let bytes = doc.encode().expect("encode");
+        let raw = Value::from_storage(&bytes).expect("from_storage");
+
+        // The lazy Raw view is structurally equal to the owned tree…
+        assert!(raw.structural_eq(&doc), "from_storage != encode round-trip");
+        // …materializing it reproduces the owned tree…
+        assert!(raw.clone().materialized().structural_eq(&doc), "materialize");
+        // …re-encoding a Raw value is byte-identical (memcpy)…
+        assert_eq!(raw.encode().expect("re-encode"), bytes, "Raw re-encode");
+
+        // …and navigation matches between Raw and owned.
+        assert_eq!(raw.jpk("i"), doc.jpk("i"));
+        assert_eq!(raw.jpk("s").as_ref().and_then(Value::as_str), Some("hello"));
+        assert_eq!(raw.jpk("arr").and_then(|a| a.jpi(0)), Some(Value::int(1)));
+        assert_eq!(
+            raw.jpk("arr").and_then(|a| a.len()),
+            doc.jpk("arr").and_then(|a| a.len())
+        );
+        assert_eq!(
+            raw.jpk("obj").and_then(|o| o.jpk("inner")),
+            Some(Value::int(7))
+        );
+        assert_eq!(raw.jpk("wide").and_then(|w| w.jpk("k63")), Some(Value::int(63)));
+        assert!(raw.into_json() == doc.into_json(), "Raw to_json parity");
+    }
+
+    /// External JSON with a repeated key must collapse last-wins (matching
+    /// `serde_json` and the SQL `{...}` path), not persist a duplicate-key object.
+    #[test]
+    fn decode_collapses_duplicate_keys_last_wins() {
+        let v = Value::decode(br#"{"a":1,"b":2,"a":3}"#).unwrap();
+        let members = v.members().expect("object");
+        assert_eq!(members.len(), 2, "duplicate key must be deduped");
+        // Last value wins, original position preserved.
+        assert_eq!(v.jpk("a"), Some(Value::int(3)));
+        assert_eq!(members[0].0, "a");
+        assert_eq!(members[1].0, "b");
+    }
+
+    /// `structural_eq` must compare internal scalar kinds (`Oid`/`Bytes`) even
+    /// when one side is flat-backed (`Value::Raw`), not silently report unequal.
+    #[test]
+    fn structural_eq_handles_raw_oid_and_bytes() {
+        let oid = Value::Oid(7);
+        let raw_oid = Value::from_storage(&oid.encode().unwrap()).unwrap();
+        assert!(oid.structural_eq(&raw_oid), "owned Oid vs Raw Oid");
+        assert!(!Value::Oid(8).structural_eq(&raw_oid), "distinct oids");
+
+        let bytes = Value::Bytes(Rc::from(&b"\x01\x02\x03"[..]));
+        let raw_bytes = Value::from_storage(&bytes.encode().unwrap()).unwrap();
+        assert!(bytes.structural_eq(&raw_bytes), "owned Bytes vs Raw Bytes");
+        assert!(
+            !Value::Bytes(Rc::from(&b"\x01\x02"[..])).structural_eq(&raw_bytes),
+            "distinct bytes"
+        );
     }
 
     #[test]

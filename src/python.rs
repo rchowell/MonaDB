@@ -289,15 +289,15 @@ impl Connection {
     /// rows are not objects. Names are borrowed from the row — no clone.
     #[getter]
     fn description(&self, py: Python<'_>) -> PyObject {
-        let Some(Value::Object(obj)) = self.result.first() else {
+        let Some(members) = self.result.first().and_then(Value::members) else {
             return py.None();
         };
         let list = PyList::empty(py);
-        for (name, _) in obj.iter() {
+        for (name, _) in &members {
             let tuple = PyTuple::new(
                 py,
                 [
-                    name.into_py(py),
+                    name.as_str().into_py(py),
                     py.None(),
                     py.None(),
                     py.None(),

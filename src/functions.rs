@@ -179,6 +179,14 @@ pub fn call(id: usize, args: &[Value]) -> Result<Value> {
     if builtin.strict && args.iter().any(Value::is_null) {
         return Ok(Value::Null);
     }
+    // Builtins operate on owned values (their helpers match `Value::Array`/
+    // `Object`/`String` directly), so materialize any flat-backed `Raw` argument
+    // first. This is a no-op for the common case — navigated scalars are already
+    // owned — and only allocates when a whole stored container is passed in.
+    if args.iter().any(|a| matches!(a, Value::Raw(_))) {
+        let owned: Vec<Value> = args.iter().cloned().map(Value::materialized).collect();
+        return (builtin.func)(&owned);
+    }
     (builtin.func)(args)
 }
 
@@ -244,25 +252,15 @@ fn finite(name: &str, f: f64) -> Result<Value> {
 
 /// The runtime type name of a value (matches `Value`'s variants).
 fn type_name(v: &Value) -> &'static str {
-    match v {
-        Value::Null => "null",
-        Value::Bool(_) => "bool",
-        Value::Int(_) => "int",
-        Value::Float(_) => "float",
-        Value::Oid(_) => "oid",
-        Value::String(_) => "string",
-        Value::Bytes(_) => "bytes",
-        Value::Array(_) => "array",
-        Value::Object(_) => "object",
-    }
+    v.type_name()
 }
 
 /// Renders a scalar for `concat`/`array_to_string`: strings stay raw, everything
 /// else uses its JSON form (`42`, `true`, `[1,2]`).
 fn stringify(v: &Value) -> String {
-    match v {
-        Value::String(s) => s.to_string(),
-        other => other.to_string(),
+    match v.as_str() {
+        Some(s) => s.to_string(),
+        None => v.to_string(),
     }
 }
 
