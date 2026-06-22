@@ -16,7 +16,7 @@ use crate::transaction::TransactionMode;
 use crate::value::Value;
 use crate::visitor::visit::{self, Visit};
 use crate::visitor::visit_mut::{self, VisitMut};
-use crate::vm::{Program, Vop};
+use crate::vm::{Program, ScanPrefix, Vop};
 
 /// The open back-patch sites a nested loop leaves for its caller: `begin0`
 /// (the outermost source's exhaust edge — its target is variant-specific)
@@ -659,13 +659,12 @@ impl Compiler {
             Source::Range(g) => {
                 // A partial-key keyed source: scan the btree prefix directly,
                 // streaming rows like a table scan — no `GetRange` array. The
-                // prefix is encoded at compile time, so a keyed FROM source
-                // requires literal keys (a parameter prefix is not supported).
-                let Some(lits) = Self::all_literal_keys(&g.args) else {
-                    unsupported!("a parameter key in a FROM keyed source is not supported");
-                };
-                let prefix = schema::encode_key_tuple(&lits, &g.keys)?;
-                self.emit_scan_prefix(csr, prefix, 0);
+                // encoded prefix is left on the stack (literal keys at compile
+                // time, parameter keys at run time, via the shared `emit_key_tuple`),
+                // and the scan pops it.
+                let Get { keys, args, .. } = g;
+                self.emit_key_tuple(keys, args)?;
+                self.emit_scan_from_stack(csr, 0);
                 self.pc()
             }
             Source::Value(expr) => {
@@ -1366,10 +1365,26 @@ impl Compiler {
     /// cursor ops run under it.
     fn cc_expr_get(&mut self, get: Get) -> Result<()> {
         let Get { csr, oid, keys, args } = get;
-        let cnt = args.len();
         // Full key (arity == key count) → point lookup; a leading prefix → range.
-        let full = cnt == keys.len();
+        let full = args.len() == keys.len();
         self.emit_open(csr as usize, oid);
+        self.emit_key_tuple(keys, args)?;
+        if full {
+            self.emit_get(csr as usize);
+        } else {
+            self.emit_get_range(csr as usize);
+        }
+        Ok(())
+    }
+
+    /// Emits the encoded composite key for `args` onto the stack, shared by the
+    /// keyed-access sites (point/range lookup and the keyed `FROM` prefix scan).
+    /// An all-literal key is encoded at COMPILE time (a type mismatch surfaces
+    /// here as an `Error::Schema`, e.g. `t["a"]` on an int key); a key with any
+    /// parameter pushes its arg values and encodes at RUN time (`EncodeKeyTuple`),
+    /// so one program serves every bound value.
+    fn emit_key_tuple(&mut self, keys: Vec<Key>, args: Vec<Expr>) -> Result<()> {
+        let cnt = args.len();
         if let Some(lits) = Self::all_literal_keys(&args) {
             let key = schema::encode_key_tuple(&lits, &keys)?;
             self.emit_push(Value::Bytes(key.into()));
@@ -1378,11 +1393,6 @@ impl Compiler {
                 self.cc_expr(arg)?;
             }
             self.emit_encode_key_tuple(keys, cnt);
-        }
-        if full {
-            self.emit_get(csr as usize);
-        } else {
-            self.emit_get_range(csr as usize);
         }
         Ok(())
     }
@@ -1743,14 +1753,14 @@ impl Compiler {
 
     fn emit_scan(&mut self, csr: usize, jmp: usize) {
         self.use_cursor(csr);
-        self.code.push(Vop::Scan { csr, jmp, prefix: None });
+        self.code.push(Vop::Scan { csr, jmp, prefix: ScanPrefix::None });
     }
 
-    /// Emits a forward scan of cursor `csr` restricted to the encoded key
-    /// `prefix` (a keyed-table leading-key range).
-    fn emit_scan_prefix(&mut self, csr: usize, prefix: Vec<u8>, jmp: usize) {
+    /// Emits a forward scan of cursor `csr` restricted to the encoded key prefix
+    /// on top of the stack (left there by [`Self::emit_key_tuple`]).
+    fn emit_scan_from_stack(&mut self, csr: usize, jmp: usize) {
         self.use_cursor(csr);
-        self.code.push(Vop::Scan { csr, jmp, prefix: Some(prefix.into()) });
+        self.code.push(Vop::Scan { csr, jmp, prefix: ScanPrefix::Stack });
     }
 
     fn emit_iter(&mut self, csr: usize, jmp: usize) {

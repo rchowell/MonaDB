@@ -5,7 +5,7 @@
 //! keyed-table subscript (`t[k]`) to an `Expr::Get`. Errors are collected; the
 //! first encountered is returned.
 
-use crate::catalog::Catalog;
+use crate::catalog::{CacheLookup, Catalog};
 use crate::error::{Error, Result};
 use crate::ir::{
     Agg, AggKind, Call, Clear, Constructor, Copy, CopySource, Create, Drop, Expr, From, Get,
@@ -82,11 +82,15 @@ impl Binder {
 
     /// Resolves a table name to its definition.
     ///
-    /// Fast path: the catalog's in-memory cache, which needs no transaction. On
-    /// a miss, opens the read transaction once (lazily) and scans the catalog.
+    /// Fast path: the catalog's in-memory cache, which needs no transaction and
+    /// serves both present tables and known-absent ones (a cached miss avoids a
+    /// repeat btree scan for a non-table name). On a cold miss, opens the read
+    /// transaction once (lazily) and scans the catalog.
     fn resolve_table(&mut self, name: &str) -> Result<TableDefinition> {
-        if let Some(def) = self.catalog.cached(name, self.generation) {
-            return Ok(def);
+        match self.catalog.cached(name, self.generation) {
+            CacheLookup::Hit(def) => return Ok(def),
+            CacheLookup::NegativeHit => return Err(Error::UnboundTable(name.to_string())),
+            CacheLookup::Miss => {}
         }
         if self.txn.is_none() {
             self.txn = Some(self.storage.read_txn()?);
@@ -575,7 +579,7 @@ impl Scope {
 #[cfg(test)]
 mod test {
     use crate::{
-        MonaDB, Params,
+        MonaDB,
         error::Error,
         ir::{Constructor, Expr, Source, Statement},
     };

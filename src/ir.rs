@@ -387,7 +387,8 @@ pub enum CmpOp {
     Ge,
 }
 
-/// A query-parameter placeholder, resolved to a literal by the binder.
+/// A query-parameter placeholder, resolved to a bound value at run time
+/// (`Vop::LoadParam`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Param {
     /// `?` (a parse-assigned 1-based index, in source order) or an explicit
@@ -395,6 +396,16 @@ pub enum Param {
     Numbered(u32),
     /// `$name` — resolved from the supplied named map.
     Named(String),
+}
+
+impl std::fmt::Display for Param {
+    /// Renders the placeholder in `$`-form, for error messages.
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Param::Numbered(n) => write!(f, "${n}"),
+            Param::Named(name) => write!(f, "${name}"),
+        }
+    }
 }
 
 /// The supported aggregate functions. The first five mirror SQLite's aggregate

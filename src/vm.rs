@@ -51,6 +51,17 @@ pub struct Program {
 ///
 /// Stack effects are written `… before ─▶ … after`, top-of-stack on the right.
 ///
+/// The leading-key prefix that bounds a [`Vop::Scan`].
+#[derive(Debug, Clone)]
+pub enum ScanPrefix {
+    /// Scan the whole table — no prefix.
+    None,
+    /// The encoded prefix is on top of the stack: the compiler pushes it just
+    /// above the scan (a compile-time-encoded literal key, or one built at run
+    /// time from parameter values via [`Vop::EncodeKeyTuple`]); the scan pops it.
+    Stack,
+}
+
 /// TODO: Make this Copy in the near future.
 #[derive(Debug, Clone)]
 pub enum Vop {
@@ -252,14 +263,16 @@ pub enum Vop {
     Push { val: Value },
     /// Yields the top value from the stack, pausing the VM step
     Yield,
-    /// Initializes a cursor's forward scan, jumping to `jmp` if empty. With a
-    /// `prefix`, the scan is restricted to the contiguous run of keys sharing
-    /// it (a keyed-table leading-key range); without one it scans the whole
-    /// table.
+    /// Initializes a cursor's forward scan, jumping to `jmp` if empty. The
+    /// `prefix` restricts the scan to the contiguous run of keys sharing it (a
+    /// keyed-table leading-key range): a compile-time [`ScanPrefix::Const`], a
+    /// runtime [`ScanPrefix::Stack`] (the encoded prefix popped off the stack,
+    /// for a parameterized keyed source), or [`ScanPrefix::None`] for a full
+    /// table scan.
     Scan {
         csr: usize,
         jmp: usize,
-        prefix: Option<Rc<[u8]>>,
+        prefix: ScanPrefix,
     },
     /// Pops a value off the stack and iterates its array elements on cursors[csr], jumping to jmp if empty.
     Iter { csr: usize, jmp: usize },
@@ -364,11 +377,15 @@ impl VM {
     /// at `Halt`, after committing the transaction.
     #[allow(clippy::too_many_lines)]
     pub fn next(&mut self) -> Result<Option<Value>> {
+        // Hold an independent `Rc` handle to the program so the dispatch loop can
+        // borrow each instruction in place — no per-step `Vop` clone (which would
+        // heap-copy carriers like `EncodeKeyTuple { keys: Vec<Key> }`) — while the
+        // match arms still mutate the rest of the VM freely.
+        let program = Rc::clone(&self.program);
         loop {
-            // TODO: make vop 'Copy' then deref
-            let op = self.program.instructions[self.pc].clone();
+            let op = &program.instructions[self.pc];
             self.pc += 1;
-            match &op {
+            match op {
                 Vop::Init { jmp } => {
                     // TODO: initialize any state
                     self.pc = *jmp;
@@ -444,13 +461,7 @@ impl VM {
                     };
                     match v {
                         Some(v) => self.push(v.clone()),
-                        None => {
-                            let name = match p {
-                                Param::Numbered(n) => format!("${n}"),
-                                Param::Named(name) => format!("${name}"),
-                            };
-                            return Err(Error::BindError(format!("missing parameter {name}")));
-                        }
+                        None => return Err(Error::BindError(format!("missing parameter {p}"))),
                     }
                 }
                 Vop::NewBtree => {
@@ -780,8 +791,14 @@ impl VM {
                     self.push(arr);
                 }
                 Vop::Scan { csr, jmp, prefix } => {
+                    // A `Stack` prefix is the encoded key the compiler pushed just
+                    // above the scan; pop it. Hold it so the `scan` borrow can ref it.
+                    let stack_prefix = match prefix {
+                        ScanPrefix::Stack => Some(pop_key(self.pop())?),
+                        ScanPrefix::None => None,
+                    };
                     let txn = self.txn.as_ref().expect("Scan before Transaction");
-                    if !self.cursors[*csr].scan(txn, prefix.as_deref())? {
+                    if !self.cursors[*csr].scan(txn, stack_prefix.as_deref())? {
                         self.pc = *jmp;
                     }
                 }

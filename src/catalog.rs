@@ -50,8 +50,20 @@ pub struct Catalog {
 struct CatalogCache {
     /// The generation this snapshot is valid for.
     generation: u64,
-    /// Parsed table definitions, keyed by name.
-    tables: HashMap<String, TableDefinition>,
+    /// Resolved lookups, keyed by name: `Some(def)` for a present table,
+    /// `None` for a known-absent one (a negative tombstone). Both are flushed on
+    /// a generation bump, so a table created later still resolves.
+    tables: HashMap<String, Option<TableDefinition>>,
+}
+
+/// The result of a catalog cache lookup ([`Catalog::cached`]).
+pub enum CacheLookup {
+    /// A present table, cached.
+    Hit(TableDefinition),
+    /// A known-absent table, cached as a negative tombstone.
+    NegativeHit,
+    /// Not in the cache — the caller must scan.
+    Miss,
 }
 
 impl Catalog {
@@ -79,31 +91,45 @@ impl Catalog {
         })
     }
 
-    /// Returns a cached table definition, or `None` on a miss. Flushes the whole
-    /// cache first if `generation` has advanced past the captured snapshot.
+    /// Returns a cached lookup, flushing the whole cache first if `generation`
+    /// has advanced past the captured snapshot.
     ///
     /// Touches no storage and opens no transaction — the binder's fast path.
-    pub fn cached(&self, name: &str, generation: u64) -> Option<TableDefinition> {
+    pub fn cached(&self, name: &str, generation: u64) -> CacheLookup {
         let mut cache = self.cache.borrow_mut();
         if cache.generation != generation {
             cache.tables.clear();
             cache.generation = generation;
         }
-        cache.tables.get(name).cloned()
+        match cache.tables.get(name) {
+            Some(Some(def)) => CacheLookup::Hit(def.clone()),
+            Some(None) => CacheLookup::NegativeHit,
+            None => CacheLookup::Miss,
+        }
     }
 
     /// Cold path: scans the catalog btree for `name`, parses its stored DDL, and
-    /// caches the result. Call only after [`cached`] has returned `None` (so the
-    /// cache generation is already current). A `UnboundTable` miss is *not*
-    /// cached — a table created later must still resolve (and a CREATE bumps the
-    /// generation, flushing anyway). This is the per-row work the cache elides.
+    /// caches the outcome. Call only after [`cached`] has returned `None` (so the
+    /// cache generation is already current). Both a hit and a `UnboundTable` miss
+    /// are cached (the latter as a tombstone); a CREATE bumps the generation and
+    /// flushes them, so a table created later still resolves. This is the per-row
+    /// scan + DDL re-parse the cache elides.
     pub fn scan_and_cache(&self, txn: &Transaction, name: &str) -> Result<TableDefinition> {
-        let def = self.scan_table(txn, name)?;
-        self.cache
-            .borrow_mut()
-            .tables
-            .insert(name.to_owned(), def.clone());
-        Ok(def)
+        match self.scan_table(txn, name) {
+            Ok(def) => {
+                self.cache
+                    .borrow_mut()
+                    .tables
+                    .insert(name.to_owned(), Some(def.clone()));
+                Ok(def)
+            }
+            Err(Error::UnboundTable(_)) => {
+                self.cache.borrow_mut().tables.insert(name.to_owned(), None);
+                Err(Error::UnboundTable(name.to_string()))
+            }
+            // A transient or parse error is not a stable absence — don't cache it.
+            Err(e) => Err(e),
+        }
     }
 
     /// Scans the catalog btree for `name`, parsing its stored DDL (no caching).
