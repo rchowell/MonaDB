@@ -18,7 +18,6 @@ a brainstorming section and an implementation sketch.
 Lookup hot path (helps most at small N, where the gap is widest):
 
 - [01 — Cache LMDB btree handles](01-cache-btree-handles.md) — `Vop::Open` re-resolves the named sub-DB (String alloc + dbi lookup) every op.
-- [02 — Cheap `PlanCache::get`](02-plan-cache-get-overhead.md) — per hit: clone the whole `PreparedStatement`, O(cap=256) LRU scan, extra String alloc, SipHash.
 - [03 — Prepared lookup / skip `normalize()`](03-prepared-lookup-skip-normalize.md) — every ad-hoc query re-lexes + rebuilds a template just to compute the cache key.
 - [04 — VM pooling / scratch reuse](04-vm-pooling.md) — a fresh VM (cursors/counters/aggs vecs + `params.clone()`) is allocated and dropped per statement.
 - [05 — Read snapshots](05-read-snapshots.md) — every read begins+commits its own LMDB read txn; extend the write session-txn machinery to reads.

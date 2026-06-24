@@ -1,3 +1,27 @@
+# Caching Plans
+
+Iterations...
+
+1. No cached plans
+2. Naive cached plans
+3. Parameterized cached plans
+4. LRU HashMap + Doubly-Linked List
+5. LRU FxHashMap + ticker (5x faster lookup)
+
+## Results
+
+These results show cache get is 5x faster (200ns -> 40ns) with no scan or string allocations, only an Rc bump.
+
+```
+cache          fastest    │ median
+├─ get_old     207 ns     │ 208 ns     ← clone + O(256) scan + String alloc
+├─ get_new      40 ns     │  40 ns     ← Rc bump + u64 write (5× faster)
+├─ put_old      10 µs     │  13 µs     ← detach scan + insert + evict
+╰─ put_new      11 µs     │  13 µs     ← insert + evict (same — eviction cost dominates)
+```
+
+## References
+
 # PlanCache::get overhead on the point-lookup hot path
 
 **Status:** proposed · **Area:** lookup hot path / plan cache

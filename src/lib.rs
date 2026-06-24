@@ -1,18 +1,9 @@
-//! MonaDB — an embedded database with a small SQL dialect compiled to bytecode.
-//!
-//! A statement flows through a fixed pipeline:
-//!
-//!   SQL text ─▶ lexer ─▶ parser ─▶ IR ─▶ binder ─▶ compiler ─▶ Vop ─▶ VM ─▶ LMDB
-//!
-//! [`MonaDB`] is the public handle; `query` and `execute` drive that pipeline.
-
 pub mod error;
 pub mod ir;
-/// Order-preserving key encoding. Public so the order/round-trip invariants its
-/// doc comments state can be exercised by the property-based conformance tests.
 pub mod schema;
 
 mod binder;
+mod cache;
 mod catalog;
 mod compiler;
 mod cursor;
@@ -42,7 +33,6 @@ lalrpop_mod!(
 );
 
 use std::cell::{Cell, RefCell};
-use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 use std::rc::Rc;
 
@@ -61,68 +51,12 @@ use crate::{
     vm::{Program, Rows},
 };
 
+pub use crate::cache::Cache;
 pub use crate::lexer::{SqlLexer, Token};
 pub use crate::config::Config;
 pub use crate::prepared::PreparedStatement;
 pub use crate::value::{Params, Value};
 
-/// Upper bound on cached query plans; the least-recently-used plan is evicted on overflow.
-const PLAN_CACHE_CAP: usize = 256;
-
-/// A bounded LRU cache of prepared plans, keyed by normalized SQL template.
-///
-/// Holding only the hottest `cap` plans, an LRU keeps the working set resident
-/// instead of dropping every plan at once — a wholesale flush would thrash any
-/// workload cycling through more than `cap` distinct query shapes.
-struct PlanCache {
-    plans: HashMap<String, PreparedStatement>,
-    /// Keys in access order, least-recently-used at the front.
-    order: VecDeque<String>,
-    cap: usize,
-}
-
-impl PlanCache {
-    fn new(cap: usize) -> Self {
-        PlanCache { plans: HashMap::new(), order: VecDeque::new(), cap }
-    }
-
-    /// Returns a clone of the plan for `key` (cheap — the program is `Rc`-shared),
-    /// marking it most-recently-used. Cloning lets the caller drop the cache
-    /// borrow before executing under `&mut self`.
-    fn get(&mut self, key: &str) -> Option<PreparedStatement> {
-        let plan = self.plans.get(key)?.clone();
-        self.detach_order(key);
-        self.order.push_back(key.to_owned());
-        Some(plan)
-    }
-
-    /// Inserts or replaces `key`'s plan as most-recently-used, evicting the LRU
-    /// entry past `cap`. `order` and `plans` stay in lockstep, so a non-empty
-    /// `plans` over `cap` always has an entry to evict.
-    fn insert(&mut self, key: String, plan: PreparedStatement) {
-        self.detach_order(&key);
-        self.plans.insert(key.clone(), plan);
-        self.order.push_back(key); // reuse the owned key — no extra clone
-        while self.plans.len() > self.cap {
-            if let Some(lru) = self.order.pop_front() {
-                self.plans.remove(&lru);
-            }
-        }
-    }
-
-    /// Evicts `key` (a plan invalidated by a catalog change).
-    fn remove(&mut self, key: &str) {
-        self.plans.remove(key);
-        self.detach_order(key);
-    }
-
-    /// Drops `key`'s entry from the access order, if present.
-    fn detach_order(&mut self, key: &str) {
-        if let Some(pos) = self.order.iter().position(|k| k == key) {
-            self.order.remove(pos);
-        }
-    }
-}
 
 /// The user-facing database handle.
 pub struct MonaDB {
@@ -138,7 +72,7 @@ pub struct MonaDB {
     /// different literals) skip the lexer/parser, the way a real engine caches
     /// plans. Keyed by [`MonaDB::normalize`]'s template (or the raw SQL, for the
     /// parameterized [`MonaDB::query_with`] path).
-    plan_cache: Rc<RefCell<PlanCache>>,
+    plans: Rc<RefCell<Cache<PreparedStatement>>>,
     /// An explicit write transaction opened by `begin;`, held across statements
     /// until `commit;` or `rollback;`. The slot goes *temporarily* empty while a
     /// lazy [`Rows`] borrows the txn for an in-flight statement, so it is not a
@@ -174,7 +108,7 @@ impl MonaDB {
             storage,
             catalog,
             catalog_generation: Rc::new(Cell::new(0)),
-            plan_cache: Rc::new(RefCell::new(PlanCache::new(PLAN_CACHE_CAP))),
+            plans: Rc::new(RefCell::new(Cache::<PreparedStatement>::new(256))),
             session_txn: Rc::new(RefCell::new(None)),
             session_active: Cell::new(false),
             session_catalog_dirty: Rc::new(Cell::new(false)),
@@ -228,14 +162,13 @@ impl MonaDB {
     /// back) when `src` cannot be prepared.
     fn run_cached(&mut self, key: &str, src: &str, params: &Params, debug: bool) -> Result<Rows> {
         // A detached `Rc` handle, so a borrow does not alias `&mut self` below.
-        let cache = self.plan_cache.clone();
-        // Fast path: reuse a cached plan (cloned out, and bound to a local so the
-        // cache borrow is released before the `&mut self` execute call).
+        let cache = self.plans.clone();
+        // Fast path: reuse a cached plan (Rc handle, borrow released before execute).
         let cached = cache.borrow_mut().get(key);
         if let Some(stmt) = cached {
             match self.execute_prepared(&stmt, params, debug) {
                 // A CREATE/DROP invalidated the plan — evict and rebuild below.
-                Err(Error::StalePreparedStatement) => cache.borrow_mut().remove(key),
+                Err(Error::StalePreparedStatement) => cache.borrow_mut().del(key),
                 other => return other,
             }
         }
@@ -243,7 +176,7 @@ impl MonaDB {
         // never stale, and the compiled program is valid regardless of this
         // execution's outcome, so cache it unconditionally.
         let stmt = self.prepare(src)?;
-        cache.borrow_mut().insert(key.to_owned(), stmt.clone());
+        let stmt = cache.borrow_mut().put(key, stmt);
         self.execute_prepared(&stmt, params, debug)
     }
 
@@ -596,7 +529,7 @@ mod tests {
         assert_eq!(r2.next().unwrap().unwrap().jpk("id"), Some(Value::int(2)));
 
         // The shared template was cached and reused (not one entry per literal).
-        assert!(db.plan_cache.borrow().plans.contains_key("select t[?];"));
+        assert!(db.plans.borrow().exists("select t[?];"));
     }
 
     #[test]
@@ -665,7 +598,7 @@ mod tests {
         db.execute("create table t (id int);").unwrap();
         db.query("select * from t limit 1;", false).unwrap().finish().unwrap();
         assert!(
-            db.plan_cache.borrow().plans.contains_key("select * from t limit 1;"),
+            db.plans.borrow().exists("select * from t limit 1;"),
             "a LIMIT query should be cached, not silently fall back"
         );
     }
@@ -678,7 +611,7 @@ mod tests {
             .unwrap()
             .finish()
             .unwrap();
-        assert!(db.plan_cache.borrow().plans.contains_key("select $1;"));
+        assert!(db.plans.borrow().exists("select $1;"));
     }
 
     #[test]
@@ -1004,16 +937,16 @@ mod tests {
     #[test]
     fn plan_cache_evicts_least_recently_used() {
         let db = MonaDB::memory().unwrap();
-        let mut cache = PlanCache::new(2);
-        cache.insert("a".to_owned(), db.prepare("select 1;").unwrap());
-        cache.insert("b".to_owned(), db.prepare("select 2;").unwrap());
+        let mut cache: Cache<PreparedStatement> = Cache::new(2);
+        cache.put("a", db.prepare("select 1;").unwrap());
+        cache.put("b", db.prepare("select 2;").unwrap());
         // Touch "a", making "b" the least-recently-used.
         assert!(cache.get("a").is_some());
-        cache.insert("c".to_owned(), db.prepare("select 3;").unwrap());
-        assert!(cache.plans.contains_key("a"));
-        assert!(cache.plans.contains_key("c"));
+        cache.put("c", db.prepare("select 3;").unwrap());
+        assert!(cache.exists("a"));
+        assert!(cache.exists("c"));
         assert!(
-            !cache.plans.contains_key("b"),
+            !cache.exists("b"),
             "the least-recently-used plan should be evicted"
         );
     }
