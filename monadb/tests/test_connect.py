@@ -43,6 +43,17 @@ def test_read_only_not_supported():
         monadb.connect(read_only=True)
 
 
+def test_connect_config_nosync():
+    db = monadb.connect(config={"nosync": True})
+    db.execute("create table t;")
+    db.close()
+
+
+def test_connect_config_unknown_key():
+    with pytest.raises(monadb.Error, match="unknown config key"):
+        monadb.connect(config={"threads": 1})
+
+
 def test_module_level_execute_and_sql():
     monadb.execute("create table mt;")
     monadb.execute("insert into mt ({\"a\": 7});")

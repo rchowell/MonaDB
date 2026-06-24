@@ -1,0 +1,108 @@
+suite: transaction
+spec_ref: "10"
+description: >
+  Explicit transactions: begin/commit/rollback. A session opened with `begin`
+  holds one write transaction across statements until `commit` or `rollback`.
+  Statements in a session read their own uncommitted writes, DDL is visible to
+  later statements in the same session, and rollback discards both writes and
+  DDL without breaking previously prepared statements. Sessions span the steps
+  of one test (the harness reuses one connection per test). Note: bare `begin;`
+  / `commit;` steps carrying a `result: []` expectation flow through the
+  result-checking `query_with` path, so this suite also exercises the
+  transaction-control dispatch chokepoint.
+
+tests:
+
+  - id: read-your-own-writes
+    description: a select in a session sees the session's uncommitted insert
+    setup:
+      - create table t;
+    steps:
+      - sql: |
+          begin;
+        result: []
+      - sql: |
+          insert into t ({"x": 1});
+      - sql: |
+          select * from t;
+        result:
+          - {x: 1}
+      - sql: |
+          commit;
+        result: []
+
+  - id: create-then-insert-in-session
+    description: DDL created mid-session is visible to a later statement in it
+    steps:
+      - sql: |
+          begin;
+      - sql: |
+          create table u;
+      - sql: |
+          insert into u ({"a": 7});
+      - sql: |
+          select * from u;
+        result:
+          - {a: 7}
+      - sql: |
+          commit;
+
+  - id: commit-persists
+    description: a committed write is visible after the transaction closes
+    setup:
+      - create table t;
+    steps:
+      - sql: |
+          begin;
+      - sql: |
+          insert into t ({"x": 42});
+      - sql: |
+          commit;
+      - sql: |
+          select * from t;
+        result:
+          - {x: 42}
+
+  - id: rollback-discards-writes
+    description: a rolled-back insert leaves the table empty
+    setup:
+      - create table t;
+    steps:
+      - sql: |
+          begin;
+      - sql: |
+          insert into t ({"x": 1});
+      - sql: |
+          rollback;
+      - sql: |
+          select * from t;
+        result: []
+
+  - id: rollback-discards-ddl
+    description: a table created then rolled back is unbound afterward
+    steps:
+      - sql: |
+          begin;
+      - sql: |
+          create table u;
+      - sql: |
+          rollback;
+      - sql: |
+          select * from u;
+        error: static
+
+  - id: double-begin
+    description: opening a transaction while one is active is an error
+    steps:
+      - sql: |
+          begin;
+      - sql: |
+          begin;
+        error: transaction
+
+  - id: commit-with-no-transaction
+    description: committing with no active transaction is an error
+    steps:
+      - sql: |
+          commit;
+        error: transaction

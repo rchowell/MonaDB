@@ -12,12 +12,14 @@ high-level façade is pure Python layered over it.
 from ._monadb import Error
 from .connection import Connection, PreparedStatement
 from .table import Table
+from .types import ConnectConfig
 
 __all__ = [
     "connect",
     "Connection",
     "PreparedStatement",
     "Table",
+    "ConnectConfig",
     "Error",
     "execute",
     "sql",
@@ -27,8 +29,13 @@ __all__ = [
 ]
 
 
-def connect(database: "str | None" = None, read_only: bool = False) -> Connection:
-    return Connection(database, read_only)
+def connect(
+    database: "str | None" = None,
+    *,
+    read_only: bool = False,
+    config: ConnectConfig | None = None,
+) -> Connection:
+    return Connection(database, read_only=read_only, config=config)
 
 
 _conn: "Connection | None" = None

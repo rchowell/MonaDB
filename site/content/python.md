@@ -15,9 +15,10 @@ import monadb
 db = monadb.connect()           # in-memory
 db = monadb.connect("app.db")   # file-backed
 db = monadb.connect("app.db", read_only=True)
+db = monadb.connect("app.db", config={"nosync": True})
 ```
 
-`connect` returns a `Connection`. Use it as a context manager to close automatically.
+`connect` returns a `Connection`. Use it as a context manager to close automatically. The `config` keyword accepts open-time settings (see `monadb.ConnectConfig`); `read_only` is a separate connection-level flag.
 
 ## Connection
 

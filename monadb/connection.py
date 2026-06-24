@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from monadb import _monadb
 from monadb._monadb import Error, PreparedStatement as _PreparedStatement
 from monadb.table import Table
+from monadb.types import ConnectConfig
 
 
 class PreparedStatement:
@@ -37,8 +38,16 @@ class PreparedStatement:
 class Connection:
     """A connection to a local MonaDB database."""
 
-    def __init__(self, database: Optional[str] = None, read_only: bool = False):
-        self._engine = _monadb.connect(database, read_only)
+    def __init__(
+        self,
+        database: Optional[str] = None,
+        *,
+        read_only: bool = False,
+        config: ConnectConfig | None = None,
+    ):
+        self._engine = _monadb.connect(
+            database, read_only=read_only, config=config
+        )
         self._result: List[object] = []
         self._cursor = 0
         self._closed = False

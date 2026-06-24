@@ -13,12 +13,15 @@ pub use crate::display::ToSql;
 /// A top-level SQL statement — the unit the compiler turns into a `Program`.
 #[derive(Debug, Clone)]
 pub enum Statement {
+    Begin,
     Clear(Clear),
+    Commit,
     Copy(Copy),
     Create(Create),
     Delete(Delete),
     Drop(Drop),
     Insert(Insert),
+    Rollback,
     Select(Select),
 }
 

@@ -83,7 +83,28 @@ MONADB_BENCH_M=1000 \
 2. **Warmup** — 100 random lookups after preload, outside the timed loop.
 3. **Full result consumption** — MonaDB rows are decoded/re-encoded; SQLite `doc` bytes are read fully.
 4. **SQLite pragmas** — `WAL`, `synchronous=NORMAL`, `cache_size=-64000` (64 MiB).
-5. **MonaDB** — default LMDB settings (`map_size` 1 GiB).
+5. **MonaDB** — default LMDB settings (`map_size` 1 GiB, full durability). Use
+   [`Config::nosync()`](../src/config.rs) with
+   [`MonaDB::open_with_config`](../src/lib.rs) for `MDB_NOSYNC` (SQLite
+   `synchronous=NORMAL` analogue). Explicit `begin;` / `commit;` batch multiple
+   statements under one fsync.
+
+## Insert breakdown harness
+
+Isolates fsync vs SQL overhead:
+
+```sh
+cargo bench --bench insert_breakdown
+MONADB_BENCH_M=100 MONADB_BENCH_PROFILE=md cargo bench --bench insert_breakdown
+```
+
+| Mode | What it measures |
+|------|------------------|
+| `autocommit` | One `execute()` per row (baseline) |
+| `explicit_txn` | `begin;` + N inserts + `commit;` |
+| `multi_value` | One `insert into t ({…}, …, {…});` |
+| `prepared_param` | `insert into t ($1)` with bound params |
+| `relaxed_autocommit` | Autocommit with `Config::nosync()` |
 
 ## Metrics harness (time + memory)
 

@@ -51,9 +51,11 @@ extern {
         "as"        => Token::As,
         "asc"       => Token::Asc,
         "at"        => Token::At,
+        "begin"     => Token::Begin,
         "between"   => Token::Between,
         "by"        => Token::By,
         "clear"     => Token::Clear,
+        "commit"    => Token::Commit,
         "copy"      => Token::Copy,
         "create"    => Token::Create,
         "delete"    => Token::Delete,
@@ -72,6 +74,7 @@ extern {
         "or"        => Token::Or,
         "order"     => Token::Order,
         "pivot"     => Token::Pivot,
+        "rollback"  => Token::Rollback,
         "select"    => Token::Select,
         "table"     => Token::Table,
         "to"        => Token::To,
@@ -108,13 +111,16 @@ pub Sql = <Statement> ";";
 //------------------------------
 
 Statement: ir::Statement = {
-    Clear   => ir::Statement::Clear(<>),
-    Copy    => ir::Statement::Copy(<>),
-    Create  => ir::Statement::Create(<>),
-    Delete  => ir::Statement::Delete(<>),
-    Drop    => ir::Statement::Drop(<>),
-    Insert  => ir::Statement::Insert(<>),
-    Select  => ir::Statement::Select(<>),
+    "begin"    => ir::Statement::Begin,
+    Clear      => ir::Statement::Clear(<>),
+    "commit"   => ir::Statement::Commit,
+    Copy       => ir::Statement::Copy(<>),
+    Create     => ir::Statement::Create(<>),
+    Delete     => ir::Statement::Delete(<>),
+    Drop       => ir::Statement::Drop(<>),
+    Insert     => ir::Statement::Insert(<>),
+    "rollback" => ir::Statement::Rollback,
+    Select     => ir::Statement::Select(<>),
 };
 
 // CREATE STATEMENT

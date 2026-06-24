@@ -103,6 +103,7 @@ fn linebreak() -> Block {
 }
 
 /// Interleave `sep` between `items`. Empty iterator → empty `Text`.
+#[allow(clippy::needless_pass_by_value)]
 fn join(sep: Block, items: impl IntoIterator<Item = Block>) -> Block {
     let mut iter = items.into_iter();
     let Some(mut acc) = iter.next() else {
@@ -168,6 +169,9 @@ impl From<String> for Block {
 impl ToSql for Statement {
     fn block(&self) -> Block {
         match self {
+            Statement::Begin => Block::new(Token::Text("begin".into())),
+            Statement::Commit => Block::new(Token::Text("commit".into())),
+            Statement::Rollback => Block::new(Token::Text("rollback".into())),
             Statement::Clear(_) => unimplemented!("CLEAR formatting"),
             Statement::Copy(_) => unimplemented!("COPY formatting"),
             Statement::Create(c) => c.block(),

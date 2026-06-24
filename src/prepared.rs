@@ -83,11 +83,15 @@ impl MonaDB {
         if debug {
             Self::debug(&stmt.program);
         }
+        let defer_commit = self.in_transaction();
         Ok(Rows::new(VM::init(
             self.storage.clone(),
             self.catalog_generation.clone(),
+            self.session_catalog_dirty.clone(),
             stmt.program.clone(),
             params.clone(),
+            self.session_txn.clone(),
+            defer_commit,
         )))
     }
 }

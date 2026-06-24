@@ -108,6 +108,15 @@ impl Catalog {
         }
     }
 
+    /// Drops every cached entry without advancing the generation.
+    ///
+    /// Used on `rollback;`: entries learned through the now-aborted session txn
+    /// (e.g. a table created and rolled back mid-session) must be discarded, but
+    /// the generation must stay put so earlier prepared statements remain valid.
+    pub fn flush(&self) {
+        self.cache.borrow_mut().tables.clear();
+    }
+
     /// Cold path: scans the catalog btree for `name`, parses its stored DDL, and
     /// caches the outcome. Call only after [`cached`] has returned `None` (so the
     /// cache generation is already current). Both a hit and a `UnboundTable` miss
@@ -133,7 +142,11 @@ impl Catalog {
     }
 
     /// Scans the catalog btree for `name`, parsing its stored DDL (no caching).
-    fn scan_table(&self, txn: &Transaction, name: &str) -> Result<TableDefinition> {
+    ///
+    /// Used directly on the in-session binder path, where the generation can't
+    /// gate the cache (in-session DDL defers its bump) so caching would only write
+    /// entries that are valid mid-session and never read back.
+    pub(crate) fn scan_table(&self, txn: &Transaction, name: &str) -> Result<TableDefinition> {
         for entry in self.catalog.iter(txn.as_ro())? {
             let (key, val) = entry?;
             let row = Value::from_storage(val)?;

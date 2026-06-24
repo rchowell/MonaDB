@@ -123,12 +123,15 @@ pub mod visit {
         V: Visit<'ast> + ?Sized,
     {
         match i {
+            Statement::Begin => {}
             Statement::Copy(c) => v.visit_copy(c),
             Statement::Create(c) => v.visit_create(c),
+            Statement::Commit => {}
             Statement::Delete(d) => v.visit_delete(d),
             Statement::Drop(d) => v.visit_drop(d),
             Statement::Clear(c) => v.visit_clear(c),
             Statement::Insert(ins) => v.visit_insert(ins),
+            Statement::Rollback => {}
             Statement::Select(s) => v.visit_select(s),
         }
     }
@@ -569,12 +572,15 @@ pub mod visit_mut {
 
     pub fn visit_statement_mut<V: VisitMut + ?Sized>(v: &mut V, i: &mut Statement) {
         match i {
+            Statement::Begin => {}
             Statement::Copy(c) => v.visit_copy_mut(c),
             Statement::Create(c) => v.visit_create_mut(c),
+            Statement::Commit => {}
             Statement::Delete(d) => v.visit_delete_mut(d),
             Statement::Drop(d) => v.visit_drop_mut(d),
             Statement::Clear(c) => v.visit_clear_mut(c),
             Statement::Insert(ins) => v.visit_insert_mut(ins),
+            Statement::Rollback => {}
             Statement::Select(s) => v.visit_select_mut(s),
         }
     }
@@ -918,6 +924,9 @@ pub mod fold {
 
     pub fn fold_statement<F: Fold + ?Sized>(f: &mut F, i: Statement) -> Statement {
         match i {
+            Statement::Begin => Statement::Begin,
+            Statement::Commit => Statement::Commit,
+            Statement::Rollback => Statement::Rollback,
             Statement::Copy(c) => Statement::Copy(f.fold_copy(c)),
             Statement::Create(c) => Statement::Create(f.fold_create(c)),
             Statement::Delete(s) => Statement::Delete(s),

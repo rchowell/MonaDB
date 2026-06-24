@@ -2,7 +2,8 @@
 //!
 //! [`Value`] is the single currency of the VM stack, storage, and query results
 //! — a JSON-like tagged union with `Rc`-backed heap variants (cheap `Clone`,
-//! copy-on-write mutation). `serde_json` bridges to and from stored bytes.
+//! copy-on-write mutation). The flat [`flat`] codec serializes values to and
+//! from stored bytes; `serde_json` bridges external JSON (input and results).
 
 use std::collections::HashMap;
 use std::fmt::{self, Debug, Display};
@@ -62,10 +63,6 @@ impl Default for Value {
 }
 
 impl Value {
-    /// Convert a `serde_json::Value` into a `Value` (the JSON storage seam).
-    pub fn new(value: JsonValue) -> Self {
-        Self::from_json(value)
-    }
 
     /// Returns the null value.
     #[inline]
@@ -121,13 +118,13 @@ impl Value {
     }
 
     //------------------------------
-    // JSON bridges (storage seam)
+    // JSON bridges (external JSON seam)
     //------------------------------
 
     /// Recursive `serde_json::Value -> Value`. Integers that fit `i64` become
     /// `Int`; everything else numeric becomes `Float`. Object order is preserved
     /// (serde_json `preserve_order` is enabled).
-    fn from_json(value: JsonValue) -> Value {
+    pub fn from_json(value: JsonValue) -> Value {
         match value {
             JsonValue::Null => Value::Null,
             JsonValue::Bool(b) => Value::Bool(b),
@@ -530,7 +527,7 @@ impl Value {
     }
 
     //------------------------------
-    // Encoding (JSON bytes for now)
+    // Encoding (flat storage codec)
     //------------------------------
 
     /// Encodes the value to stored bytes in the flat [`flat`] layout.

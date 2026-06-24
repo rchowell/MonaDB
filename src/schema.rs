@@ -251,7 +251,7 @@ mod test {
     #[test]
     fn composite_key_tie_breaks_on_later_columns() {
         let keys = [col("a", Type::Int), col("b", Type::String)];
-        let k = |a: i64, b: &str| encode_key(&Value::new(json!({"a": a, "b": b})), &keys).unwrap();
+        let k = |a: i64, b: &str| encode_key(&Value::from_json(json!({"a": a, "b": b})), &keys).unwrap();
         assert!(k(1, "x") < k(1, "y"), "tie on a, break on b");
         assert!(k(1, "y") < k(2, "a"), "first column dominates");
     }
@@ -259,7 +259,7 @@ mod test {
     #[test]
     fn string_first_component_is_delimited() {
         let keys = [col("a", Type::String), col("b", Type::String)];
-        let k = |a: &str, b: &str| encode_key(&Value::new(json!({"a": a, "b": b})), &keys).unwrap();
+        let k = |a: &str, b: &str| encode_key(&Value::from_json(json!({"a": a, "b": b})), &keys).unwrap();
         // ("a","z") < ("ab","a") despite "z" > "a" in the second component.
         assert!(k("a", "z") < k("ab", "a"));
     }
@@ -274,7 +274,7 @@ mod test {
     #[test]
     fn tuple_composite_string_int_concatenates_components() {
         let keys = [col("a", Type::String), col("b", Type::Int)];
-        let got = encode_key_tuple(&[Value::new(json!("x")), Value::Int(7)], &keys).unwrap();
+        let got = encode_key_tuple(&[Value::from_json(json!("x")), Value::Int(7)], &keys).unwrap();
         let mut want = encode_str("x");
         want.extend_from_slice(&encode_int(7));
         assert_eq!(got, want);
@@ -286,10 +286,10 @@ mod test {
         // the object the same row would `insert` — so `get` finds what `insert`
         // stored.
         let keys = [col("a", Type::String), col("b", Type::Int)];
-        let v0 = Value::new(json!("x"));
+        let v0 = Value::from_json(json!("x"));
         let v1 = Value::Int(7);
         let tuple = encode_key_tuple(&[v0, v1], &keys).unwrap();
-        let object = encode_key(&Value::new(json!({"a": "x", "b": 7})), &keys).unwrap();
+        let object = encode_key(&Value::from_json(json!({"a": "x", "b": 7})), &keys).unwrap();
         assert_eq!(tuple, object);
     }
 
@@ -297,7 +297,7 @@ mod test {
     fn tuple_wrong_type_is_schema_error() {
         let keys = [col("id", Type::Int)];
         assert!(matches!(
-            encode_key_tuple(&[Value::new(json!("a"))], &keys),
+            encode_key_tuple(&[Value::from_json(json!("a"))], &keys),
             Err(Error::Schema(_))
         ));
     }
@@ -340,7 +340,7 @@ mod test {
     #[test]
     fn missing_key_is_schema_error() {
         let keys = [col("x", Type::Int)];
-        let row = Value::new(json!({"z": 1}));
+        let row = Value::from_json(json!({"z": 1}));
         assert!(matches!(encode_key(&row, &keys), Err(Error::Schema(_))));
     }
 
@@ -348,16 +348,16 @@ mod test {
     fn wrong_type_key_is_schema_error() {
         let int_keys = [col("x", Type::Int)];
         assert!(matches!(
-            encode_key(&Value::new(json!({"x": "a"})), &int_keys),
+            encode_key(&Value::from_json(json!({"x": "a"})), &int_keys),
             Err(Error::Schema(_))
         ));
         assert!(matches!(
-            encode_key(&Value::new(json!({"x": 1.5})), &int_keys),
+            encode_key(&Value::from_json(json!({"x": 1.5})), &int_keys),
             Err(Error::Schema(_))
         ));
         let str_keys = [col("x", Type::String)];
         assert!(matches!(
-            encode_key(&Value::new(json!({"x": 1})), &str_keys),
+            encode_key(&Value::from_json(json!({"x": 1})), &str_keys),
             Err(Error::Schema(_))
         ));
     }

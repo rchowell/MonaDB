@@ -111,10 +111,14 @@ pub enum Token {
     At,
     #[token("between")]
     Between,
+    #[token("begin")]
+    Begin,
     #[token("by")]
     By,
     #[token("clear")]
     Clear,
+    #[token("commit")]
+    Commit,
     #[token("copy")]
     Copy,
     #[token("create")]
@@ -151,6 +155,8 @@ pub enum Token {
     Order,
     #[token("pivot")]
     Pivot,
+    #[token("rollback")]
+    Rollback,
     #[token("select")]
     Select,
     #[token("table")]

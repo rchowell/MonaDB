@@ -118,6 +118,9 @@ impl Compiler {
             Statement::Clear(clear) => self.cc_clear(clear),
             Statement::Insert(insert) => self.cc_insert(insert)?,
             Statement::Select(select) => self.cc_select(select)?,
+            Statement::Begin | Statement::Commit | Statement::Rollback => {
+                crate::error!("transaction control is handled before compilation");
+            }
         };
         self.emit_halt();
 
@@ -2020,7 +2023,12 @@ mod tests {
         let mut stmt = SqlParser::new()
             .parse(&std::cell::Cell::new(0), SqlLexer::new(sql))
             .unwrap();
-        let mut binder = Binder::new(catalog.clone(), storage.clone(), 0);
+        let mut binder = Binder::new(
+            catalog.clone(),
+            storage.clone(),
+            0,
+            std::rc::Rc::new(std::cell::RefCell::new(None)),
+        );
         binder
             .bind(&mut stmt)
             .unwrap();
@@ -2676,7 +2684,12 @@ mod tests {
         let mut stmt = SqlParser::new()
             .parse(&std::cell::Cell::new(0), SqlLexer::new(sql))
             .unwrap();
-        let mut binder = Binder::new(catalog.clone(), storage.clone(), 0);
+        let mut binder = Binder::new(
+            catalog.clone(),
+            storage.clone(),
+            0,
+            std::rc::Rc::new(std::cell::RefCell::new(None)),
+        );
         binder
             .bind(&mut stmt)
             .unwrap();
@@ -2749,8 +2762,11 @@ mod tests {
         let vm = crate::vm::VM::init(
             storage.clone(),
             std::rc::Rc::new(std::cell::Cell::new(0)),
+            std::rc::Rc::new(std::cell::Cell::new(false)),
             std::rc::Rc::new(program),
             crate::value::Params::none(),
+            std::rc::Rc::new(std::cell::RefCell::new(None)),
+            false,
         );
         let rows = crate::vm::Rows::new(vm);
         rows.finish().expect("ctas should complete");

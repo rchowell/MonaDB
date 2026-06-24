@@ -4,7 +4,7 @@
 //! stream, operating on a value stack plus fixed banks of cursors and counters.
 //! Each `Yield` pauses the loop with one result row; `Halt` commits and stops.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::cmp::Ordering;
 use std::mem::take;
 use std::rc::Rc;
@@ -307,23 +307,72 @@ pub struct VM {
     /// Rows changed by mutations (inserts, updates, deletes). Reported by
     /// `Rows::finish`, so `execute` returns a real affected-row count.
     affected: u64,
-    /// Shared catalog generation counter; bumped on Halt when `mutates_catalog`.
+    /// Shared catalog generation counter; bumped at `Halt` by a non-deferred
+    /// `mutates_catalog` statement. A deferred (in-session) statement sets
+    /// [`session_catalog_dirty`] instead, and the bump happens at `commit;`.
     catalog_generation: Rc<Cell<u64>>,
+    /// Shared "this session mutated the catalog" flag. A deferred `mutates_catalog`
+    /// statement sets it at `Halt` instead of bumping [`catalog_generation`], so a
+    /// rolled-back DDL never advances the generation (and never bricks an earlier
+    /// prepared statement). `commit;` consumes it to bump once; `rollback;` clears it.
+    session_catalog_dirty: Rc<Cell<bool>>,
     /// Whether this program changes catalog membership on success.
     mutates_catalog: bool,
     /// Bound query parameters, resolved by `Vop::LoadParam` at run time.
     params: Params,
-    /// The open transaction handle; dropped last.
+    /// When true, this statement runs inside an explicit session: it borrows the
+    /// session txn for *both* reads and writes and, at `Halt`, leaves it in
+    /// [`txn`] for [`Drop for VM`] to return to [`session_txn`] — never committing.
+    defer_commit: bool,
+    /// Shared session slot the deferred txn is borrowed from and restored to.
+    session_txn: Rc<RefCell<Option<Transaction>>>,
+    /// The open transaction handle; dropped last (after cursors).
     txn: Option<Transaction>,
+}
+
+impl Drop for VM {
+    /// Returns a borrowed session txn to its slot on every exit.
+    ///
+    /// A deferred statement takes the session write txn into [`VM::txn`] for its
+    /// duration. This guard moves it back to [`VM::session_txn`] on *every* drop —
+    /// normal completion, a mid-statement `?`-error, or an abandoned [`Rows`] — so
+    /// the session is never silently left without its transaction. It **always
+    /// restores, never commits or aborts**: `commit;`/`rollback;` are the sole
+    /// resolvers. Cursors are cleared first so their scan iterators (lifetime-erased
+    /// to `'static`, backed by the txn) drop before the txn is moved.
+    fn drop(&mut self) {
+        if self.defer_commit {
+            self.cursors.clear();
+            if let Some(txn) = take(&mut self.txn) {
+                *self.session_txn.borrow_mut() = Some(txn);
+            }
+        }
+    }
 }
 
 impl VM {
     /// Builds a VM primed to run `program` against `storage` with bound `params`.
+    ///
+    /// When `defer_commit` is true the statement runs inside an explicit session:
+    /// it borrows the one session txn for reads *and* writes, and returns it to the
+    /// slot on exit without committing. The slot ↔ VM handoff over a session:
+    ///
+    /// ```text
+    ///   session_txn: Some(W) ──Vop::Transaction──▶ VM.txn: Some(W)   (slot now None)
+    ///        ▲                                          │
+    ///        └──────────── Drop for VM ◀────────────────┘   (Halt leaves txn in place;
+    ///                   always restores, never commits)      Drop returns it to the slot)
+    ///
+    ///   commit; / rollback;  ── take() ──▶  commit()/abort()   (the only resolvers)
+    /// ```
     pub fn init(
         storage: Storage,
         catalog_generation: Rc<Cell<u64>>,
+        session_catalog_dirty: Rc<Cell<bool>>,
         program: Rc<Program>,
         params: Params,
+        session_txn: Rc<RefCell<Option<Transaction>>>,
+        defer_commit: bool,
     ) -> VM {
         // Allocate an unopened cursor for each slot
         let mut cursors = Vec::with_capacity(program.cursors);
@@ -334,11 +383,14 @@ impl VM {
             pc: 0,
             stack: vec![],
             txn: None,
+            session_txn,
+            defer_commit,
             cursors,
             counters: vec![0; program.counters],
             aggs: vec![Value::Null; program.aggs],
             affected: 0,
             catalog_generation,
+            session_catalog_dirty,
             mutates_catalog,
             params,
             program,
@@ -576,17 +628,42 @@ impl VM {
                     self.pc = *jmp;
                 }
                 Vop::Transaction { txm } => {
-                    let txn = Transaction::new(&self.storage, *txm)?;
-                    self.txn = Some(txn);
+                    if self.txn.is_none() {
+                        // In a session, borrow the one session txn for *every*
+                        // statement regardless of `txm`: a RW txn reads fine via
+                        // `as_ro()`, so a SELECT sees the session's own uncommitted
+                        // writes. Outside a session, open a fresh txn of the mode.
+                        let txn = if self.defer_commit {
+                            self.session_txn
+                                .borrow_mut()
+                                .take()
+                                .ok_or_else(|| {
+                                    Error::Transaction("no active session transaction".into())
+                                })?
+                        } else {
+                            Transaction::new(&self.storage, *txm)?
+                        };
+                        self.txn = Some(txn);
+                    }
                 }
                 Vop::Halt => {
                     self.cursors.clear();
-                    if let Some(txn) = take(&mut self.txn) {
-                        txn.commit()?;
-                    }
-                    if self.mutates_catalog {
-                        let generation = self.catalog_generation.get();
-                        self.catalog_generation.set(generation + 1);
+                    if self.defer_commit {
+                        // Leave the borrowed session txn in `self.txn`; `Drop for VM`
+                        // returns it to the session slot. Don't commit, and defer the
+                        // generation bump: a session's DDL becomes visible to other
+                        // readers only at `commit;`, recorded here as a dirty flag.
+                        if self.mutates_catalog {
+                            self.session_catalog_dirty.set(true);
+                        }
+                    } else {
+                        if let Some(txn) = take(&mut self.txn) {
+                            txn.commit()?;
+                        }
+                        if self.mutates_catalog {
+                            let generation = self.catalog_generation.get();
+                            self.catalog_generation.set(generation + 1);
+                        }
                     }
                     return Ok(None);
                 }
@@ -1094,37 +1171,54 @@ fn quantify(op: CmpOp, all: bool, lhs: &Value, arr: &Value) -> Value {
     }
 }
 
-/// Pull-based iterator over a running VM.
-pub struct Rows {
-    vm: VM,
+/// Pull-based iterator over a statement's results.
+///
+/// `Active` wraps a running VM; `Done` is an already-finished result with no VM
+/// and no transaction — used for transaction-control statements (`begin;` /
+/// `commit;` / `rollback;`), which resolve before compilation and yield zero rows.
+pub enum Rows {
+    /// A finished statement that yields no rows and touches no transaction.
+    Done,
+    /// A pull-based iterator over a running VM.
+    Active(VM),
 }
 
 impl Rows {
     /// Wraps a primed VM as a pull-based row iterator.
-    pub fn new(vm: VM) -> Self {
-        Self { vm }
+    pub(crate) fn new(vm: VM) -> Self {
+        Rows::Active(vm)
+    }
+
+    /// Builds an already-finished, zero-row result (no VM, no transaction).
+    pub(crate) fn empty() -> Self {
+        Rows::Done
     }
 
     /// Returns the next 'row' i.e. a JSON value.
     pub fn next(&mut self) -> Result<Option<Value>> {
-        self.vm.next()
+        match self {
+            Rows::Done => Ok(None),
+            Rows::Active(vm) => vm.next(),
+        }
     }
 
     /// Rows changed by INSERT/UPDATE/DELETE. Meaningful after [`Self::next`]
-    /// returns `None` (the transaction has committed at `Halt`).
+    /// returns `None`.
     pub fn mutations(&self) -> u64 {
-        self.vm.affected
+        match self {
+            Rows::Done => 0,
+            Rows::Active(vm) => vm.affected,
+        }
     }
 
-    /// Completes the statement and commits its transaction, returning the row
-    /// count: rows yielded for a query, rows changed for a mutation (one is
-    /// always zero).
+    /// Completes the statement, returning the row count: rows yielded for a
+    /// query, rows changed for a mutation (one is always zero).
     pub fn finish(mut self) -> Result<u64> {
         let mut n = 0;
         while self.next()?.is_some() {
             n += 1;
         }
-        Ok(n + self.vm.affected)
+        Ok(n + self.mutations())
     }
 }
 

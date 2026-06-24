@@ -15,6 +15,7 @@ use pyo3::types::{PyBytes, PyDict, PyList, PyTuple};
 use serde_json::Value as JsonValue;
 
 use crate::MonaDB;
+use crate::config::Config;
 use crate::error::Error;
 use crate::prepared::PreparedStatement as RustPreparedStatement;
 use crate::value::{Object, Params, Value};
@@ -399,19 +400,48 @@ impl PreparedStatement {
     }
 }
 
+/// Builds a [`Config`] from an optional Python `config` dict.
+fn config_from_py(config: Option<&Bound<'_, PyDict>>) -> PyResult<Config> {
+    let mut cfg = Config::default();
+    let Some(dict) = config else {
+        return Ok(cfg);
+    };
+    for (key, value) in dict.iter() {
+        let key: String = key.extract()?;
+        match key.as_str() {
+            "nosync" => {
+                if value.extract::<bool>()? {
+                    cfg = cfg.nosync();
+                }
+            }
+            other => {
+                return Err(MonaDBError::new_err(format!(
+                    "unknown config key: {other:?} (supported: nosync)"
+                )));
+            }
+        }
+    }
+    Ok(cfg)
+}
+
 /// Open a connection. `":memory:"` (or omitted) opens an in-memory database;
 /// any other string is treated as a filesystem path.
 #[pyfunction]
-#[pyo3(signature = (database=None, read_only=false))]
-fn connect(database: Option<&str>, read_only: bool) -> PyResult<Connection> {
+#[pyo3(signature = (database=None, *, read_only=false, config=None))]
+fn connect(
+    database: Option<&str>,
+    read_only: bool,
+    config: Option<&Bound<'_, PyDict>>,
+) -> PyResult<Connection> {
     if read_only {
         return Err(PyNotImplementedError::new_err(
             "read_only connections are not supported yet",
         ));
     }
+    let cfg = config_from_py(config)?;
     let db = match database {
-        None | Some(":memory:") => MonaDB::memory(),
-        Some(path) => MonaDB::open(path),
+        None | Some(":memory:") => MonaDB::memory_with_config(cfg),
+        Some(path) => MonaDB::open_with_config(path, cfg),
     }
     .map_err(|e| to_pyerr(&e, ""))?;
 

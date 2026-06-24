@@ -15,7 +15,7 @@ use crate::{
 };
 
 /// Transaction mode used as a flag during compilation.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransactionMode {
     Read,
     Write,
@@ -117,9 +117,17 @@ impl Transaction {
         }
     }
 
-    /// Aborts the transaction; dropping it has the same effect.
+    /// Aborts the transaction; dropping without committing has the same effect
+    /// for read txns; write txns are explicitly aborted.
     pub fn abort(self) {
-        drop(self);
+        match self.inner {
+            TransactionInner::Read(t) => {
+                drop(t);
+            }
+            TransactionInner::Write(t) => {
+                t.abort();
+            }
+        }
     }
 }
 
@@ -168,6 +176,43 @@ mod tests {
             let mut txn = Transaction::write(&storage).unwrap();
             btree.put(txn.as_rw().unwrap(), b"k", b"v").unwrap();
         }
+        let ro = Transaction::read(&storage).unwrap();
+        assert_eq!(btree.get(ro.as_ro(), b"k").unwrap(), None);
+    }
+
+    #[test]
+    fn session_take_put_abort_discards_writes() {
+        let (_dir, storage) = open();
+        let btree = make_btree(&storage, 1);
+        let mut session: Option<Transaction> = None;
+        session = Some(Transaction::write(&storage).unwrap());
+
+        let mut txn = session.take().unwrap();
+        btree.put(txn.as_rw().unwrap(), b"k", b"v").unwrap();
+        session = Some(txn);
+
+        session.take().unwrap().abort();
+
+        let ro = Transaction::read(&storage).unwrap();
+        assert_eq!(btree.get(ro.as_ro(), b"k").unwrap(), None);
+    }
+
+    #[test]
+    fn refcell_session_take_put_abort_discards_writes() {
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let (_dir, storage) = open();
+        let btree = make_btree(&storage, 1);
+        let session = Rc::new(RefCell::new(None::<Transaction>));
+        *session.borrow_mut() = Some(Transaction::write(&storage).unwrap());
+
+        let mut txn = session.borrow_mut().take().unwrap();
+        btree.put(txn.as_rw().unwrap(), b"k", b"v").unwrap();
+        *session.borrow_mut() = Some(txn);
+
+        session.borrow_mut().take().unwrap().abort();
+
         let ro = Transaction::read(&storage).unwrap();
         assert_eq!(btree.get(ro.as_ro(), b"k").unwrap(), None);
     }

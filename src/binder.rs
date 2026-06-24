@@ -5,6 +5,9 @@
 //! keyed-table subscript (`t[k]`) to an `Expr::Get`. Errors are collected; the
 //! first encountered is returned.
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use crate::catalog::{CacheLookup, Catalog};
 use crate::error::{Error, Result};
 use crate::ir::{
@@ -25,7 +28,12 @@ pub struct Binder {
     storage: Storage,
     /// The read transaction backing cold catalog lookups, opened on first miss.
     /// Stays `None` (no transaction at all) when every lookup hits the cache.
+    /// Unused while an explicit session is open — cold lookups go through
+    /// [`session_txn`] instead, so in-session DDL is visible.
     txn: Option<Transaction>,
+    /// The active explicit-session write txn, if any. When present, cold catalog
+    /// lookups scan through it so a table CREATEd earlier in the session resolves.
+    session_txn: Rc<RefCell<Option<Transaction>>>,
     /// Catalog for table lookups, gets us the table 'oid'.
     catalog: Catalog,
     /// Catalog generation captured at bind start; gates the catalog cache.
@@ -45,10 +53,16 @@ impl Binder {
     /// Creates a new binder with a catalog reference. The read transaction for
     /// cold catalog scans is opened lazily against `storage`; `generation` gates
     /// the catalog's in-memory cache.
-    pub fn new(catalog: Catalog, storage: Storage, generation: u64) -> Self {
+    pub fn new(
+        catalog: Catalog,
+        storage: Storage,
+        generation: u64,
+        session_txn: Rc<RefCell<Option<Transaction>>>,
+    ) -> Self {
         Binder {
             storage,
             txn: None,
+            session_txn,
             catalog,
             generation,
             scope: Scope::new(),
@@ -86,7 +100,19 @@ impl Binder {
     /// serves both present tables and known-absent ones (a cached miss avoids a
     /// repeat btree scan for a non-table name). On a cold miss, opens the read
     /// transaction once (lazily) and scans the catalog.
+    ///
+    /// While an explicit session is open, *no* cache entry can be trusted: an
+    /// in-session CREATE or DROP mutates the catalog through the session txn but
+    /// defers the generation bump that would flush the cache, so a positive Hit may
+    /// name a since-DROPped table and a NegativeHit may predate an in-session
+    /// CREATE. Scan (without caching) through the session txn, which sees the
+    /// session's own uncommitted DDL. (A held in-flight statement can't leave the
+    /// slot empty here: `guard_statement_in_progress` rejects a second statement
+    /// before bind.)
     fn resolve_table(&mut self, name: &str) -> Result<TableDefinition> {
+        if let Some(txn) = self.session_txn.borrow().as_ref() {
+            return self.catalog.scan_table(txn, name);
+        }
         match self.catalog.cached(name, self.generation) {
             CacheLookup::Hit(def) => return Ok(def),
             CacheLookup::NegativeHit => return Err(Error::UnboundTable(name.to_string())),

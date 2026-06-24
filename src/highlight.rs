@@ -46,9 +46,11 @@ fn style_for(tok: &Token) -> &'static str {
         | Token::As
         | Token::Asc
         | Token::At
+        | Token::Begin
         | Token::Between
         | Token::By
         | Token::Clear
+        | Token::Commit
         | Token::Copy
         | Token::Create
         | Token::Delete
@@ -67,6 +69,7 @@ fn style_for(tok: &Token) -> &'static str {
         | Token::Or
         | Token::Order
         | Token::Pivot
+        | Token::Rollback
         | Token::Select
         | Token::Table
         | Token::To

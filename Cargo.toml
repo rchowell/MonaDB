@@ -79,6 +79,11 @@ name = "metrics"
 harness = false
 path = "benches/metrics.rs"
 
+[[bench]]
+name = "insert_breakdown"
+harness = false
+path = "benches/insert_breakdown.rs"
+
 [lints.clippy]
 missing_errors_doc = "allow"
 pedantic = {level = "warn", priority = -1}

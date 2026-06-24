@@ -10,6 +10,7 @@ use heed::{Database, Env, EnvFlags, EnvOpenOptions, WithoutTls};
 
 use crate::Result;
 use crate::error::Error;
+use crate::config::Config;
 
 /// Reserved capacity for future named DBs (branches, commits, etc.).
 const LMDB_MAX_DBS: u32 = 8;
@@ -28,18 +29,24 @@ pub struct Storage {
 }
 
 impl Storage {
-    /// Opens or creates a database at the given path.
+    /// Opens or creates a database at the given path with default configuration.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
+        Self::open_with_config(path, &Config::default())
+    }
+
+    /// Opens or creates a database at the given path with the given configuration.
+    pub(crate) fn open_with_config<P: AsRef<Path>>(path: P, config: &Config) -> Result<Self> {
         // LMDB (NO_SUB_DIR) derives the lock file from the path's parent, so a
         // bare filename like "todos.db" — whose parent is empty — fails to open.
         // Absolutize first so any relative form (including a bare name) works.
         let path = std::path::absolute(path.as_ref())?;
+        let flags = EnvFlags::NO_SUB_DIR | config.env_flags();
         let env = unsafe {
             EnvOpenOptions::new()
                 .read_txn_without_tls()
                 .map_size(LMDB_MMAP_SIZE)
                 .max_dbs(LMDB_MAX_DBS)
-                .flags(EnvFlags::NO_SUB_DIR)
+                .flags(flags)
                 .open(&path)?
         };
         let env = Arc::new(env);
