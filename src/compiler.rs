@@ -6,9 +6,9 @@ use crate::error::Error;
 use crate::unsupported;
 use crate::functions;
 use crate::ir::{
-    AggKind, Call, Clear, CmpOp, Constructor, Copy, CopySource, Create, Delete, Drop, Expr, Get,
-    Insert, Jpe, Jpi, Jpk, Key, Limit, Member, Obj, Select, Source, Statement, TableDefinition,
-    ToSql, Type, Var,
+    AggKind, Call, Clear, CmpOp, Constructor, Copy, CopySource, Create, Delete, Drop, Expr, From,
+    Get, Insert, Jpe, Jpi, Jpk, Key, Limit, Member, Obj, Select, Source, Statement,
+    TableDefinition, ToSql, Type, Var,
 };
 use crate::read::{self, FileFormat};
 use crate::schema;
@@ -33,6 +33,58 @@ struct LoopFrame {
     begin: Vec<usize>,         // exhaust-edge patch site per source
     body: usize,               // first instruction of the per-iteration body
     where_fail: Option<usize>, // IfNot patch site of the WHERE guard, if any
+}
+
+/// Returns the cursor slot count that covers every binder-assigned index in
+/// `statement` (outer query and nested subqueries). The compiler starts
+/// [`Compiler::cursor_slots`] here so auxiliary cursors from
+/// [`Compiler::alloc_cursor`] never reuse a bound slot. This was a bug where
+/// alloc_cursor was re-using existing ones and composer found it!
+fn bound_cursor_floor(statement: &Statement) -> usize {
+    struct Scan {
+        max: Option<usize>,
+    }
+
+    impl Scan {
+        fn record(&mut self, csr: u32) {
+            let csr = csr as usize;
+            self.max = Some(self.max.map_or(csr, |m| m.max(csr)));
+        }
+    }
+
+    impl Visit<'_> for Scan {
+        fn visit_from(&mut self, i: &From) {
+            if let Some(csr) = i.csr {
+                self.record(csr);
+            }
+            if let Source::Unpivot(u) = &i.src {
+                if let Some(csr) = u.val_csr {
+                    self.record(csr);
+                }
+                if let Some(csr) = u.att_csr {
+                    self.record(csr);
+                }
+            }
+            visit::visit_from(self, i);
+        }
+
+        fn visit_expr(&mut self, i: &Expr) {
+            match i {
+                Expr::Get(g) => self.record(g.csr),
+                Expr::Var(v) => {
+                    if let Some(csr) = v.bind {
+                        self.record(csr);
+                    }
+                }
+                _ => {}
+            }
+            visit::visit_expr(self, i);
+        }
+    }
+
+    let mut scan = Scan { max: None };
+    scan.visit_statement(statement);
+    scan.max.map_or(0, |m| m + 1)
 }
 
 /// The per-source analysis of a from clause, computed in one pass: the cursor
@@ -87,12 +139,18 @@ impl Compiler {
     /// opens the transaction and `Jump`s back, so the body always runs inside a
     /// live transaction. The body ends at `Halt`, which commits.
     ///
-    ///   addr 0      Init         ────┐
-    ///   addr 1..M   [ body ]     ◀─┐ │
-    ///   addr M      Halt           │ │
+    ///   addr 0      Init          ────┐
+    ///   addr 1..M   [ body ]      ◀─┐ │
+    ///   addr M      Halt            │ │
     ///   addr N      Transaction   ◀─┼─┘
-    ///   addr N+1    Jump           ──┘
+    ///   addr N+1    Jump          ──┘
     pub fn compile(mut self, statement: Statement) -> Result<Program> {
+        // Reserve every binder-assigned cursor slot (including nested subqueries)
+        // before any compiler-allocated auxiliary cursors (payload/repr in
+        // `cc_group`/`cc_order`, CTAS temps, …) so inline subqueries cannot
+        // collide with the sorted payload iterator.
+        self.cursor_slots = bound_cursor_floor(&statement);
+
         // Setup Block
         //
         // addr 0: Init          -> jumps to addr N

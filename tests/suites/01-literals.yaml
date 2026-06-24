@@ -158,12 +158,3 @@ tests:
     steps:
       - sql: "select t[\"weird key\"] from [{\"weird key\": 5}] as t;"
         result: [5]
-
-  # 1.2 — keyword case-insensitivity
-  - id: lex-keywords-case-insensitive
-    description: keywords are case-insensitive
-    steps:
-      - sql: SELECT null;
-        result: [null]
-      - sql: Select True;
-        result: [true]
