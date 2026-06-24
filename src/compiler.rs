@@ -140,6 +140,8 @@ impl Compiler {
             aggs: self.agg_slots,
             mutates_catalog: self.mutates_catalog,
             instructions: self.code,
+            // Resolved at prepare time; `compile` has no transaction to open them.
+            tables: Vec::new(),
         })
     }
 
@@ -2756,20 +2758,12 @@ mod tests {
 
     #[test]
     fn ctas_from_csv_runs() {
-        let (_dir, storage, catalog) = fixture();
-        let sql = "create table people as select * from 'tests/fixtures/people.csv';";
-        let program = compile_sql(&storage, &catalog, sql);
-        let vm = crate::vm::VM::init(
-            storage.clone(),
-            std::rc::Rc::new(std::cell::Cell::new(0)),
-            std::rc::Rc::new(std::cell::Cell::new(false)),
-            std::rc::Rc::new(program),
-            crate::value::Params::none(),
-            std::rc::Rc::new(std::cell::RefCell::new(None)),
-            false,
-        );
-        let rows = crate::vm::Rows::new(vm);
-        rows.finish().expect("ctas should complete");
+        // Run through the real prepare→execute path: `prepare` resolves the
+        // program's table handles (a compiled-but-unprepared program isn't
+        // runnable, since its `tables` are unresolved).
+        let mut db = crate::MonaDB::memory().expect("open db");
+        db.execute("create table people as select * from 'tests/fixtures/people.csv';")
+            .expect("ctas should complete");
     }
 
 }

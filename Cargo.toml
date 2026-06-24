@@ -109,6 +109,11 @@ name = "cache"
 harness = false
 path = "benches/cache.rs"
 
+[[bench]]
+name = "alloc_hotpath"
+harness = false
+path = "benches/alloc_hotpath.rs"
+
 [lints.clippy]
 pedantic = {level = "warn", priority = -1}
 must_use_candidate = "allow"

@@ -20,6 +20,15 @@ cache          fastest    │ median
 ╰─ put_new      11 µs     │  13 µs     ← insert + evict (same — eviction cost dominates)
 ```
 
+I was able to shave ~250ns off point lookups by caching btree opens which LMDB only requires
+to be done once. The hot path now references btrees by a slot index instead of a fresh open.
+
+```
+point_lookup median 1.416 µs → 1.165 µs prepared.
+```
+
+
+
 ## References
 
 # PlanCache::get overhead on the point-lookup hot path

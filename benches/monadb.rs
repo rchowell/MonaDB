@@ -1,5 +1,6 @@
 //! MonaDB benchmark adapter.
 
+use monadb::Config;
 use monadb::MonaDB;
 use monadb::Value;
 use tempfile::TempDir;
@@ -19,10 +20,18 @@ pub struct MonaDbBench {
 
 impl MonaDbBench {
     /// Opens a fresh file-backed database in a temporary directory.
+    ///
+    /// Honors `MONADB_BENCH_NOSYNC` (any non-empty value) to open with
+    /// [`Config::nosync`] (`MDB_NOSYNC`), the relaxed-durability analogue of
+    /// SQLite's `synchronous=NORMAL` used in this harness.
     pub fn open() -> Self {
         let dir = TempDir::new().expect("tempdir");
         let path = dir.path().join("bench.db");
-        let db = MonaDB::open(&path).expect("open monadb");
+        let config = match std::env::var_os("MONADB_BENCH_NOSYNC") {
+            Some(v) if !v.is_empty() => Config::default().nosync(),
+            _ => Config::default(),
+        };
+        let db = MonaDB::open_with_config(&path, config).expect("open monadb");
         Self { db, _dir: dir }
     }
 }

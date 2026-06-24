@@ -16,7 +16,7 @@ use crate::error::Error;
 use crate::functions;
 use crate::ir::{AggKind, CmpOp, Key, Param};
 use crate::schema;
-use crate::storage::Storage;
+use crate::storage::{BTree, Storage};
 use crate::transaction::{Transaction, TransactionMode};
 use crate::value::{Params, Value};
 use heed::byteorder::BigEndian;
@@ -35,6 +35,14 @@ pub struct Program {
     pub mutates_catalog: bool,
     /// The program's instruction set
     pub instructions: Vec<Vop>,
+    /// Resolved btree handles, indexed by [`Vop::Open`]'s `tbl` slot. Filled at
+    /// prepare time (see `MonaDB::prepare`), so a warm `Open` is a slot read, not
+    /// a `hex` alloc + `open_database` dbi walk. A `BTree` is a `Copy`, env-
+    /// lifetime dbi reference; reusing it across executions is sound because a
+    /// CREATE/DROP bumps `catalog_generation`, which forces a re-prepare and
+    /// rebuilds this table. Empty until prepare resolves it — a program is never
+    /// executed before then.
+    pub tables: Vec<BTree>,
 }
 
 /// A virtual machine instruction.
@@ -112,7 +120,11 @@ pub enum Vop {
     LoadParam(Param),
     /// Creates a new btree named by the stack[0] oid.
     NewBtree,
-    /// Opens the table at the given table oid and binds to cursors[csr].
+    /// Binds the btree handle at `tables[tbl]` to cursors[csr]. `tbl` is the raw
+    /// table oid as emitted by the compiler; `prepare` resolves the program's
+    /// tables and rewrites `tbl` to a slot index into `tables` (like jump
+    /// back-patching), so at run time this is a plain slot read — no `hex` alloc,
+    /// no `open_database`.
     Open { csr: usize, tbl: u32 },
     /// Pops a table oid and opens that btree on cursors[csr].
     OpenOid { csr: usize },
@@ -832,9 +844,11 @@ impl VM {
                 //
                 Vop::Open { csr, tbl } => {
                     if !self.cursors[*csr].is_open() {
-                        let txn = self.txn.as_ref().expect("Open before Transaction");
-                        let btree = self.storage.open_btree(txn, *tbl)?;
-                        self.cursors[*csr].open(btree);
+                        // `tbl` was rewritten to a slot index by `prepare`, which
+                        // also resolved every table (each `Open` targets a binder-
+                        // resolved table whose btree exists); dispatch is a plain
+                        // slot read.
+                        self.cursors[*csr].open(program.tables[*tbl as usize]);
                     }
                 }
                 Vop::OpenOid { csr } => {

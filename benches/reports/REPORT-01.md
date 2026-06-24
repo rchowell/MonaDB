@@ -2,20 +2,20 @@
 
 Generated from the `metrics` harness (`cargo bench --bench metrics`).
 
-| | |
-|---|---|
-| **MonaDB** | 0.1.0 (LMDB / heed backend, flat lazy value codec) |
-| **SQLite** | 3.46.0 (bundled, `rusqlite`) — `TEXT` and `JSONB` doc columns |
-| **Build** | `--release` (optimized) |
-| **Platform** | macOS 26.5 (build 25F71), Apple M3 (arm64) |
-| **Date** | 2026-06-24 |
-| **Config** | preload `N = 2000`, seed `0x0ADB00EC` |
-| **Method** | Ad-hoc SQL end-to-end (no prepared statements on either engine); each result fully decoded. **Reads: median of 5 passes at `M = 4000` timed ops/cell** (high `M` amortizes per-op jitter). **Inserts: median of 3 passes at `M = 500`** (fsync-dominated, so fewer/longer ops). |
+|              |                                                                                                                                                                                                                                                                                 |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **MonaDB**   | 0.1.0 (LMDB / heed backend, flat lazy value codec)                                                                                                                                                                                                                              |
+| **SQLite**   | 3.46.0 (bundled, `rusqlite`) — `TEXT` and `JSONB` doc columns                                                                                                                                                                                                                   |
+| **Build**    | `--release` (optimized)                                                                                                                                                                                                                                                         |
+| **Platform** | macOS 26.5 (build 25F71), Apple M3 (arm64)                                                                                                                                                                                                                                      |
+| **Date**     | 2026-06-24                                                                                                                                                                                                                                                                      |
+| **Config**   | preload `N = 2000`, seed `0x0ADB00EC`                                                                                                                                                                                                                                           |
+| **Method**   | Ad-hoc SQL end-to-end (no prepared statements on either engine); each result fully decoded. **Reads: median of 5 passes at `M = 4000` timed ops/cell** (high `M` amortizes per-op jitter). **Inserts: median of 3 passes at `M = 500`** (fsync-dominated, so fewer/longer ops). |
 
 > **Reading the numbers.** `ns/op` is wall-clock latency per operation (a point read,
 > a 100-row range read, one insert, …). `B/op` and `allocs/op` come from a counting
 > Rust global allocator: **exact for MonaDB, undercounted for SQLite** (its C heap is
-> invisible to the Rust allocator). So compare *latency* across engines directly, but
+> invisible to the Rust allocator). So compare _latency_ across engines directly, but
 > treat MonaDB's allocation figures as a self-improvement signal, not a like-for-like
 > memory comparison. `Δ` columns are MonaDB ÷ SQLite-`TEXT` (so `<1.0` = MonaDB faster).
 
@@ -56,55 +56,55 @@ Read tables: median of 5 passes at `M = 4000`. Insert tables: median of 3 passes
 
 ### Point lookup — `single_key_select_1` (`docs[id]`)
 
-| Profile | MonaDB | SQLite TEXT | SQLite JSONB | Δ |
-|---|--:|--:|--:|--:|
-| xs (256 B) | 3,134 | 1,996 | 1,648 | **1.57×** |
-| sm (2 KiB) | 4,130 | 1,994 | 1,902 | **2.07×** |
-| md (16 KiB) | 6,992 | 4,461 | 4,533 | **1.57×** |
-| lg (128 KiB) | 14,402 | 23,557 | 23,949 | **0.61×** |
+| Profile      | MonaDB | SQLite TEXT | SQLite JSONB |         Δ |
+| ------------ | -----: | ----------: | -----------: | --------: |
+| xs (256 B)   |  3,134 |       1,996 |        1,648 | **1.57×** |
+| sm (2 KiB)   |  4,130 |       1,994 |        1,902 | **2.07×** |
+| md (16 KiB)  |  6,992 |       4,461 |        4,533 | **1.57×** |
+| lg (128 KiB) | 14,402 |      23,557 |       23,949 | **0.61×** |
 
 ### Composite point lookup — `composite_key_select_1` (`docs["t007", seq]`)
 
-| Profile | MonaDB | SQLite TEXT | SQLite JSONB | Δ |
-|---|--:|--:|--:|--:|
-| xs | 3,570 | 2,472 | 2,118 | **1.44×** |
-| sm | 4,311 | 2,480 | 2,500 | **1.74×** |
-| md | 7,103 | 5,168 | 5,267 | **1.37×** |
-| lg | 14,108 | 24,573 | 25,062 | **0.57×** |
+| Profile | MonaDB | SQLite TEXT | SQLite JSONB |         Δ |
+| ------- | -----: | ----------: | -----------: | --------: |
+| xs      |  3,570 |       2,472 |        2,118 | **1.44×** |
+| sm      |  4,311 |       2,480 |        2,500 | **1.74×** |
+| md      |  7,103 |       5,168 |        5,267 | **1.37×** |
+| lg      | 14,108 |      24,573 |       25,062 | **0.57×** |
 
 ### Range read — `single_key_select_range` (100 contiguous keys)
 
-| Profile | MonaDB | SQLite TEXT | SQLite JSONB | Δ |
-|---|--:|--:|--:|--:|
-| xs | 50,878 | 9,080 | 9,037 | **5.60×** |
-| sm | 59,325 | 22,413 | 22,578 | **2.65×** |
-| md | 133,939 | 262,207 | 260,598 | **0.51×** |
-| lg | 712,659 | 2,181,982 | 2,176,241 | **0.33×** |
+| Profile |  MonaDB | SQLite TEXT | SQLite JSONB |         Δ |
+| ------- | ------: | ----------: | -----------: | --------: |
+| xs      |  50,878 |       9,080 |        9,037 | **5.60×** |
+| sm      |  59,325 |      22,413 |       22,578 | **2.65×** |
+| md      | 133,939 |     262,207 |      260,598 | **0.51×** |
+| lg      | 712,659 |   2,181,982 |    2,176,241 | **0.33×** |
 
 ### Prefix / partition read — `composite_key_select_prefix` (~20 rows/tenant)
 
-| Profile | MonaDB | SQLite TEXT | SQLite JSONB | Δ |
-|---|--:|--:|--:|--:|
-| xs | 8,152 | 4,178 | 4,067 | **1.95×** |
-| sm | 11,227 | 6,890 | 7,127 | **1.63×** |
-| md | 32,633 | 54,316 | 55,122 | **0.60×** |
-| lg | 175,434 | 430,810 | 426,868 | **0.41×** |
+| Profile |  MonaDB | SQLite TEXT | SQLite JSONB |         Δ |
+| ------- | ------: | ----------: | -----------: | --------: |
+| xs      |   8,152 |       4,178 |        4,067 | **1.95×** |
+| sm      |  11,227 |       6,890 |        7,127 | **1.63×** |
+| md      |  32,633 |      54,316 |       55,122 | **0.60×** |
+| lg      | 175,434 |     430,810 |      426,868 | **0.41×** |
 
 ### Insert — `single_key_insert` / `composite_key_insert`
 
-| Profile | MonaDB single | SQLite TEXT | SQLite JSONB | Δ |
-|---|--:|--:|--:|--:|
-| xs | 3,685,637 | 28,451 | 20,201 | **129.5×** |
-| sm | 3,502,453 | 64,858 | 41,979 | **54.0×** |
-| md | 4,336,287 | 185,929 | 138,978 | **23.3×** |
-| lg | 6,414,204 | 782,207 | 764,830 | **8.2×** |
+| Profile | MonaDB single | SQLite TEXT | SQLite JSONB |          Δ |
+| ------- | ------------: | ----------: | -----------: | ---------: |
+| xs      |     3,685,637 |      28,451 |       20,201 | **129.5×** |
+| sm      |     3,502,453 |      64,858 |       41,979 |  **54.0×** |
+| md      |     4,336,287 |     185,929 |      138,978 |  **23.3×** |
+| lg      |     6,414,204 |     782,207 |      764,830 |   **8.2×** |
 
-| Profile | MonaDB composite | SQLite TEXT | SQLite JSONB | Δ |
-|---|--:|--:|--:|--:|
-| xs | 3,663,076 | 48,775 | 31,032 | **75.1×** |
-| sm | 3,648,124 | 72,747 | 48,919 | **50.2×** |
-| md | 4,318,321 | 176,020 | 135,320 | **24.5×** |
-| lg | 6,268,392 | 750,752 | 767,456 | **8.4×** |
+| Profile | MonaDB composite | SQLite TEXT | SQLite JSONB |         Δ |
+| ------- | ---------------: | ----------: | -----------: | --------: |
+| xs      |        3,663,076 |      48,775 |       31,032 | **75.1×** |
+| sm      |        3,648,124 |      72,747 |       48,919 | **50.2×** |
+| md      |        4,318,321 |     176,020 |      135,320 | **24.5×** |
+| lg      |        6,268,392 |     750,752 |      767,456 |  **8.4×** |
 
 > MonaDB's insert latency is roughly **flat at ~3.5–6.4 ms** until the `lg` payload
 > rivals the fixed cost — the signature of a per-insert durable commit. SQLite uses
@@ -121,15 +121,15 @@ the comparison matters most (the large-document wins). Small reads still carry t
 relative jitter — a fixed per-op floor measured against a sub-microsecond SQLite scan
 magnifies small absolute swings.
 
-| Cell | MonaDB median | 5-pass spread |
-|---|--:|--:|
-| point lookup `xs` | 3,134 | ±36% |
-| point lookup `md` | 6,992 | ±24% |
-| point lookup `lg` | 14,402 | ±14% |
-| composite lookup `lg` | 14,108 | ±6% |
-| range `md` | 133,939 | ±18% |
-| range `lg` | 712,659 | ±9% |
-| prefix `lg` | 175,434 | ±4% |
+| Cell                  | MonaDB median | 5-pass spread |
+| --------------------- | ------------: | ------------: |
+| point lookup `xs`     |         3,134 |          ±36% |
+| point lookup `md`     |         6,992 |          ±24% |
+| point lookup `lg`     |        14,402 |          ±14% |
+| composite lookup `lg` |        14,108 |           ±6% |
+| range `md`            |       133,939 |          ±18% |
+| range `lg`            |       712,659 |           ±9% |
+| prefix `lg`           |       175,434 |           ±4% |
 
 (Spread = (max − min) / median across the 5 passes.) The `lg` and prefix cells settle
 within ~5–15%; treat their Δ values as solid and the small-read Δ values as ±25%.
@@ -141,13 +141,13 @@ within ~5–15%; treat their Δ values as solid and the small-read Δ values as 
 Allocation **count** is the cleanest cross-cut. With the flat lazy codec, MonaDB's
 per-read allocations no longer scale with the values materialized.
 
-| Workload (md profile) | MonaDB allocs/op | MonaDB B/op | SQLite allocs/op | MonaDB peak heap |
-|---|--:|--:|--:|--:|
-| point lookup | 15 | 37,028 | 2 | 36 KB |
-| composite point lookup | 19 | 38,997 | 2 | 36 KB |
-| range (100 rows) | 1,022 | 3,698,276 | 101 | 1.8 MB |
-| prefix (~20 rows) | 97 | 1,099,997 | 21 | 376 KB |
-| insert | 3,226 | 552,305 | 1,091 | 18 MB |
+| Workload (md profile)  | MonaDB allocs/op | MonaDB B/op | SQLite allocs/op | MonaDB peak heap |
+| ---------------------- | ---------------: | ----------: | ---------------: | ---------------: |
+| point lookup           |               15 |      37,028 |                2 |            36 KB |
+| composite point lookup |               19 |      38,997 |                2 |            36 KB |
+| range (100 rows)       |            1,022 |   3,698,276 |              101 |           1.8 MB |
+| prefix (~20 rows)      |               97 |   1,099,997 |               21 |           376 KB |
+| insert                 |            3,226 |     552,305 |            1,091 |            18 MB |
 
 Observations:
 

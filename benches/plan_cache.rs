@@ -9,7 +9,7 @@
 //!   cargo bench --bench plan_cache
 
 use iai_callgrind::{library_benchmark, library_benchmark_group, main};
-use monadb::{MonaDB, Params, Value};
+use monadb::{MonaDB, Params, PreparedStatement, Value};
 
 // ── setup helpers ─────────────────────────────────────────────────────────────
 // These run OUTSIDE Callgrind instrumentation; only the benchmark body is counted.
@@ -36,6 +36,19 @@ fn primed_keyed_table() -> MonaDB {
     db
 }
 
+/// A keyed table plus a prepared `select t[?];` whose plan is already warm, so
+/// the bench body is a pure `execute_prepared` — the `normalize`-free ceiling.
+fn primed_keyed_table_prepared() -> (MonaDB, PreparedStatement) {
+    let mut db = primed_keyed_table();
+    let stmt = db.prepare("select t[?];").unwrap();
+    // Prime the LMDB page cache (and, post-01C, the baked handle) with one run.
+    db.execute_prepared(&stmt, &Params::positional(vec![Value::int(500)]), false)
+        .unwrap()
+        .finish()
+        .unwrap();
+    (db, stmt)
+}
+
 // ── benchmarks ────────────────────────────────────────────────────────────────
 
 // Cache-hit dispatch overhead: `PlanCache::get` + `execute_prepared` on a trivial query.
@@ -59,9 +72,22 @@ fn point_lookup(mut db: MonaDB) -> Option<Value> {
     db.query("select t[1];", false).unwrap().next().unwrap()
 }
 
+// Prepared point lookup: execute_prepared → keyed btree get, with NO per-call
+// `normalize`. The delta against `point_lookup` (ad-hoc) isolates the lex +
+// template + `Vec` + hash cost of auto-parameterization (plan 03a). After 01C,
+// this bench also sheds the per-`Open` `hex` String + `open_database` dbi walk.
+#[library_benchmark]
+#[bench::k1000(primed_keyed_table_prepared())]
+fn point_lookup_prepared((mut db, stmt): (MonaDB, PreparedStatement)) -> Option<Value> {
+    db.execute_prepared(&stmt, &Params::positional(vec![Value::int(1)]), false)
+        .unwrap()
+        .next()
+        .unwrap()
+}
+
 library_benchmark_group!(
     name = plan_cache_group;
-    benchmarks = query_with_hit, point_lookup
+    benchmarks = query_with_hit, point_lookup, point_lookup_prepared
 );
 
 main!(library_benchmark_groups = plan_cache_group);

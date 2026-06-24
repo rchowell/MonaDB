@@ -42,7 +42,8 @@ impl MonaDB {
     pub fn prepare(&self, sql: &str) -> Result<PreparedStatement> {
         let mut bound = Self::parse(sql)?;
         self.bind(&mut bound)?;
-        let program = self.compile(bound)?;
+        let mut program = self.compile(bound)?;
+        self.resolve_tables(&mut program)?;
         let required_params = program
             .instructions
             .iter()
@@ -57,6 +58,48 @@ impl MonaDB {
             catalog_generation: self.catalog_generation(),
             required_params,
         })
+    }
+
+    /// Resolves the program's table handles into `program.tables` and rewrites
+    /// each `Open.tbl` from the compiler-emitted table oid to its slot index, so
+    /// dispatch is a plain array read (see [`Vop::Open`]). Deduplicates oids so
+    /// repeated opens of one table share a slot.
+    ///
+    /// Handles are read through the session txn when a session is open — like the
+    /// binder's `resolve_table`, it sees the session's own uncommitted DDL, so an
+    /// in-session CREATEd table resolves here and no second transaction is opened —
+    /// otherwise through a throwaway read txn. Every `Open` targets a table the
+    /// binder resolved, and CREATE makes a table's btree atomically with its
+    /// catalog row, so a missing handle is a genuine error, surfaced here.
+    fn resolve_tables(&self, program: &mut Program) -> Result<()> {
+        let mut oids: Vec<u32> = Vec::new();
+        for op in &mut program.instructions {
+            if let Vop::Open { tbl, .. } = op {
+                let oid = *tbl;
+                let slot = match oids.iter().position(|&o| o == oid) {
+                    Some(slot) => slot,
+                    None => {
+                        oids.push(oid);
+                        oids.len() - 1
+                    }
+                };
+                *tbl = u32::try_from(slot).expect("table slot fits in u32");
+            }
+        }
+        let session = self.session_txn.borrow();
+        program.tables = match session.as_ref() {
+            Some(txn) => oids
+                .iter()
+                .map(|&oid| self.storage.open_btree(txn, oid))
+                .collect::<Result<_>>()?,
+            None => {
+                let txn = self.storage.read_txn()?;
+                oids.iter()
+                    .map(|&oid| self.storage.open_btree(&txn, oid))
+                    .collect::<Result<_>>()?
+            }
+        };
+        Ok(())
     }
 
     /// Runs a prepared statement with bound `params`, returning a lazy row iterator.
@@ -156,6 +199,63 @@ mod tests {
             Err(e) => e,
         };
         assert_eq!(err, Error::StalePreparedStatement);
+    }
+
+    #[test]
+    fn reprepare_after_drop_recreate_binds_live_handle() {
+        // A prepared plan resolves the table's btree handle at prepare time. After
+        // a DROP + CREATE the old plan is stale (its handle could point at a
+        // cleared or reused dbi); a re-prepare must bind the *recreated* table's
+        // handle, and the new keyed lookup must read the recreated row.
+        let mut db = MonaDB::memory().unwrap();
+        db.execute("create table t (id int);").unwrap();
+        db.execute(r#"insert into t ({"id": 1});"#).unwrap();
+
+        let stmt = db.prepare("select t[?];").unwrap();
+        assert!(
+            db.execute_prepared(&stmt, &Params::positional(vec![Value::int(1)]), false)
+                .unwrap()
+                .next()
+                .unwrap()
+                .is_some()
+        );
+
+        db.execute("drop table t;").unwrap();
+        db.execute("create table t (id int);").unwrap();
+        db.execute(r#"insert into t ({"id": 1});"#).unwrap();
+
+        // The old plan is invalidated by the catalog-generation bump.
+        assert_eq!(
+            db.execute_prepared(&stmt, &Params::positional(vec![Value::int(1)]), false)
+                .err(),
+            Some(Error::StalePreparedStatement),
+        );
+
+        // A fresh prepare resolves the live handle and reads the recreated row.
+        let stmt2 = db.prepare("select t[?];").unwrap();
+        assert!(
+            db.execute_prepared(&stmt2, &Params::positional(vec![Value::int(1)]), false)
+                .unwrap()
+                .next()
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn resolves_handle_for_table_created_in_open_txn() {
+        // A table created inside an open session is visible only through the
+        // session's own write txn. `prepare` reuses that txn (rather than opening
+        // a separate read snapshot, which couldn't see the uncommitted DDL), so
+        // the handle resolves at prepare time and the keyed lookup reads the row.
+        let mut db = MonaDB::memory().unwrap();
+        db.execute("begin;").unwrap();
+        db.execute("create table t (id int);").unwrap();
+        db.execute(r#"insert into t ({"id": 7});"#).unwrap();
+
+        assert!(db.query("select t[7];", false).unwrap().next().unwrap().is_some());
+
+        db.execute("commit;").unwrap();
     }
 
     #[test]

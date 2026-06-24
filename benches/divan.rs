@@ -11,7 +11,7 @@
 
 use std::cell::RefCell;
 
-use monadb::{MonaDB, Params, Value};
+use monadb::{MonaDB, Params, PreparedStatement, Value};
 
 fn primed_select() -> MonaDB {
     let mut db = MonaDB::memory().unwrap();
@@ -30,11 +30,24 @@ fn primed_point_lookup() -> MonaDB {
     db
 }
 
+/// A warm DB plus a prepared `select t[?];`, for the `normalize`-free lookup.
+fn primed_point_lookup_prepared() -> (MonaDB, PreparedStatement) {
+    let mut db = primed_point_lookup();
+    let stmt = db.prepare("select t[?];").unwrap();
+    db.execute_prepared(&stmt, &Params::positional(vec![Value::int(1)]), false)
+        .unwrap()
+        .next()
+        .unwrap();
+    (db, stmt)
+}
+
 // One warm DB per workload, created once and reused across all iterations so
 // the LMDB page cache stays hot and we measure plan dispatch, not I/O.
 thread_local! {
     static SELECT_DB: RefCell<MonaDB> = RefCell::new(primed_select());
     static LOOKUP_DB: RefCell<MonaDB> = RefCell::new(primed_point_lookup());
+    static LOOKUP_PREPARED: RefCell<(MonaDB, PreparedStatement)> =
+        RefCell::new(primed_point_lookup_prepared());
 }
 
 fn main() {
@@ -61,6 +74,21 @@ fn point_lookup() -> Option<Value> {
     LOOKUP_DB.with(|db| {
         db.borrow_mut()
             .query("select t[1];", false)
+            .unwrap()
+            .next()
+            .unwrap()
+    })
+}
+
+// Prepared point lookup: execute_prepared → keyed btree get, NO `normalize`.
+// The gap to `point_lookup` is the auto-parameterization cost (03a); after 01C
+// this path also drops the per-`Open` handle resolution.
+#[divan::bench]
+fn point_lookup_prepared() -> Option<Value> {
+    LOOKUP_PREPARED.with(|cell| {
+        let mut guard = cell.borrow_mut();
+        let (db, stmt) = &mut *guard;
+        db.execute_prepared(stmt, &Params::positional(vec![Value::int(1)]), false)
             .unwrap()
             .next()
             .unwrap()
