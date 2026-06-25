@@ -17,8 +17,9 @@ use serde_json::Value as JsonValue;
 use crate::MonaDB;
 use crate::config::Config;
 use crate::error::Error;
-use crate::prepared::PreparedStatement as RustPreparedStatement;
-use crate::value::{Object, Params, Value};
+use crate::params::Params;
+use crate::prepared::StatementPlan;
+use crate::value::{Object, Value};
 
 create_exception!(_monadb, MonaDBError, PyException);
 
@@ -146,6 +147,30 @@ fn py_to_value(obj: &Bound<'_, PyAny>) -> PyResult<Value> {
     ))
 }
 
+fn description_for_rows(py: Python<'_>, result: &[Value]) -> PyObject {
+    let Some(members) = result.first().and_then(Value::members) else {
+        return py.None();
+    };
+    let list = PyList::empty(py);
+    for (name, _) in members {
+        let tuple = PyTuple::new(
+            py,
+            [
+                name.as_str().into_py(py),
+                py.None(),
+                py.None(),
+                py.None(),
+                py.None(),
+                py.None(),
+                py.None(),
+            ],
+        )
+        .expect("build description tuple");
+        list.append(tuple).expect("append description row");
+    }
+    list.into()
+}
+
 /// A DuckDB-style connection/cursor over a MonaDB database.
 ///
 /// `execute()` eagerly materializes the full result set (which also commits the
@@ -161,12 +186,24 @@ pub struct Connection {
 }
 
 /// A prepared statement cached from a prior `prepare` call.
-#[pyclass(unsendable, name = "PreparedStatement")]
-pub struct PreparedStatement {
-    stmt: RustPreparedStatement,
+#[pyclass(unsendable, name = "Statement")]
+pub struct Statement {
+    plan: Rc<StatementPlan>,
     db: Rc<RefCell<MonaDB>>,
     result: Vec<Value>,
     cursor: usize,
+}
+
+impl Statement {
+    /// Convert and return rows `[cursor, end)`, advancing the cursor to `end`.
+    fn drain(&mut self, py: Python<'_>, end: usize) -> Vec<PyObject> {
+        let rows = self.result[self.cursor..end]
+            .iter()
+            .map(|v| value_to_py(py, v))
+            .collect();
+        self.cursor = end;
+        rows
+    }
 }
 
 impl Connection {
@@ -180,7 +217,7 @@ impl Connection {
                 .ok_or_else(|| MonaDBError::new_err("connection is closed"))?;
             let mut rows = db
                 .borrow_mut()
-                .query_with(sql, params, false)
+                .query_with(sql, params)
                 .map_err(|e| to_pyerr(&e, sql))?;
             let mut out = Vec::new();
             while let Some(row) = rows.next().map_err(|e| to_pyerr(&e, sql))? {
@@ -242,16 +279,16 @@ impl Connection {
         Self::execute(slf, query, parameters)
     }
 
-    /// Parse and cache `sql` for repeated execution via [`PreparedStatement`].
-    fn prepare(&self, sql: &str) -> PyResult<PreparedStatement> {
+    /// Parse and cache `sql` for repeated execution via [`Statement`].
+    fn prepare(&self, sql: &str) -> PyResult<Statement> {
         self.ensure_open()?;
         let db = self.db.as_ref().expect("ensure_open");
-        let stmt = db
-            .borrow()
-            .prepare(sql)
+        let plan = db
+            .borrow_mut()
+            .cached_plan(sql)
             .map_err(|e| to_pyerr(&e, sql))?;
-        Ok(PreparedStatement {
-            stmt,
+        Ok(Statement {
+            plan,
             db: Rc::clone(db),
             result: Vec::new(),
             cursor: 0,
@@ -290,27 +327,7 @@ impl Connection {
     /// rows are not objects. Names are borrowed from the row — no clone.
     #[getter]
     fn description(&self, py: Python<'_>) -> PyObject {
-        let Some(members) = self.result.first().and_then(Value::members) else {
-            return py.None();
-        };
-        let list = PyList::empty(py);
-        for (name, _) in &members {
-            let tuple = PyTuple::new(
-                py,
-                [
-                    name.as_str().into_py(py),
-                    py.None(),
-                    py.None(),
-                    py.None(),
-                    py.None(),
-                    py.None(),
-                    py.None(),
-                ],
-            )
-            .expect("build description tuple");
-            list.append(tuple).expect("append description row");
-        }
-        list.into()
+        description_for_rows(py, &self.result)
     }
 
     /// Close the connection, releasing the underlying database handle.
@@ -336,7 +353,7 @@ impl Connection {
 }
 
 #[pymethods]
-impl PreparedStatement {
+impl Statement {
     /// Execute the prepared statement and return it for chaining.
     #[pyo3(signature = (parameters=None))]
     fn execute<'py>(
@@ -348,23 +365,34 @@ impl PreparedStatement {
             None => Params::none(),
             Some(obj) => py_to_params(obj.bind(py))?,
         };
-        let sql = slf.stmt.sql().to_string();
         let out = {
+            let sql = slf.plan.sql();
             let mut rows = slf
                 .db
                 .borrow_mut()
-                .execute_prepared(&slf.stmt, &params, false)
-                .map_err(|e| to_pyerr(&e, &sql))?;
+                .execute_plan(&slf.plan, &params)
+                .map_err(|e| to_pyerr(&e, sql))?;
             let mut out = Vec::new();
-            while let Some(row) = rows.next().map_err(|e| to_pyerr(&e, &sql))? {
+            while let Some(row) = rows.next().map_err(|e| to_pyerr(&e, sql))? {
                 out.push(row);
             }
             out
         };
-        // Stash rows on the prepared statement for fetch*.
         slf.result = out;
         slf.cursor = 0;
         Ok(slf)
+    }
+
+    /// Returns the original SQL text passed to `prepare`.
+    #[getter]
+    fn sql(&self) -> &str {
+        self.plan.sql()
+    }
+
+    /// DBAPI-style column metadata from the last result's first row.
+    #[getter]
+    fn description(&self, py: Python<'_>) -> PyObject {
+        description_for_rows(py, &self.result)
     }
 
     /// Return the next buffered row, or `None` when exhausted.
@@ -381,22 +409,12 @@ impl PreparedStatement {
     #[pyo3(signature = (size=1))]
     fn fetchmany(&mut self, py: Python<'_>, size: usize) -> PyResult<Vec<PyObject>> {
         let end = self.cursor.saturating_add(size).min(self.result.len());
-        let rows = self.result[self.cursor..end]
-            .iter()
-            .map(|v| value_to_py(py, v))
-            .collect();
-        self.cursor = end;
-        Ok(rows)
+        Ok(self.drain(py, end))
     }
 
     fn fetchall(&mut self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
         let end = self.result.len();
-        let rows = self.result[self.cursor..end]
-            .iter()
-            .map(|v| value_to_py(py, v))
-            .collect();
-        self.cursor = end;
-        Ok(rows)
+        Ok(self.drain(py, end))
     }
 }
 
@@ -455,7 +473,7 @@ fn connect(
 #[pymodule]
 fn _monadb(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Connection>()?;
-    m.add_class::<PreparedStatement>()?;
+    m.add_class::<Statement>()?;
     m.add_function(wrap_pyfunction!(connect, m)?)?;
     m.add("Error", m.py().get_type::<MonaDBError>())?;
     Ok(())

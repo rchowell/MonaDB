@@ -5,7 +5,6 @@
 //! copy-on-write mutation). The flat [`flat`] codec serializes values to and
 //! from stored bytes; `serde_json` bridges external JSON (input and results).
 
-use std::collections::HashMap;
 use std::fmt::{self, Debug, Display};
 use std::rc::Rc;
 
@@ -670,6 +669,30 @@ impl From<String> for Value {
     }
 }
 
+impl From<&str> for Value {
+    fn from(value: &str) -> Self {
+        Value::String(Rc::from(value))
+    }
+}
+
+impl From<i64> for Value {
+    fn from(value: i64) -> Self {
+        Value::int(value)
+    }
+}
+
+impl From<f64> for Value {
+    fn from(value: f64) -> Self {
+        Value::float(value)
+    }
+}
+
+impl From<bool> for Value {
+    fn from(value: bool) -> Self {
+        Value::bool(value)
+    }
+}
+
 impl From<JsonValue> for Value {
     fn from(value: JsonValue) -> Self {
         Value::from_json(value)
@@ -679,64 +702,6 @@ impl From<JsonValue> for Value {
 impl From<u32> for Value {
     fn from(value: u32) -> Self {
         Value::Oid(value)
-    }
-}
-
-/// Parameter bindings supplied to a query alongside its SQL text.
-///
-/// `?` and `$N` both draw from the positional list, indexed 1-based — the first
-/// `?` and `$1` both resolve to `positional[0]`. `$name` resolves against the
-/// named map. The binder substitutes each placeholder with its bound literal
-/// before compilation, so a query may freely mix both kinds.
-#[derive(Debug, Clone, Default)]
-pub struct Params {
-    positional: Vec<Value>,
-    named: HashMap<String, Value>,
-}
-
-impl Params {
-    /// Returns an empty parameter set.
-    #[inline]
-    #[must_use]
-    pub fn none() -> Params {
-        Params::default()
-    }
-
-    /// Builds a parameter set from a positional list (`?`, `$N`).
-    #[inline]
-    #[must_use]
-    pub fn positional(values: Vec<Value>) -> Params {
-        Params {
-            positional: values,
-            named: HashMap::new(),
-        }
-    }
-
-    /// Builds a parameter set from a named map (`$name`).
-    #[inline]
-    #[must_use]
-    pub fn named(named: HashMap<String, Value>) -> Params {
-        Params {
-            positional: Vec::new(),
-            named,
-        }
-    }
-
-    /// Looks up a 1-based positional/numbered parameter (`?` or `$N`).
-    #[inline]
-    #[must_use]
-    pub fn get_numbered(&self, n: u32) -> Option<&Value> {
-        if n == 0 {
-            return None;
-        }
-        self.positional.get((n - 1) as usize)
-    }
-
-    /// Looks up a named parameter (`$name`).
-    #[inline]
-    #[must_use]
-    pub fn get_named(&self, name: &str) -> Option<&Value> {
-        self.named.get(name)
     }
 }
 

@@ -1,7 +1,7 @@
 //! Fast correctness gate for the document-workload benchmark adapters.
 //!
-//! Exercises every workload against all engines at tiny scale so CI catches
-//! broken SQL renderers or adapters without running the full Criterion matrix.
+//! Exercises every workload against both engines at tiny scale so CI catches
+//! broken prepared-statement adapters without running the full Criterion matrix.
 
 mod benches;
 
@@ -13,7 +13,7 @@ const PRELOAD: usize = 100;
 const OPS: usize = 10;
 const SEED: u64 = 7;
 const RANGE_WIDTH: usize = 10;
-const ENGINES: [Engine; 3] = [Engine::MonaDb, Engine::SqliteText, Engine::SqliteJsonb];
+const ENGINES: [Engine; 2] = [Engine::MonaDb, Engine::Sqlite];
 
 const READ_WORKLOADS: [Workload; 4] = [
     Workload::SingleKeySelect1,

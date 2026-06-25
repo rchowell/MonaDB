@@ -10,14 +10,14 @@ high-level façade is pure Python layered over it.
 """
 
 from ._monadb import Error
-from .connection import Connection, PreparedStatement
+from .connection import Connection, Statement
 from .table import Table
 from .types import ConnectConfig
 
 __all__ = [
     "connect",
     "Connection",
-    "PreparedStatement",
+    "Statement",
     "Table",
     "ConnectConfig",
     "Error",

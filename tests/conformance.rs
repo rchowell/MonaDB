@@ -104,9 +104,11 @@ fn run_step(db: &mut MonaDB, step: &Step, idx: usize) -> Result<(), String> {
     let params = step_params(&step.parameters).map_err(|e| format!("step {idx}: {e}"))?;
     match (&step.result, &step.error) {
         (Some(expected_yaml), None) => {
-            let mut rows = db
-                .query_with(&step.sql, &params, true)
-                .map_err(|e| format!("step {idx}: unexpected error: {e:?}"))?;
+            db.set_debug(true);
+            let result = db.query_with(&step.sql, &params);
+            db.set_debug(false);
+            let mut rows =
+                result.map_err(|e| format!("step {idx}: unexpected error: {e:?}"))?;
 
             let mut actual: Vec<Json> = Vec::new();
             while let Some(v) = rows

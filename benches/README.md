@@ -1,24 +1,26 @@
 # Document-Oriented Performance Benchmarks
 
-Compare MonaDB to SQLite (TEXT JSON and JSONB) on embedded document workloads. Each timed iteration runs **ad-hoc SQL end-to-end** — no prepared statements on either engine — so document size affects parse, serialize, and I/O together.
+Compare MonaDB to SQLite on embedded document workloads. **Both engines always use prepared statements with bound parameters** — the realistic steady-state hot path — so each timed iteration measures execution + I/O, not per-call parsing. SQLite stores documents as its native **JSONB** binary type.
 
 Two harnesses share one set of workload definitions:
 
 - **`doc_workloads`** — Criterion, the authoritative **latency** harness (statistical, HTML reports).
 - **`metrics`** — a single-pass **time + memory** harness that emits a CSV/table for tracking and cross-engine comparison.
 
-Both are driven through the `DocStore` trait (`store.rs`); adding an engine means implementing that trait once, and adding a workload means one `Workload` variant plus its SQL renderers in `fixtures.rs`.
+Both are driven through the `DocStore` trait (`store.rs`); adding an engine means implementing that trait once. Each adapter holds the workload's prepared-statement templates and binds the key/document as parameters (MonaDB via `prepare_cached` + `Params`; SQLite via `prepare_cached` + `params!`).
 
 ## Access patterns
 
-| Pattern | Workload | MonaDB SQL | SQLite SQL |
-|---------|----------|------------|------------|
-| **Key-value get** (single) | `single_key_select_1` | `select docs[id];` | `SELECT doc FROM docs WHERE id = …` |
-| **Key-value get** (composite) | `composite_key_select_1` | `select docs["t007", seq];` | `WHERE tenant = … AND seq = …` |
-| **Range read** (integer key span) | `single_key_select_range` | `select [docs[lo], …, docs[hi-1]];` (batch get) | `WHERE id >= lo AND id < hi ORDER BY id` |
-| **Prefix / partition read** | `composite_key_select_prefix` | `select docs["t007"];` (GetRange array) | `WHERE tenant = 't007' ORDER BY seq` |
-| **Write** (single key) | `single_key_insert` | inline object insert | `INSERT … VALUES (id, doc)` |
-| **Write** (composite key) | `composite_key_insert` | inline object insert | composite PK insert |
+All templates below are prepared once and re-run with bound params (`?` / `$1`):
+
+| Pattern | Workload | MonaDB template | SQLite template |
+|---------|----------|-----------------|-----------------|
+| **Key-value get** (single) | `single_key_select_1` | `select docs[?];` | `SELECT doc FROM docs WHERE id = ?` |
+| **Key-value get** (composite) | `composite_key_select_1` | `select docs[?, ?];` | `WHERE tenant = ? AND seq = ?` |
+| **Range read** (integer key span) | `single_key_select_range` | `select [docs[?], …, docs[?]];` (batch get) | `WHERE id >= ? AND id < ? ORDER BY id` |
+| **Prefix / partition read** | `composite_key_select_prefix` | `select docs[?];` (GetRange array) | `WHERE tenant = ? ORDER BY seq` |
+| **Write** (single key) | `single_key_insert` | `insert into docs ($1);` (object param) | `INSERT … VALUES (?, jsonb(?))` |
+| **Write** (composite key) | `composite_key_insert` | `insert into docs ($1);` (object param) | `VALUES (?, ?, jsonb(?))` |
 
 Range reads fetch a contiguous span of `MONADB_BENCH_RANGE` documents (default **100**) per query. Prefix reads return all documents for one of **100** tenant partitions (`N / 100` rows at preload cardinality `N`).
 
@@ -44,7 +46,7 @@ Crossed with document profiles:
 | `md` | ~16 KiB | 20 line items |
 | `lg` | ~128 KiB | Padded content + audit log |
 
-And three engines: `monadb`, `sqlite_text`, `sqlite_jsonb`.
+And two engines: `monadb` and `sqlite` (both prepared; SQLite stores JSONB).
 
 ## Run
 
@@ -58,7 +60,7 @@ cargo bench --bench doc_workloads -- single_key_select_1/md/10k/monadb
 # Environment filters
 MONADB_BENCH_PROFILES=xs,sm \
 MONADB_BENCH_WORKLOADS=single_key_select_1,single_key_insert \
-MONADB_BENCH_ENGINES=monadb,sqlite_jsonb \
+MONADB_BENCH_ENGINES=monadb,sqlite \
 MONADB_BENCH_N=10000 \
 MONADB_BENCH_M=1000 \
   cargo bench --bench doc_workloads
@@ -137,7 +139,7 @@ Per matrix cell it reports:
   clean per-engine RSS, run one engine per process:
 
   ```sh
-  for e in monadb sqlite_text sqlite_jsonb; do
+  for e in monadb sqlite; do
     MONADB_BENCH_ENGINES=$e MONADB_BENCH_CSV=target/rss-$e.csv \
       cargo bench --bench metrics
   done
@@ -151,7 +153,7 @@ Per matrix cell it reports:
 cargo test --test bench_smoke
 ```
 
-Runs 10 operations per workload × `xs` profile × all three engines (including range and prefix reads).
+Runs 10 operations per workload × `xs` profile × both engines (including range and prefix reads).
 
 ## Reading results
 
@@ -165,11 +167,11 @@ Examples:
 
 - `single_key_select_1/md/100k/monadb`
 - `single_key_select_range/md/10k/monadb`
-- `composite_key_select_prefix/md/100k/sqlite_text`
-- `single_key_insert/lg/empty/sqlite_jsonb`
+- `composite_key_select_prefix/md/100k/sqlite`
+- `single_key_insert/lg/empty/sqlite`
 
 **Headline chart:** median latency vs encoded JSON bytes across profiles — that is the embedded document database story.
 
-**Footnote:** Production SQLite apps typically use prepared statements. This suite measures ad-hoc SQL honestly; MonaDB would fare relatively better on a future "hot path" comparison with statement caching.
+**Footnote:** Both engines run prepared statements with bound parameters — the hot path production apps actually use — so the comparison is each engine's parse-free steady state, not ad-hoc SQL. For MonaDB this means the `prepare_cached` plan-cache path (no `normalize`); for SQLite, connection-cached prepared statements over JSONB.
 
 For tracking time + memory over releases, use the `metrics` harness and its CSV (see [Metrics harness](#metrics-harness-time--memory)). Criterion's report remains the authoritative latency view.

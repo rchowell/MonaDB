@@ -2,57 +2,109 @@
 //!
 //! Every statement — parameter-free or not — is bound and compiled once at
 //! prepare time. Parameter placeholders compile to runtime slots (`Vop::LoadParam`),
-//! so the same program serves any bound values: `execute_prepared` just hands the
-//! `Params` to the VM.
+//! so the same program serves any bound values: execution hands [`Params`] to the VM.
 
 use std::rc::Rc;
 
 use crate::MonaDB;
 use crate::error::{Error, Result};
 use crate::ir::Param;
-use crate::value::Params;
+use crate::params::{IntoParams, Params};
 use crate::vm::{Program, Rows, VM, Vop};
 
-/// A prepared statement: a compiled program plus the catalog generation it was
-/// bound against (to detect a CREATE/DROP that would invalidate it). The program
-/// is `Rc`-shared so re-executing a cached plan (or caching a clone) is a
-/// refcount bump, not a copy.
+/// A compiled, cacheable statement plan: program bytecode plus staleness metadata.
+///
+/// `Rc`-shared so the plan cache and [`Statement`] handles reuse one allocation.
 #[derive(Debug, Clone)]
-pub struct PreparedStatement {
+pub(crate) struct StatementPlan {
     sql: String,
     program: Rc<Program>,
     catalog_generation: u64,
-    /// The parameters the program reads (`Vop::LoadParam`), collected at prepare
-    /// time so `execute_prepared` can reject a missing binding up front — before
-    /// the VM runs and emits rows or side effects — rather than mid-iteration.
+    /// Distinct parameters the program reads (`Vop::LoadParam`), collected at
+    /// prepare time so execution can reject a missing binding before the VM runs.
     required_params: Vec<Param>,
 }
 
-impl PreparedStatement {
+impl StatementPlan {
     /// Returns the original SQL text (for error messages).
     pub fn sql(&self) -> &str {
         &self.sql
     }
 }
 
+/// A prepared statement bound to a [`MonaDB`] handle for execution.
+///
+/// Mirrors rusqlite/duckdb `Statement<'_>`: `query` and `execute` take only
+/// parameters because this type already holds the database reference.
+pub struct Statement<'db> {
+    db: &'db mut MonaDB,
+    plan: Rc<StatementPlan>,
+}
+
+impl<'db> Statement<'db> {
+    /// Returns the original SQL text (for error messages).
+    pub fn sql(&self) -> &str {
+        self.plan.sql()
+    }
+
+    /// Returns the number of distinct parameters the program binds.
+    pub fn parameter_count(&self) -> usize {
+        self.plan.required_params.len()
+    }
+
+    /// Runs the statement with bound `params`, returning a lazy row iterator.
+    pub fn query(&mut self, params: impl IntoParams) -> Result<Rows> {
+        self.db
+            .execute_plan(&self.plan, &params.into_params())
+    }
+
+    /// Runs the statement to completion and returns the row count.
+    pub fn execute(&mut self, params: impl IntoParams) -> Result<u64> {
+        self.query(params)?.finish()
+    }
+}
+
 impl MonaDB {
-    /// Parses, binds, and compiles `sql` into a reusable program. Parameter
-    /// placeholders become runtime slots, so the result is reusable across any
-    /// bound values.
-    pub fn prepare(&self, sql: &str) -> Result<PreparedStatement> {
+    /// Parses, binds, and compiles `sql` into a reusable [`Statement`].
+    pub fn prepare<'a>(&'a mut self, sql: &str) -> Result<Statement<'a>> {
+        let plan = Rc::new(self.compile_plan(sql)?);
+        Ok(Statement { db: self, plan })
+    }
+
+    /// Returns a cached plan for `sql` when present, otherwise compiles and caches it.
+    pub fn prepare_cached<'a>(&'a mut self, sql: &str) -> Result<Statement<'a>> {
+        let plan = self.cached_plan(sql)?;
+        Ok(Statement { db: self, plan })
+    }
+
+    /// Returns the shared plan for `sql` from the cache, compiling and caching it
+    /// on a miss. The plan-fetching core of [`prepare_cached`], shared with the
+    /// Python binding so it reuses the connection's cache too.
+    pub(crate) fn cached_plan(&mut self, sql: &str) -> Result<Rc<StatementPlan>> {
+        let cache = self.plans.clone();
+        if let Some(plan) = cache.borrow_mut().get(sql) {
+            return Ok(plan);
+        }
+        Ok(cache.borrow_mut().put(sql, self.compile_plan(sql)?))
+    }
+
+    /// Parses, binds, and compiles `sql` into a shareable plan (no execution).
+    pub(crate) fn compile_plan(&self, sql: &str) -> Result<StatementPlan> {
         let mut bound = Self::parse(sql)?;
         self.bind(&mut bound)?;
         let mut program = self.compile(bound)?;
         self.resolve_tables(&mut program)?;
-        let required_params = program
-            .instructions
-            .iter()
-            .filter_map(|op| match op {
-                Vop::LoadParam(p) => Some(p.clone()),
-                _ => None,
-            })
-            .collect();
-        Ok(PreparedStatement {
+        // Distinct placeholders, in first-seen order: a parameter referenced N
+        // times compiles to N `LoadParam` ops but counts once (matching rusqlite).
+        let mut required_params: Vec<Param> = Vec::new();
+        for op in &program.instructions {
+            if let Vop::LoadParam(p) = op {
+                if !required_params.contains(p) {
+                    required_params.push(p.clone());
+                }
+            }
+        }
+        Ok(StatementPlan {
             sql: sql.to_string(),
             program: Rc::new(program),
             catalog_generation: self.catalog_generation(),
@@ -102,19 +154,16 @@ impl MonaDB {
         Ok(())
     }
 
-    /// Runs a prepared statement with bound `params`, returning a lazy row iterator.
-    pub fn execute_prepared(
+    /// Runs a compiled plan with bound `params`, returning a lazy row iterator.
+    pub(crate) fn execute_plan(
         &mut self,
-        stmt: &PreparedStatement,
+        plan: &StatementPlan,
         params: &Params,
-        debug: bool,
     ) -> Result<Rows> {
-        if self.catalog_generation() != stmt.catalog_generation {
+        if self.catalog_generation() != plan.catalog_generation {
             return Err(Error::StalePreparedStatement);
         }
-        // Fail fast on a missing binding, before the VM runs — so a half-executed
-        // statement can't emit rows or side effects ahead of the error.
-        for p in &stmt.required_params {
+        for p in &plan.required_params {
             let bound = match p {
                 Param::Numbered(n) => params.get_numbered(*n).is_some(),
                 Param::Named(name) => params.get_named(name).is_some(),
@@ -123,15 +172,15 @@ impl MonaDB {
                 return Err(Error::BindError(format!("missing parameter {p}")));
             }
         }
-        if debug {
-            Self::debug(&stmt.program);
+        if self.query_options.debug_enabled() {
+            Self::trace_program(&plan.program);
         }
         let defer_commit = self.in_transaction();
         Ok(Rows::new(VM::init(
             self.storage.clone(),
             self.catalog_generation.clone(),
             self.session_catalog_dirty.clone(),
-            stmt.program.clone(),
+            plan.program.clone(),
             params.clone(),
             self.session_txn.clone(),
             defer_commit,
@@ -150,41 +199,28 @@ mod tests {
         db.execute("create table t;").unwrap();
         db.execute(r#"insert into t ({"x": 1});"#).unwrap();
 
-        let stmt = db.prepare("select * from t;").unwrap();
-        let mut rows1 = db.execute_prepared(&stmt, &Params::none(), false).unwrap();
-        assert!(rows1.next().unwrap().is_some());
-
-        let mut rows2 = db.execute_prepared(&stmt, &Params::none(), false).unwrap();
-        assert!(rows2.next().unwrap().is_some());
+        let mut stmt = db.prepare("select * from t;").unwrap();
+        assert!(stmt.query(()).unwrap().next().unwrap().is_some());
+        assert!(stmt.query(()).unwrap().next().unwrap().is_some());
     }
 
     #[test]
     fn prepared_param_reuses_program_across_values() {
-        // One compiled program (runtime param slot) serves different bound values.
-        let stmt = {
-            let db = MonaDB::memory().unwrap();
-            db.prepare("select ?;").unwrap()
-        };
         let mut db = MonaDB::memory().unwrap();
+        let mut stmt = db.prepare("select ?;").unwrap();
 
-        let mut rows = db
-            .execute_prepared(&stmt, &Params::positional(vec![Value::int(1)]), false)
-            .unwrap();
+        let mut rows = stmt.query([Value::int(1)]).unwrap();
         assert_eq!(rows.next().unwrap().unwrap(), Value::int(1));
 
-        let mut rows = db
-            .execute_prepared(&stmt, &Params::positional(vec![Value::int(2)]), false)
-            .unwrap();
+        let mut rows = stmt.query([Value::int(2)]).unwrap();
         assert_eq!(rows.next().unwrap().unwrap(), Value::int(2));
     }
 
     #[test]
     fn missing_param_fails_before_execution() {
-        // A missing binding is rejected up front by execute_prepared (before the
-        // VM runs), not deferred to mid-iteration.
         let mut db = MonaDB::memory().unwrap();
-        let stmt = db.prepare("select $1;").unwrap();
-        let err = db.execute_prepared(&stmt, &Params::none(), false);
+        let mut stmt = db.prepare("select $1;").unwrap();
+        let err = stmt.query(());
         assert!(matches!(err, Err(Error::BindError(_))));
     }
 
@@ -192,9 +228,15 @@ mod tests {
     fn stale_compiled_after_drop() {
         let mut db = MonaDB::memory().unwrap();
         db.execute("create table t;").unwrap();
-        let stmt = db.prepare("select * from t;").unwrap();
+        {
+            db.prepare_cached("select * from t;")
+                .unwrap()
+                .query(())
+                .unwrap();
+        }
         db.execute("drop table t;").unwrap();
-        let err = match db.execute_prepared(&stmt, &Params::none(), false) {
+        let mut stmt = db.prepare_cached("select * from t;").unwrap();
+        let err = match stmt.query(()) {
             Ok(_) => panic!("expected stale prepared statement error"),
             Err(e) => e,
         };
@@ -203,57 +245,42 @@ mod tests {
 
     #[test]
     fn reprepare_after_drop_recreate_binds_live_handle() {
-        // A prepared plan resolves the table's btree handle at prepare time. After
-        // a DROP + CREATE the old plan is stale (its handle could point at a
-        // cleared or reused dbi); a re-prepare must bind the *recreated* table's
-        // handle, and the new keyed lookup must read the recreated row.
         let mut db = MonaDB::memory().unwrap();
         db.execute("create table t (id int);").unwrap();
         db.execute(r#"insert into t ({"id": 1});"#).unwrap();
 
-        let stmt = db.prepare("select t[?];").unwrap();
-        assert!(
-            db.execute_prepared(&stmt, &Params::positional(vec![Value::int(1)]), false)
+        {
+            db.prepare_cached("select t[?];")
+                .unwrap()
+                .query([Value::int(1)])
                 .unwrap()
                 .next()
-                .unwrap()
-                .is_some()
-        );
+                .unwrap();
+        }
 
         db.execute("drop table t;").unwrap();
         db.execute("create table t (id int);").unwrap();
         db.execute(r#"insert into t ({"id": 1});"#).unwrap();
 
-        // The old plan is invalidated by the catalog-generation bump.
+        let mut stmt = db.prepare_cached("select t[?];").unwrap();
         assert_eq!(
-            db.execute_prepared(&stmt, &Params::positional(vec![Value::int(1)]), false)
-                .err(),
+            stmt.query([Value::int(1)]).err(),
             Some(Error::StalePreparedStatement),
         );
 
-        // A fresh prepare resolves the live handle and reads the recreated row.
-        let stmt2 = db.prepare("select t[?];").unwrap();
-        assert!(
-            db.execute_prepared(&stmt2, &Params::positional(vec![Value::int(1)]), false)
-                .unwrap()
-                .next()
-                .unwrap()
-                .is_some()
-        );
+        drop(stmt);
+        let mut stmt2 = db.prepare("select t[?];").unwrap();
+        assert!(stmt2.query([Value::int(1)]).unwrap().next().unwrap().is_some());
     }
 
     #[test]
     fn resolves_handle_for_table_created_in_open_txn() {
-        // A table created inside an open session is visible only through the
-        // session's own write txn. `prepare` reuses that txn (rather than opening
-        // a separate read snapshot, which couldn't see the uncommitted DDL), so
-        // the handle resolves at prepare time and the keyed lookup reads the row.
         let mut db = MonaDB::memory().unwrap();
         db.execute("begin;").unwrap();
         db.execute("create table t (id int);").unwrap();
         db.execute(r#"insert into t ({"id": 7});"#).unwrap();
 
-        assert!(db.query("select t[7];", false).unwrap().next().unwrap().is_some());
+        assert!(db.query("select t[7];").unwrap().next().unwrap().is_some());
 
         db.execute("commit;").unwrap();
     }
@@ -265,15 +292,30 @@ mod tests {
         db.execute(r#"insert into t ({"x": 1});"#).unwrap();
 
         let sql = "select * from t;";
-        let mut direct = db.query(sql, false).unwrap();
-        let direct_row = direct.next().unwrap().unwrap();
+        let direct_row = db.query(sql).unwrap().next().unwrap().unwrap();
 
-        let stmt = db.prepare(sql).unwrap();
-        let mut prepared = db
-            .execute_prepared(&stmt, &Params::none(), false)
-            .unwrap();
-        let prepared_row = prepared.next().unwrap().unwrap();
+        let mut stmt = db.prepare(sql).unwrap();
+        let prepared_row = stmt.query(()).unwrap().next().unwrap().unwrap();
 
         assert_eq!(direct_row, prepared_row);
+    }
+
+    #[test]
+    fn prepare_cached_reuses_entry() {
+        let mut db = MonaDB::memory().unwrap();
+        {
+            let mut s1 = db.prepare_cached("select ?;").unwrap();
+            assert_eq!(
+                s1.query([1i64]).unwrap().next().unwrap().unwrap(),
+                Value::int(1)
+            );
+        }
+        {
+            let mut s2 = db.prepare_cached("select ?;").unwrap();
+            assert_eq!(
+                s2.query([2i64]).unwrap().next().unwrap().unwrap(),
+                Value::int(2)
+            );
+        }
     }
 }

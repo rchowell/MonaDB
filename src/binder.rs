@@ -813,7 +813,7 @@ mod test {
         let mut db = MonaDB::memory().unwrap();
         db.execute("create table items (id int);").unwrap();
         db.execute("insert into items ({\"id\": 1});").unwrap();
-        let mut rows = db.query("select u.id from items as u;", false).unwrap();
+        let mut rows = db.query("select u.id from items as u;").unwrap();
         let row = rows.next().unwrap();
         assert!(row.is_some());
     }

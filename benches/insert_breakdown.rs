@@ -13,7 +13,7 @@ mod fixtures;
 use std::hint::black_box;
 use std::time::Instant;
 
-use monadb::{Config, MonaDB, Params, Value};
+use monadb::{Config, MonaDB, Value};
 use tempfile::TempDir;
 
 use config::Profile;
@@ -97,14 +97,9 @@ fn bench_multi_value(db: &mut MonaDB, specs: &[DocSpec]) {
 }
 
 fn bench_prepared_param(db: &mut MonaDB, specs: &[DocSpec]) {
-    let stmt = db.prepare("insert into docs ($1);").expect("prepare");
+    let mut stmt = db.prepare("insert into docs ($1);").expect("prepare");
     for spec in specs {
-        let val = doc_value(spec);
-        let params = Params::positional(vec![val]);
-        db.execute_prepared(&stmt, &params, false)
-            .expect("insert")
-            .finish()
-            .expect("finish");
+        stmt.execute([doc_value(spec)]).expect("insert");
     }
 }
 

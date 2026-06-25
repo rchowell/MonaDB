@@ -4,7 +4,7 @@
 //! drivers, the Criterion harness, the metrics harness, and the smoke test all
 //! dispatch through one trait instead of per-engine match arms.
 
-use super::config::{Engine, SqliteStorage, Workload};
+use super::config::{Engine, Workload};
 use super::fixtures::DocSpec;
 use super::monadb::MonaDbBench;
 use super::sqlite::SqliteBench;
@@ -38,8 +38,7 @@ pub trait DocStore {
 pub fn open_store(engine: Engine, workload: Workload) -> Box<dyn DocStore> {
     let mut store: Box<dyn DocStore> = match engine {
         Engine::MonaDb => Box::new(MonaDbBench::open()),
-        Engine::SqliteText => Box::new(SqliteBench::open(SqliteStorage::Text)),
-        Engine::SqliteJsonb => Box::new(SqliteBench::open(SqliteStorage::Jsonb)),
+        Engine::Sqlite => Box::new(SqliteBench::open()),
     };
     store.create_table(workload);
     store

@@ -18,7 +18,8 @@ use crate::ir::{AggKind, CmpOp, Key, Param};
 use crate::schema;
 use crate::storage::{BTree, Storage};
 use crate::transaction::{Transaction, TransactionMode};
-use crate::value::{Params, Value};
+use crate::params::Params;
+use crate::value::Value;
 use heed::byteorder::BigEndian;
 use heed::byteorder::ByteOrder;
 

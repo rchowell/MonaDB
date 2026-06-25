@@ -1,34 +1,32 @@
 //! SQLite benchmark adapter.
+//!
+//! Documents are stored as SQLite's native JSONB binary type (`jsonb(?)` into a
+//! `BLOB` column), and every operation runs through a connection-cached prepared
+//! statement (`prepare_cached` + bound params) — the parse-free hot path MonaDB
+//! is compared against.
 
 use rusqlite::Connection;
+use rusqlite::params;
 use tempfile::TempDir;
 
-use super::config::{SqliteStorage, Workload};
-use super::fixtures::{
-    DocSpec, render_sqlite_composite_prefix, render_sqlite_composite_select, render_sqlite_insert,
-    render_sqlite_single_range, render_sqlite_single_select,
-};
+use super::config::Workload;
+use super::fixtures::{DocKey, DocSpec, build_json};
 use super::store::DocStore;
 
 /// A temporary SQLite database for benchmarking.
 pub struct SqliteBench {
     conn: Connection,
-    storage: SqliteStorage,
     _dir: TempDir,
 }
 
 impl SqliteBench {
     /// Opens a fresh SQLite database with benchmark pragmas.
-    pub fn open(storage: SqliteStorage) -> Self {
+    pub fn open() -> Self {
         let dir = TempDir::new().expect("tempdir");
         let path = dir.path().join("bench.db");
         let conn = Connection::open(&path).expect("open sqlite");
         apply_pragmas(&conn);
-        Self {
-            conn,
-            storage,
-            _dir: dir,
-        }
+        Self { conn, _dir: dir }
     }
 
     /// Returns the bundled SQLite version string.
@@ -41,46 +39,68 @@ impl SqliteBench {
 
 impl DocStore for SqliteBench {
     fn create_table(&mut self, workload: Workload) {
-        let sql = match (workload.is_composite(), self.storage) {
-            (false, SqliteStorage::Text) => {
-                "CREATE TABLE docs(id INTEGER PRIMARY KEY, doc TEXT NOT NULL);"
-            }
-            (false, SqliteStorage::Jsonb) => {
-                "CREATE TABLE docs(id INTEGER PRIMARY KEY, doc BLOB NOT NULL);"
-            }
-            (true, SqliteStorage::Text) => {
-                "CREATE TABLE docs(tenant TEXT NOT NULL, seq INTEGER NOT NULL, doc TEXT NOT NULL, PRIMARY KEY (tenant, seq));"
-            }
-            (true, SqliteStorage::Jsonb) => {
-                "CREATE TABLE docs(tenant TEXT NOT NULL, seq INTEGER NOT NULL, doc BLOB NOT NULL, PRIMARY KEY (tenant, seq));"
-            }
+        let sql = if workload.is_composite() {
+            "CREATE TABLE docs(tenant TEXT NOT NULL, seq INTEGER NOT NULL, doc BLOB NOT NULL, PRIMARY KEY (tenant, seq));"
+        } else {
+            "CREATE TABLE docs(id INTEGER PRIMARY KEY, doc BLOB NOT NULL);"
         };
         self.conn.execute_batch(sql).expect("create table");
     }
 
     fn insert(&mut self, spec: &DocSpec) {
-        let sql = render_sqlite_insert(spec, self.storage);
-        self.conn.execute_batch(&sql).expect("insert");
+        let json = serde_json::to_string(&build_json(spec)).expect("fixture json serializes");
+        match &spec.key {
+            DocKey::Single(id) => {
+                self.conn
+                    .prepare_cached("INSERT INTO docs(id, doc) VALUES (?, jsonb(?));")
+                    .expect("prepare insert")
+                    .execute(params![id, json])
+                    .expect("insert");
+            }
+            DocKey::Composite { tenant, seq } => {
+                self.conn
+                    .prepare_cached(
+                        "INSERT INTO docs(tenant, seq, doc) VALUES (?, ?, jsonb(?));",
+                    )
+                    .expect("prepare insert")
+                    .execute(params![tenant, seq, json])
+                    .expect("insert");
+            }
+        }
     }
 
     fn select_single(&mut self, id: i64) -> usize {
-        let sql = render_sqlite_single_select(id);
-        drain_one(&self.conn, &sql)
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT doc FROM docs WHERE id = ?;")
+            .expect("prepare select");
+        drain_one(stmt.query_row(params![id], read_doc_column))
     }
 
     fn select_composite(&mut self, tenant: &str, seq: i64) -> usize {
-        let sql = render_sqlite_composite_select(tenant, seq);
-        drain_one(&self.conn, &sql)
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT doc FROM docs WHERE tenant = ? AND seq = ?;")
+            .expect("prepare select");
+        drain_one(stmt.query_row(params![tenant, seq], read_doc_column))
     }
 
     fn select_single_range(&mut self, lo: i64, hi: i64) -> usize {
-        let sql = render_sqlite_single_range(lo, hi);
-        drain_all(&self.conn, &sql)
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT doc FROM docs WHERE id >= ? AND id < ? ORDER BY id;")
+            .expect("prepare select");
+        let mut rows = stmt.query(params![lo, hi]).expect("query");
+        drain_all(&mut rows)
     }
 
     fn select_composite_prefix(&mut self, tenant: &str) -> usize {
-        let sql = render_sqlite_composite_prefix(tenant);
-        drain_all(&self.conn, &sql)
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT doc FROM docs WHERE tenant = ? ORDER BY seq;")
+            .expect("prepare select");
+        let mut rows = stmt.query(params![tenant]).expect("query");
+        drain_all(&mut rows)
     }
 }
 
@@ -107,19 +127,17 @@ fn read_doc_column(row: &rusqlite::Row<'_>) -> rusqlite::Result<Vec<u8>> {
     }
 }
 
-/// Runs a point query, fully reading the `doc` column; returns rows consumed.
-fn drain_one(conn: &Connection, sql: &str) -> usize {
-    match conn.query_row(sql, [], read_doc_column) {
+/// Maps a point-query result to rows consumed (1 on a row, 0 when none).
+fn drain_one(result: rusqlite::Result<Vec<u8>>) -> usize {
+    match result {
         Ok(_) => 1,
         Err(rusqlite::Error::QueryReturnedNoRows) => 0,
         Err(err) => panic!("select failed: {err}"),
     }
 }
 
-/// Runs a multi-row query, fully reading each `doc` column; returns rows consumed.
-fn drain_all(conn: &Connection, sql: &str) -> usize {
-    let mut stmt = conn.prepare(sql).expect("prepare select");
-    let mut rows = stmt.query([]).expect("query");
+/// Reads every row's `doc` column from a multi-row result; returns rows consumed.
+fn drain_all(rows: &mut rusqlite::Rows<'_>) -> usize {
     let mut count = 0usize;
     while let Some(row) = rows.next().expect("next") {
         let _ = read_doc_column(row).expect("doc column");

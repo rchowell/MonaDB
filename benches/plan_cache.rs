@@ -9,7 +9,7 @@
 //!   cargo bench --bench plan_cache
 
 use iai_callgrind::{library_benchmark, library_benchmark_group, main};
-use monadb::{MonaDB, Params, PreparedStatement, Value};
+use monadb::{MonaDB, Params, Value};
 
 // ── setup helpers ─────────────────────────────────────────────────────────────
 // These run OUTSIDE Callgrind instrumentation; only the benchmark body is counted.
@@ -17,7 +17,7 @@ use monadb::{MonaDB, Params, PreparedStatement, Value};
 fn primed_select() -> MonaDB {
     let mut db = MonaDB::memory().unwrap();
     // First call is a cache miss; the bench call below is a pure hit.
-    db.query_with("select $1;", &Params::positional(vec![Value::int(0)]), false)
+    db.query_with("select $1;", &Params::positional(vec![Value::int(0)]))
         .unwrap()
         .finish()
         .unwrap();
@@ -32,21 +32,22 @@ fn primed_keyed_table() -> MonaDB {
             .unwrap();
     }
     // Any key normalizes to "select t[?];", so 500 primes the plan for 1.
-    db.query("select t[500];", false).unwrap().finish().unwrap();
+    db.query("select t[500];").unwrap().finish().unwrap();
     db
 }
 
-/// A keyed table plus a prepared `select t[?];` whose plan is already warm, so
-/// the bench body is a pure `execute_prepared` — the `normalize`-free ceiling.
-fn primed_keyed_table_prepared() -> (MonaDB, PreparedStatement) {
+/// A keyed table whose prepared `select t[?];` plan is already warm, so the
+/// bench body is a pure cached-statement execute — the `normalize`-free ceiling.
+fn primed_keyed_table_prepared() -> MonaDB {
     let mut db = primed_keyed_table();
-    let stmt = db.prepare("select t[?];").unwrap();
     // Prime the LMDB page cache (and, post-01C, the baked handle) with one run.
-    db.execute_prepared(&stmt, &Params::positional(vec![Value::int(500)]), false)
+    db.prepare_cached("select t[?];")
+        .unwrap()
+        .query([Value::int(500)])
         .unwrap()
         .finish()
         .unwrap();
-    (db, stmt)
+    db
 }
 
 // ── benchmarks ────────────────────────────────────────────────────────────────
@@ -57,7 +58,7 @@ fn primed_keyed_table_prepared() -> (MonaDB, PreparedStatement) {
 #[library_benchmark]
 #[bench::primed(primed_select())]
 fn query_with_hit(mut db: MonaDB) -> u64 {
-    db.query_with("select $1;", &Params::positional(vec![Value::int(1)]), false)
+    db.query_with("select $1;", &Params::positional(vec![Value::int(1)]))
         .unwrap()
         .finish()
         .unwrap()
@@ -69,7 +70,7 @@ fn query_with_hit(mut db: MonaDB) -> u64 {
 #[library_benchmark]
 #[bench::k1000(primed_keyed_table())]
 fn point_lookup(mut db: MonaDB) -> Option<Value> {
-    db.query("select t[1];", false).unwrap().next().unwrap()
+    db.query("select t[1];").unwrap().next().unwrap()
 }
 
 // Prepared point lookup: execute_prepared → keyed btree get, with NO per-call
@@ -78,8 +79,10 @@ fn point_lookup(mut db: MonaDB) -> Option<Value> {
 // this bench also sheds the per-`Open` `hex` String + `open_database` dbi walk.
 #[library_benchmark]
 #[bench::k1000(primed_keyed_table_prepared())]
-fn point_lookup_prepared((mut db, stmt): (MonaDB, PreparedStatement)) -> Option<Value> {
-    db.execute_prepared(&stmt, &Params::positional(vec![Value::int(1)]), false)
+fn point_lookup_prepared(mut db: MonaDB) -> Option<Value> {
+    db.prepare_cached("select t[?];")
+        .unwrap()
+        .query([Value::int(1)])
         .unwrap()
         .next()
         .unwrap()

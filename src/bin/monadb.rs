@@ -116,8 +116,8 @@ fn print_error(stdout: &mut StandardStream, sql: &str, err: &monadb::error::Erro
     writeln!(stdout).expect("write newline");
 }
 
-fn run_statement(db: &mut MonaDB, sql: &str, debug: bool, stdout: &mut StandardStream) {
-    match db.query(sql, debug) {
+fn run_statement(db: &mut MonaDB, sql: &str, stdout: &mut StandardStream) {
+    match db.query(sql) {
         Ok(mut rows) => {
             let mut count = 0u64;
             loop {
@@ -146,7 +146,7 @@ fn run_statement(db: &mut MonaDB, sql: &str, debug: bool, stdout: &mut StandardS
 
 fn print_catalog(db: &mut MonaDB) {
     let sql = "select catalog.name, catalog.type, catalog.sql from catalog order by catalog.name;";
-    let Ok(mut rows) = db.query(sql, false) else {
+    let Ok(mut rows) = db.query(sql) else {
         return;
     };
 
@@ -198,7 +198,6 @@ fn open_database(db: Option<PathBuf>) -> MonaDB {
 fn run_repl(db: &mut MonaDB) {
     let mut line_reader = LineReader::default();
     let mut buffer = String::new();
-    let mut debug = false;
     let mut stdout = StandardStream::stdout(ColorChoice::Auto);
 
     loop {
@@ -224,14 +223,15 @@ fn run_repl(db: &mut MonaDB) {
             };
             match command {
                 ShellCommand::Debug => {
-                    debug = !debug;
-                    println!("debug: {debug}");
+                    let enabled = !db.query_options().debug_enabled();
+                    db.set_debug(enabled);
+                    println!("debug: {enabled}");
                 }
                 ShellCommand::Info => print_catalog(db),
                 ShellCommand::Exit => break,
             }
         } else {
-            run_statement(db, &buffer, debug, &mut stdout);
+            run_statement(db, &buffer, &mut stdout);
         }
     }
 

@@ -17,7 +17,7 @@ const N: usize = 1_000;
 
 fn setup_select() -> MonaDB {
     let mut db = MonaDB::memory().unwrap();
-    db.query_with("select $1;", &Params::positional(vec![Value::int(0)]), false)
+    db.query_with("select $1;", &Params::positional(vec![Value::int(0)]))
         .unwrap()
         .finish()
         .unwrap();
@@ -31,7 +31,7 @@ fn setup_keyed_table() -> MonaDB {
         db.execute(&format!(r#"insert into t ({{"id": {i}}});"#))
             .unwrap();
     }
-    db.query("select t[50];", false).unwrap().finish().unwrap();
+    db.query("select t[50];").unwrap().finish().unwrap();
     db
 }
 
@@ -46,7 +46,7 @@ fn main() {
     // ── query_with cache hit ──────────────────────────────────────────────────
     for _ in 0..N {
         db_select
-            .query_with("select $1;", &Params::positional(vec![Value::int(1)]), false)
+            .query_with("select $1;", &Params::positional(vec![Value::int(1)]))
             .unwrap()
             .finish()
             .unwrap();
@@ -55,7 +55,7 @@ fn main() {
     // ── point lookup: normalize → cache hit → btree get ──────────────────────
     for _ in 0..N {
         db_lookup
-            .query("select t[1];", false)
+            .query("select t[1];")
             .unwrap()
             .next()
             .unwrap();

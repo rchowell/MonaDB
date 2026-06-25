@@ -7,7 +7,7 @@ use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
 use serde_json::{Map, Value, json};
 
-use super::config::{Profile, SqliteStorage};
+use super::config::Profile;
 
 /// Logical document key.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -83,80 +83,6 @@ pub fn assert_profile_sizes() {
     }
 }
 
-/// Renders a MonaDB insert statement for the document.
-pub fn render_monadb_insert(spec: &DocSpec) -> String {
-    let body = render_monadb_object(spec);
-    format!("insert into docs ({body});")
-}
-
-/// Renders a MonaDB keyed lookup for a single integer key.
-pub fn render_monadb_single_select(id: i64) -> String {
-    format!("select docs[{id}];")
-}
-
-/// Renders a MonaDB keyed lookup for a composite key.
-pub fn render_monadb_composite_select(tenant: &str, seq: i64) -> String {
-    format!("select docs[\"{tenant}\", {seq}];")
-}
-
-/// Renders a MonaDB batch get for a contiguous integer key span `[lo, hi)`.
-pub fn render_monadb_single_range_batch(lo: i64, hi: i64) -> String {
-    let mut parts = Vec::with_capacity((hi - lo) as usize);
-    for id in lo..hi {
-        parts.push(format!("docs[{id}]"));
-    }
-    format!("select [{}];", parts.join(", "))
-}
-
-/// Renders a MonaDB prefix read — all documents for one tenant (array result).
-pub fn render_monadb_composite_prefix_array(tenant: &str) -> String {
-    format!("select docs[\"{tenant}\"];")
-}
-
-/// Renders a SQLite insert statement for the document.
-pub fn render_sqlite_insert(spec: &DocSpec, storage: SqliteStorage) -> String {
-    let json = serde_json::to_string(&build_json(spec)).expect("fixture json serializes");
-    let escaped = escape_sql_string(&json);
-    match (&spec.key, storage) {
-        (DocKey::Single(id), SqliteStorage::Text) => {
-            format!("INSERT INTO docs(id, doc) VALUES ({id}, '{escaped}');")
-        }
-        (DocKey::Single(id), SqliteStorage::Jsonb) => {
-            format!("INSERT INTO docs(id, doc) VALUES ({id}, json('{escaped}'));")
-        }
-        (DocKey::Composite { tenant, seq }, SqliteStorage::Text) => {
-            format!(
-                "INSERT INTO docs(tenant, seq, doc) VALUES ('{tenant}', {seq}, '{escaped}');"
-            )
-        }
-        (DocKey::Composite { tenant, seq }, SqliteStorage::Jsonb) => {
-            format!(
-                "INSERT INTO docs(tenant, seq, doc) VALUES ('{tenant}', {seq}, json('{escaped}'));"
-            )
-        }
-    }
-}
-
-/// Renders a SQLite point lookup for a single integer key.
-pub fn render_sqlite_single_select(id: i64) -> String {
-    format!("SELECT doc FROM docs WHERE id = {id};")
-}
-
-/// Renders a SQLite point lookup for a composite key.
-pub fn render_sqlite_composite_select(tenant: &str, seq: i64) -> String {
-    format!("SELECT doc FROM docs WHERE tenant = '{tenant}' AND seq = {seq};")
-}
-
-/// Renders a SQLite range read over integer keys `[lo, hi)`.
-pub fn render_sqlite_single_range(lo: i64, hi: i64) -> String {
-    format!("SELECT doc FROM docs WHERE id >= {lo} AND id < {hi} ORDER BY id;")
-}
-
-/// Renders a SQLite prefix read — all documents for one tenant.
-pub fn render_sqlite_composite_prefix(tenant: &str) -> String {
-    format!("SELECT doc FROM docs WHERE tenant = '{tenant}' ORDER BY seq;")
-}
-
 /// Generates `count` random single-key ids in `[0, n)`.
 pub fn random_single_keys(count: usize, n: usize, seed: u64) -> Vec<i64> {
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
@@ -204,7 +130,12 @@ pub fn random_tenant_labels(count: usize, seed: u64) -> Vec<String> {
         .collect()
 }
 
-fn build_json(spec: &DocSpec) -> Value {
+/// Builds the document's JSON tree, including its key fields.
+///
+/// The single source of document contents for both adapters: the MonaDB adapter
+/// binds it as an object param via [`monadb::Value::from_json`], the SQLite
+/// adapter serializes it to text and binds it through `jsonb(?)`.
+pub fn build_json(spec: &DocSpec) -> Value {
     let mut root = Map::new();
     match &spec.key {
         DocKey::Single(id) => {
@@ -330,8 +261,12 @@ fn padded_text(len: usize, seed: i64) -> String {
     out
 }
 
-fn render_monadb_object(spec: &DocSpec) -> String {
-    render_monadb_value(&build_json(spec))
+/// Renders a MonaDB insert statement embedding the document as an object literal.
+///
+/// Used by the `insert_breakdown` bench to compare ad-hoc-SQL insert modes; the
+/// `doc_workloads` comparison harness binds the document as a `$1` param instead.
+pub fn render_monadb_insert(spec: &DocSpec) -> String {
+    format!("insert into docs ({});", render_monadb_value(&build_json(spec)))
 }
 
 fn render_monadb_value(value: &Value) -> String {
@@ -381,10 +316,6 @@ fn render_monadb_string_key(key: &str) -> String {
     // Object keys are quoted strings only (see the `Member` rule in
     // `src/parser.lalrpop`); a bare identifier key is a syntax error.
     render_monadb_value(&Value::String(key.into()))
-}
-
-fn escape_sql_string(raw: &str) -> String {
-    raw.replace('\'', "''")
 }
 
 #[cfg(test)]

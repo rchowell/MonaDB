@@ -11,11 +11,11 @@
 
 use std::cell::RefCell;
 
-use monadb::{MonaDB, Params, PreparedStatement, Value};
+use monadb::{MonaDB, Params, Value};
 
 fn primed_select() -> MonaDB {
     let mut db = MonaDB::memory().unwrap();
-    db.query_with("select $1;", &Params::positional(vec![Value::int(0)]), false)
+    db.query_with("select $1;", &Params::positional(vec![Value::int(0)]))
         .unwrap()
         .finish()
         .unwrap();
@@ -26,19 +26,20 @@ fn primed_point_lookup() -> MonaDB {
     let mut db = MonaDB::memory().unwrap();
     db.execute("create table t (id int);").unwrap();
     db.execute(r#"insert into t ({"id": 1});"#).unwrap();
-    db.query("select t[1];", false).unwrap().next().unwrap();
+    db.query("select t[1];").unwrap().next().unwrap();
     db
 }
 
-/// A warm DB plus a prepared `select t[?];`, for the `normalize`-free lookup.
-fn primed_point_lookup_prepared() -> (MonaDB, PreparedStatement) {
+/// A warm DB whose prepared `select t[?];` plan is primed for the normalize-free lookup.
+fn primed_point_lookup_prepared() -> MonaDB {
     let mut db = primed_point_lookup();
-    let stmt = db.prepare("select t[?];").unwrap();
-    db.execute_prepared(&stmt, &Params::positional(vec![Value::int(1)]), false)
+    db.prepare_cached("select t[?];")
+        .unwrap()
+        .query([Value::int(1)])
         .unwrap()
         .next()
         .unwrap();
-    (db, stmt)
+    db
 }
 
 // One warm DB per workload, created once and reused across all iterations so
@@ -46,8 +47,7 @@ fn primed_point_lookup_prepared() -> (MonaDB, PreparedStatement) {
 thread_local! {
     static SELECT_DB: RefCell<MonaDB> = RefCell::new(primed_select());
     static LOOKUP_DB: RefCell<MonaDB> = RefCell::new(primed_point_lookup());
-    static LOOKUP_PREPARED: RefCell<(MonaDB, PreparedStatement)> =
-        RefCell::new(primed_point_lookup_prepared());
+    static LOOKUP_PREPARED: RefCell<MonaDB> = RefCell::new(primed_point_lookup_prepared());
 }
 
 fn main() {
@@ -61,7 +61,7 @@ fn main() {
 fn query_with_hit() -> u64 {
     SELECT_DB.with(|db| {
         db.borrow_mut()
-            .query_with("select $1;", &Params::positional(vec![Value::int(1)]), false)
+            .query_with("select $1;", &Params::positional(vec![Value::int(1)]))
             .unwrap()
             .finish()
             .unwrap()
@@ -73,7 +73,7 @@ fn query_with_hit() -> u64 {
 fn point_lookup() -> Option<Value> {
     LOOKUP_DB.with(|db| {
         db.borrow_mut()
-            .query("select t[1];", false)
+            .query("select t[1];")
             .unwrap()
             .next()
             .unwrap()
@@ -86,9 +86,10 @@ fn point_lookup() -> Option<Value> {
 #[divan::bench]
 fn point_lookup_prepared() -> Option<Value> {
     LOOKUP_PREPARED.with(|cell| {
-        let mut guard = cell.borrow_mut();
-        let (db, stmt) = &mut *guard;
-        db.execute_prepared(stmt, &Params::positional(vec![Value::int(1)]), false)
+        let mut db = cell.borrow_mut();
+        db.prepare_cached("select t[?];")
+            .unwrap()
+            .query([Value::int(1)])
             .unwrap()
             .next()
             .unwrap()

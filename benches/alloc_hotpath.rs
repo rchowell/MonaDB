@@ -21,7 +21,7 @@ mod alloc;
 
 use std::hint::black_box;
 
-use monadb::{MonaDB, Params, PreparedStatement, Value};
+use monadb::{MonaDB, Value};
 
 /// Install the counting allocator so the bracketed loops attribute heap traffic.
 #[global_allocator]
@@ -41,14 +41,14 @@ fn primed_table() -> MonaDB {
             .unwrap();
     }
     // Prime the ad-hoc plan cache: "select t[K]" normalizes to "select t[?]".
-    db.query("select t[500];", false).unwrap().finish().unwrap();
+    db.query("select t[500];").unwrap().finish().unwrap();
     db
 }
 
 fn measure_adhoc(db: &mut MonaDB) -> alloc::Stats {
     alloc::reset();
     for _ in 0..ITERS {
-        let mut rows = db.query("select t[1];", false).unwrap();
+        let mut rows = db.query("select t[1];").unwrap();
         if let Some(v) = rows.next().unwrap() {
             black_box(v.encode().unwrap());
         }
@@ -57,13 +57,14 @@ fn measure_adhoc(db: &mut MonaDB) -> alloc::Stats {
     alloc::snapshot()
 }
 
-fn measure_prepared(db: &mut MonaDB, stmt: &PreparedStatement) -> alloc::Stats {
-    // Build the param vector once; the per-call clone inside `execute_prepared`
-    // is real engine cost and stays counted, but the setup `Vec` is not.
-    let params = Params::positional(vec![Value::int(1)]);
+fn measure_prepared(db: &mut MonaDB) -> alloc::Stats {
     alloc::reset();
     for _ in 0..ITERS {
-        let mut rows = db.execute_prepared(stmt, &params, false).unwrap();
+        let mut rows = db
+            .prepare_cached("select t[?];")
+            .unwrap()
+            .query([Value::int(1)])
+            .unwrap();
         if let Some(v) = rows.next().unwrap() {
             black_box(v.encode().unwrap());
         }
@@ -84,16 +85,17 @@ fn report(label: &str, stats: alloc::Stats) {
 
 fn main() {
     let mut db = primed_table();
-    let stmt = db.prepare("select t[?];").unwrap();
     // Warm both paths (page cache + any first-run resolution) before measuring.
-    db.query("select t[1];", false).unwrap().finish().unwrap();
-    db.execute_prepared(&stmt, &Params::positional(vec![Value::int(1)]), false)
+    db.query("select t[1];").unwrap().finish().unwrap();
+    db.prepare_cached("select t[?];")
+        .unwrap()
+        .query([Value::int(1)])
         .unwrap()
         .finish()
         .unwrap();
 
     let adhoc = measure_adhoc(&mut db);
-    let prepared = measure_prepared(&mut db, &stmt);
+    let prepared = measure_prepared(&mut db);
 
     println!("point-lookup hot path (N={N}, {ITERS} iters/variant):");
     report("adhoc", adhoc);

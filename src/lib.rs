@@ -12,7 +12,9 @@ mod functions;
 pub mod highlight;
 pub mod lexer;
 mod config;
+mod params;
 mod prepared;
+mod query_options;
 mod read;
 mod storage;
 mod transaction;
@@ -45,17 +47,20 @@ use tempfile::TempDir;
 use crate::{
     binder::Binder,
     catalog::Catalog,
-    ir::Statement,
     parser::SqlParser,
+    prepared::StatementPlan,
     transaction::Transaction,
-    vm::{Program, Rows},
+    vm::Program,
 };
 
 pub use crate::cache::Cache;
 pub use crate::lexer::{SqlLexer, Token};
 pub use crate::config::Config;
-pub use crate::prepared::PreparedStatement;
-pub use crate::value::{Params, Value};
+pub use crate::params::{IntoParams, Params};
+pub use crate::query_options::QueryOptions;
+pub use crate::prepared::Statement;
+pub use crate::value::Value;
+pub use crate::vm::Rows;
 
 
 /// The user-facing database handle.
@@ -72,7 +77,7 @@ pub struct MonaDB {
     /// different literals) skip the lexer/parser, the way a real engine caches
     /// plans. Keyed by [`MonaDB::normalize`]'s template (or the raw SQL, for the
     /// parameterized [`MonaDB::query_with`] path).
-    plans: Rc<RefCell<Cache<PreparedStatement>>>,
+    plans: Rc<RefCell<Cache<StatementPlan>>>,
     /// An explicit write transaction opened by `begin;`, held across statements
     /// until `commit;` or `rollback;`. The slot goes *temporarily* empty while a
     /// lazy [`Rows`] borrows the txn for an in-flight statement, so it is not a
@@ -90,6 +95,8 @@ pub struct MonaDB {
     /// `rollback_transaction` clears it without bumping, so a rolled-back DDL
     /// leaves earlier prepared statements valid.
     session_catalog_dirty: Rc<Cell<bool>>,
+    /// Runtime options applied to every query until changed.
+    query_options: QueryOptions,
 }
 
 impl MonaDB {
@@ -108,11 +115,41 @@ impl MonaDB {
             storage,
             catalog,
             catalog_generation: Rc::new(Cell::new(0)),
-            plans: Rc::new(RefCell::new(Cache::<PreparedStatement>::new(256))),
+            plans: Rc::new(RefCell::new(Cache::<StatementPlan>::new(256))),
             session_txn: Rc::new(RefCell::new(None)),
             session_active: Cell::new(false),
             session_catalog_dirty: Rc::new(Cell::new(false)),
+            query_options: QueryOptions::default(),
         })
+    }
+
+    /// Returns the connection's query options.
+    pub fn query_options(&self) -> &QueryOptions {
+        &self.query_options
+    }
+
+    /// Replaces the connection's query options.
+    pub fn set_query_options(&mut self, opts: QueryOptions) {
+        self.query_options = opts;
+    }
+
+    /// Sets query options, returning `self` for chaining at open time.
+    #[must_use]
+    pub fn with_query_options(mut self, opts: QueryOptions) -> Self {
+        self.query_options = opts;
+        self
+    }
+
+    /// Enables or disables bytecode tracing for subsequent queries.
+    #[must_use]
+    pub fn debug(mut self, enabled: bool) -> Self {
+        self.query_options.set_debug(enabled);
+        self
+    }
+
+    /// Enables or disables bytecode tracing for subsequent queries.
+    pub fn set_debug(&mut self, enabled: bool) {
+        self.query_options.set_debug(enabled);
     }
 
     /// Open an in-memory database.
@@ -137,22 +174,22 @@ impl MonaDB {
     /// normalized to a `?`-templated key (see [`MonaDB::normalize`]) so repeated
     /// query *shapes* reuse a prepared statement and skip re-parsing. Anything
     /// that doesn't parameterize cleanly falls back to a direct parse+compile.
-    pub fn query(&mut self, sql: &str, debug: bool) -> Result<Rows> {
-        if let Some(res) = self.route_session(sql, &Params::none(), debug) {
+    pub fn query(&mut self, sql: &str) -> Result<Rows> {
+        if let Some(res) = self.route_session(sql, &Params::none()) {
             return res;
         }
         // A lex error, or SQL with an explicit placeholder, isn't auto-templated:
         // run it directly (uncached).
         let Some((key, vals)) = Self::normalize(sql) else {
-            return self.run_uncached(sql, &Params::none(), debug);
+            return self.run_uncached(sql, &Params::none());
         };
         let params = Params::positional(vals);
-        match self.run_cached(&key, &key, &params, debug) {
+        match self.run_cached(&key, &key, &params) {
             // The template didn't prepare (e.g. a literal in a non-expr position);
             // fall back to the concrete SQL, uncached, exactly as before. Only a
             // prepare failure reaches here — execution errors surface during
             // iteration, and a missing param can't occur on this auto-built path.
-            Err(_) => self.run_uncached(sql, &Params::none(), debug),
+            Err(_) => self.run_uncached(sql, &Params::none()),
             ok => ok,
         }
     }
@@ -160,13 +197,13 @@ impl MonaDB {
     /// Executes through the plan cache: reuse the plan for `key`, else prepare
     /// `src`, cache it, and run. Returns the prepare error (so [`query`] can fall
     /// back) when `src` cannot be prepared.
-    fn run_cached(&mut self, key: &str, src: &str, params: &Params, debug: bool) -> Result<Rows> {
+    fn run_cached(&mut self, key: &str, src: &str, params: &Params) -> Result<Rows> {
         // A detached `Rc` handle, so a borrow does not alias `&mut self` below.
         let cache = self.plans.clone();
         // Fast path: reuse a cached plan (Rc handle, borrow released before execute).
         let cached = cache.borrow_mut().get(key);
-        if let Some(stmt) = cached {
-            match self.execute_prepared(&stmt, params, debug) {
+        if let Some(plan) = cached {
+            match self.execute_plan(&plan, params) {
                 // A CREATE/DROP invalidated the plan — evict and rebuild below.
                 Err(Error::StalePreparedStatement) => cache.borrow_mut().del(key),
                 other => return other,
@@ -175,16 +212,16 @@ impl MonaDB {
         // Miss (or evicted stale): prepare and cache. A freshly prepared plan is
         // never stale, and the compiled program is valid regardless of this
         // execution's outcome, so cache it unconditionally.
-        let stmt = self.prepare(src)?;
-        let stmt = cache.borrow_mut().put(key, stmt);
-        self.execute_prepared(&stmt, params, debug)
+        let plan = self.compile_plan(src)?;
+        let plan = cache.borrow_mut().put(key, plan);
+        self.execute_plan(&plan, params)
     }
 
     /// Prepares and runs `sql` once without consulting or populating the plan
     /// cache — the fallback for SQL that can't be auto-parameterized.
-    fn run_uncached(&mut self, sql: &str, params: &Params, debug: bool) -> Result<Rows> {
-        let stmt = self.prepare(sql)?;
-        self.execute_prepared(&stmt, params, debug)
+    fn run_uncached(&mut self, sql: &str, params: &Params) -> Result<Rows> {
+        let plan = self.compile_plan(sql)?;
+        self.execute_plan(&plan, params)
     }
 
     /// Normalizes `sql` into an auto-parameterized template: every *numeric*
@@ -246,22 +283,27 @@ impl MonaDB {
     /// Cached by raw SQL: because parameters resolve to runtime slots, one
     /// compiled program serves every set of bound values, so a repeated
     /// parameterized statement reuses its plan instead of re-parsing each call.
-    pub fn query_with(&mut self, sql: &str, params: &Params, debug: bool) -> Result<Rows> {
-        if let Some(res) = self.route_session(sql, params, debug) {
+    pub fn query_with(
+        &mut self,
+        sql: &str,
+        params: impl IntoParams,
+    ) -> Result<Rows> {
+        let params = params.into_params();
+        if let Some(res) = self.route_session(sql, &params) {
             return res;
         }
-        self.run_cached(sql, sql, params, debug)
+        self.run_cached(sql, sql, &params)
     }
 
     /// Run a statement to completion, committing it, and return the number of
     /// rows produced. Mirrors rusqlite's `Connection::execute`.
     pub fn execute(&mut self, sql: &str) -> Result<u64> {
-        self.query(sql, false)?.finish()
+        self.query(sql)?.finish()
     }
 
     /// Run a parameterized statement to completion, returning its row count.
-    pub fn execute_with(&mut self, sql: &str, params: &Params) -> Result<u64> {
-        self.query_with(sql, params, false)?.finish()
+    pub fn execute_with(&mut self, sql: &str, params: impl IntoParams) -> Result<u64> {
+        self.query_with(sql, params)?.finish()
     }
 
     /// Intercepts an explicit transaction-control statement (`begin;`/`commit;`/
@@ -311,7 +353,7 @@ impl MonaDB {
     /// the generation the cache keys staleness on, so a cached plan can't be
     /// trusted; re-bind every statement against the session). Returns `Some` when
     /// the statement is fully handled here, or `None` to continue on the cached path.
-    fn route_session(&mut self, sql: &str, params: &Params, debug: bool) -> Option<Result<Rows>> {
+    fn route_session(&mut self, sql: &str, params: &Params) -> Option<Result<Rows>> {
         if let Some(res) = self.try_txn_control(sql) {
             return Some(res);
         }
@@ -319,7 +361,7 @@ impl MonaDB {
             return Some(Err(e));
         }
         if self.in_transaction() {
-            return Some(self.run_uncached(sql, params, debug));
+            return Some(self.run_uncached(sql, params));
         }
         None
     }
@@ -418,7 +460,7 @@ impl MonaDB {
     }
 
     /// Phase 1: Parse input string into our AST (no binding or compilation).
-    pub fn parse(sql: &str) -> Result<Statement> {
+    pub fn parse(sql: &str) -> Result<ir::Statement> {
         let l = crate::lexer::SqlLexer::new(sql);
         let p = SqlParser::new();
         // Counts positional `?` placeholders, numbering them in source order.
@@ -435,7 +477,7 @@ impl MonaDB {
     /// an explicit session is open, cold lookups instead scan through the session
     /// txn, so a table CREATEd earlier in the session is visible to a later
     /// statement that references it.
-    fn bind(&self, statement: &mut Statement) -> Result<()> {
+    fn bind(&self, statement: &mut ir::Statement) -> Result<()> {
         let mut binder = Binder::new(
             self.catalog.clone(),
             self.storage.clone(),
@@ -447,13 +489,13 @@ impl MonaDB {
 
     /// Phase 3: Compilation is pure bytecode generation.
     #[allow(clippy::unused_self)]
-    fn compile(&self, statement: Statement) -> Result<Program> {
+    fn compile(&self, statement: ir::Statement) -> Result<Program> {
         let cc = Compiler::new();
         cc.compile(statement)
     }
 
     /// Prints a program's bytecode as an address/operation table (a debug aid).
-    fn debug(program: &Program) {
+    fn trace_program(program: &Program) {
         println!();
         println!("addr\toperation");
         println!("----\t---------");
@@ -484,7 +526,7 @@ mod tests {
         let mut db = MonaDB::open(&db_path).unwrap();
 
         db.execute("create table t (id int);").unwrap();
-        // let _ = db.query("select * from t;", true);
+        // let _ = db.debug(true).query("select * from t;");
     }
 
     #[test]
@@ -523,9 +565,9 @@ mod tests {
         db.execute(r#"insert into t ({"id": 2});"#).unwrap();
 
         // Two different literals, one template — each must still fetch its own row.
-        let mut r1 = db.query("select t[1];", false).unwrap();
+        let mut r1 = db.query("select t[1];").unwrap();
         assert_eq!(r1.next().unwrap().unwrap().jpk("id"), Some(Value::int(1)));
-        let mut r2 = db.query("select t[2];", false).unwrap();
+        let mut r2 = db.query("select t[2];").unwrap();
         assert_eq!(r2.next().unwrap().unwrap().jpk("id"), Some(Value::int(2)));
 
         // The shared template was cached and reused (not one entry per literal).
@@ -543,14 +585,14 @@ mod tests {
         // so the now-unknown `t` must surface as an error (not a stale row).
         db.execute("drop table t;").unwrap();
         assert!(
-            db.query("select t[1];", false).is_err(),
+            db.query("select t[1];").is_err(),
             "dropped table must not resolve from a stale catalog cache"
         );
 
         // Recreating with a different shape must be visible (cache re-scanned).
         db.execute("create table t (name string);").unwrap();
         db.execute(r#"insert into t ({"name": "x"});"#).unwrap();
-        let mut rows = db.query(r#"select t["x"];"#, false).unwrap();
+        let mut rows = db.query(r#"select t["x"];"#).unwrap();
         assert_eq!(
             rows.next().unwrap().unwrap().jpk("name"),
             Some(Value::String(std::rc::Rc::from("x")))
@@ -563,7 +605,7 @@ mod tests {
         let mut db = MonaDB::memory().unwrap();
         db.execute(sql).unwrap();
         let mut rows = db
-            .query("select * from people as r order by r.name;", false)
+            .query("select * from people as r order by r.name;")
             .unwrap();
         let mut n = 0;
         while rows.next().unwrap().is_some() {
@@ -587,7 +629,7 @@ mod tests {
         // Regression: the literal must not silently satisfy the unbound `$1`;
         // query() (no params) surfaces a clean missing-parameter error instead.
         let mut db = MonaDB::memory().unwrap();
-        assert!(db.query("select 1 + $1;", false).is_err());
+        assert!(db.query("select 1 + $1;").is_err());
     }
 
     #[test]
@@ -596,7 +638,7 @@ mod tests {
         // instead of failing to parse and falling back uncached every call.
         let mut db = MonaDB::memory().unwrap();
         db.execute("create table t (id int);").unwrap();
-        db.query("select * from t limit 1;", false).unwrap().finish().unwrap();
+        db.query("select * from t limit 1;").unwrap().finish().unwrap();
         assert!(
             db.plans.borrow().exists("select * from t limit 1;"),
             "a LIMIT query should be cached, not silently fall back"
@@ -607,7 +649,7 @@ mod tests {
     fn query_with_caches_by_sql() {
         // The parameterized path reuses one compiled program across calls.
         let mut db = MonaDB::memory().unwrap();
-        db.query_with("select $1;", &Params::positional(vec![Value::int(1)]), false)
+        db.query_with("select $1;", &Params::positional(vec![Value::int(1)]))
             .unwrap()
             .finish()
             .unwrap();
@@ -626,7 +668,6 @@ mod tests {
             .query_with(
                 "select r from c[$1] as r;",
                 &Params::positional(vec![Value::String(std::rc::Rc::from("x"))]),
-                false,
             )
             .unwrap();
         let mut n = 0;
@@ -657,9 +698,9 @@ mod tests {
             .map(|r| r.map(|(_, t, _)| t))
             .collect();
         assert_eq!(tokens, vec![Ok(Token::Begin), Ok(Token::SemiColon)]);
-        assert!(matches!(MonaDB::parse("begin;"), Ok(Statement::Begin)));
-        assert!(matches!(MonaDB::parse("commit;"), Ok(Statement::Commit)));
-        assert!(matches!(MonaDB::parse("rollback;"), Ok(Statement::Rollback)));
+        assert!(matches!(MonaDB::parse("begin;"), Ok(ir::Statement::Begin)));
+        assert!(matches!(MonaDB::parse("commit;"), Ok(ir::Statement::Commit)));
+        assert!(matches!(MonaDB::parse("rollback;"), Ok(ir::Statement::Rollback)));
     }
 
     #[test]
@@ -702,7 +743,7 @@ mod tests {
     fn empty_keyed_table_subscript_returns_none() {
         let mut db = MonaDB::memory().unwrap();
         db.execute("create table t (id int);").unwrap();
-        let mut rows = db.query("select * from t;", false).unwrap();
+        let mut rows = db.query("select * from t;").unwrap();
         assert!(rows.next().unwrap().is_none());
     }
 
@@ -735,7 +776,7 @@ mod tests {
             !keyed_row_exists(&db, &ro, 1),
             "rolled-back row should not be visible after abort"
         );
-        let mut rows = db.query("select * from t;", false).unwrap();
+        let mut rows = db.query("select * from t;").unwrap();
         assert!(rows.next().unwrap().is_none());
     }
 
@@ -758,13 +799,10 @@ mod tests {
     fn prepared_insert_reuses_plan() {
         let mut db = MonaDB::memory().unwrap();
         db.execute("create table t (id int);").unwrap();
-        let stmt = db.prepare("insert into t ($1);").unwrap();
+        let mut stmt = db.prepare("insert into t ($1);").unwrap();
         for id in 1..=3 {
             let val = Value::from_json(serde_json::json!({"id": id}));
-            db.execute_prepared(&stmt, &Params::positional(vec![val]), false)
-                .unwrap()
-                .finish()
-                .unwrap();
+            stmt.execute([val]).unwrap();
         }
         let ro = Transaction::read(&db.storage).unwrap();
         assert!(keyed_row_exists(&db, &ro, 3));
@@ -787,7 +825,7 @@ mod tests {
         db.execute("create table t (id int);").unwrap();
         db.begin_transaction().unwrap();
         db.execute(r#"insert into t ({"id": 1});"#).unwrap();
-        let mut rows = db.query("select * from t;", false).unwrap();
+        let mut rows = db.query("select * from t;").unwrap();
         assert!(
             rows.next().unwrap().is_some(),
             "session select must see its own uncommitted insert"
@@ -817,10 +855,8 @@ mod tests {
         let mut db = MonaDB::memory().unwrap();
         db.execute("create table t (x int);").unwrap();
         db.begin_transaction().unwrap();
-        let stmt = db.prepare(r#"insert into t ({"z": 9});"#).unwrap();
-        let res = db
-            .execute_prepared(&stmt, &Params::none(), false)
-            .and_then(Rows::finish);
+        let mut stmt = db.prepare(r#"insert into t ({"z": 9});"#).unwrap();
+        let res = stmt.query(()).and_then(|rows| rows.finish());
         assert!(res.is_err());
         assert!(
             db.session_txn.borrow().is_some(),
@@ -835,15 +871,15 @@ mod tests {
         let mut db = MonaDB::memory().unwrap();
         db.execute("create table t (id int);").unwrap();
         db.execute(r#"insert into t ({"id": 1});"#).unwrap();
-        let stmt = db.prepare("select * from t;").unwrap();
+        {
+            let mut stmt = db.prepare("select * from t;").unwrap();
+            stmt.query(()).unwrap();
+        }
         db.begin_transaction().unwrap();
         db.execute("create table u (id int);").unwrap();
         db.rollback_transaction().unwrap();
-        let n = db
-            .execute_prepared(&stmt, &Params::none(), false)
-            .unwrap()
-            .finish()
-            .unwrap();
+        let mut stmt = db.prepare("select * from t;").unwrap();
+        let n = stmt.query(()).unwrap().finish().unwrap();
         assert_eq!(n, 1, "earlier prepared statement must survive a rolled-back DDL");
     }
 
@@ -854,7 +890,7 @@ mod tests {
         db.begin_transaction().unwrap();
         db.execute("create table u (id int);").unwrap();
         db.execute(r#"insert into u ({"id": 1});"#).unwrap();
-        let mut rows = db.query("select * from u;", false).unwrap();
+        let mut rows = db.query("select * from u;").unwrap();
         assert!(
             rows.next().unwrap().is_some(),
             "must see rows in a table created in this session"
@@ -873,7 +909,7 @@ mod tests {
         db.begin_transaction().unwrap();
         db.execute(r#"insert into t ({"id": 1});"#).unwrap();
         db.execute(r#"insert into t ({"id": 2});"#).unwrap();
-        let mut rows = db.query("select * from t;", false).unwrap();
+        let mut rows = db.query("select * from t;").unwrap();
         rows.next().unwrap().unwrap(); // borrow the session txn out of the slot
 
         assert!(db.in_transaction(), "session still active while a result is held");
@@ -882,7 +918,7 @@ mod tests {
             "double begin must be rejected, not open a second write txn"
         );
         assert!(
-            db.query("select * from t;", false).is_err(),
+            db.query("select * from t;").is_err(),
             "a second statement must be rejected while one is in progress"
         );
         assert!(
@@ -903,16 +939,16 @@ mod tests {
         let mut db = MonaDB::memory().unwrap();
         db.execute("create table t (id int);").unwrap();
         db.execute(r#"insert into t ({"id": 1});"#).unwrap();
-        db.query("select * from t;", false).unwrap().finish().unwrap(); // warm positive cache
+        db.query("select * from t;").unwrap().finish().unwrap(); // warm positive cache
         db.begin_transaction().unwrap();
         db.execute("drop table t;").unwrap();
         assert!(
-            db.query("select * from t;", false).is_err(),
+            db.query("select * from t;").is_err(),
             "a table dropped in-session must not resolve from a stale cache hit"
         );
         db.rollback_transaction().unwrap();
         // The DROP was rolled back, so `t` resolves again.
-        db.query("select * from t;", false).unwrap().finish().unwrap();
+        db.query("select * from t;").unwrap().finish().unwrap();
     }
 
     #[test]
@@ -936,13 +972,13 @@ mod tests {
 
     #[test]
     fn plan_cache_evicts_least_recently_used() {
-        let db = MonaDB::memory().unwrap();
-        let mut cache: Cache<PreparedStatement> = Cache::new(2);
-        cache.put("a", db.prepare("select 1;").unwrap());
-        cache.put("b", db.prepare("select 2;").unwrap());
+        let mut db = MonaDB::memory().unwrap();
+        let mut cache: Cache<StatementPlan> = Cache::new(2);
+        cache.put("a", db.compile_plan("select 1;").unwrap());
+        cache.put("b", db.compile_plan("select 2;").unwrap());
         // Touch "a", making "b" the least-recently-used.
         assert!(cache.get("a").is_some());
-        cache.put("c", db.prepare("select 3;").unwrap());
+        cache.put("c", db.compile_plan("select 3;").unwrap());
         assert!(cache.exists("a"));
         assert!(cache.exists("c"));
         assert!(

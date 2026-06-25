@@ -49,11 +49,14 @@ impl Profile {
 }
 
 /// Storage engine under test.
+///
+/// Both engines always run through prepared statements with bound parameters,
+/// and SQLite stores documents as its native JSONB binary type, so the harness
+/// compares each engine's parse-free / normalize-free steady-state hot path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Engine {
     MonaDb,
-    SqliteText,
-    SqliteJsonb,
+    Sqlite,
 }
 
 impl Engine {
@@ -61,8 +64,7 @@ impl Engine {
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "monadb" => Some(Self::MonaDb),
-            "sqlite_text" => Some(Self::SqliteText),
-            "sqlite_jsonb" => Some(Self::SqliteJsonb),
+            "sqlite" => Some(Self::Sqlite),
             _ => None,
         }
     }
@@ -71,24 +73,7 @@ impl Engine {
     pub const fn label(self) -> &'static str {
         match self {
             Self::MonaDb => "monadb",
-            Self::SqliteText => "sqlite_text",
-            Self::SqliteJsonb => "sqlite_jsonb",
-        }
-    }
-}
-
-/// SQLite document column representation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SqliteStorage {
-    Text,
-    Jsonb,
-}
-
-impl From<Engine> for SqliteStorage {
-    fn from(engine: Engine) -> Self {
-        match engine {
-            Engine::SqliteJsonb => Self::Jsonb,
-            Engine::SqliteText | Engine::MonaDb => Self::Text,
+            Self::Sqlite => "sqlite",
         }
     }
 }
@@ -195,7 +180,7 @@ impl Default for BenchConfig {
                 Workload::CompositeKeySelectPrefix,
                 Workload::CompositeKeyInsert,
             ],
-            engines: vec![Engine::MonaDb, Engine::SqliteText, Engine::SqliteJsonb],
+            engines: vec![Engine::MonaDb, Engine::Sqlite],
             cardinalities: vec![10_000, 100_000],
             seed: 0x0ADB_00EC,
             warmup_lookups: 100,
