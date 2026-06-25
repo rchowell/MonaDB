@@ -189,9 +189,11 @@ fn encode_key_field(out: &mut Vec<u8>, field: &Value, col: &Key) -> Result<()> {
             let n: i64 = match field {
                 // Direct i64 path — no f64 roundtrip, no precision loss.
                 Value::Int(i) => *i,
-                // Float path: reject non-finite values (INFINITY.fract() == 0.0
-                // in Rust, so the fract check alone is insufficient).
-                Value::Float(f) if f.is_finite() && f.fract() == 0.0 => *f as i64,
+                // A float key coerces like `cast(<float> as int)`: truncate
+                // toward zero (`t[1.5]` ≡ `t[1]`). Non-finite / out-of-range
+                // floats can't be a key.
+                Value::Float(f) => crate::functions::float_to_i64(*f)
+                    .map_err(|_| Error::Schema(format!("key '{}' must be int", col.name)))?,
                 _ => {
                     return Err(Error::Schema(format!("key '{}' must be int", col.name)));
                 }
@@ -351,13 +353,23 @@ mod test {
             encode_key(&Value::from_json(json!({"x": "a"})), &int_keys),
             Err(Error::Schema(_))
         ));
-        assert!(matches!(
-            encode_key(&Value::from_json(json!({"x": 1.5})), &int_keys),
-            Err(Error::Schema(_))
-        ));
         let str_keys = [col("x", Type::String)];
         assert!(matches!(
             encode_key(&Value::from_json(json!({"x": 1})), &str_keys),
+            Err(Error::Schema(_))
+        ));
+    }
+
+    #[test]
+    fn float_key_truncates_toward_zero() {
+        // A float key coerces like `cast(<float> as int)`: `t[1.5]` ≡ `t[1]`.
+        let int_keys = [col("x", Type::Int)];
+        let enc = |v| encode_key(&Value::from_json(v), &int_keys).unwrap();
+        assert_eq!(enc(json!({"x": 1.5})), enc(json!({"x": 1})));
+        assert_eq!(enc(json!({"x": -1.5})), enc(json!({"x": -1})));
+        // Non-finite / unrepresentable floats still can't be a key.
+        assert!(matches!(
+            encode_key(&Value::from_json(json!({"x": 1e308})), &int_keys),
             Err(Error::Schema(_))
         ));
     }

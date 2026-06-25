@@ -16,16 +16,19 @@ use crate::vm::{Program, Rows, VM, Vop};
 ///
 /// `Rc`-shared so the plan cache and [`Statement`] handles reuse one allocation.
 #[derive(Debug, Clone)]
-pub(crate) struct StatementPlan {
+pub(crate) struct Plan {
+    /// The catalog version this was compiled against.
+    version: u64,
+    /// The original sql string
     sql: String,
+    /// The compiled program
     program: Rc<Program>,
-    catalog_generation: u64,
     /// Distinct parameters the program reads (`Vop::LoadParam`), collected at
     /// prepare time so execution can reject a missing binding before the VM runs.
-    required_params: Vec<Param>,
+    params: Vec<Param>,
 }
 
-impl StatementPlan {
+impl Plan {
     /// Returns the original SQL text (for error messages).
     pub fn sql(&self) -> &str {
         &self.sql
@@ -36,12 +39,12 @@ impl StatementPlan {
 ///
 /// Mirrors rusqlite/duckdb `Statement<'_>`: `query` and `execute` take only
 /// parameters because this type already holds the database reference.
-pub struct Statement<'db> {
-    db: &'db mut MonaDB,
-    plan: Rc<StatementPlan>,
+pub struct Statement<'conn> {
+    conn: &'conn mut MonaDB,
+    plan: Rc<Plan>,
 }
 
-impl<'db> Statement<'db> {
+impl Statement<'_> {
     /// Returns the original SQL text (for error messages).
     pub fn sql(&self) -> &str {
         self.plan.sql()
@@ -49,12 +52,12 @@ impl<'db> Statement<'db> {
 
     /// Returns the number of distinct parameters the program binds.
     pub fn parameter_count(&self) -> usize {
-        self.plan.required_params.len()
+        self.plan.params.len()
     }
 
     /// Runs the statement with bound `params`, returning a lazy row iterator.
     pub fn query(&mut self, params: impl IntoParams) -> Result<Rows> {
-        self.db
+        self.conn
             .execute_plan(&self.plan, &params.into_params())
     }
 
@@ -68,28 +71,30 @@ impl MonaDB {
     /// Parses, binds, and compiles `sql` into a reusable [`Statement`].
     pub fn prepare<'a>(&'a mut self, sql: &str) -> Result<Statement<'a>> {
         let plan = Rc::new(self.compile_plan(sql)?);
-        Ok(Statement { db: self, plan })
+        Ok(Statement { conn: self, plan })
     }
 
     /// Returns a cached plan for `sql` when present, otherwise compiles and caches it.
     pub fn prepare_cached<'a>(&'a mut self, sql: &str) -> Result<Statement<'a>> {
         let plan = self.cached_plan(sql)?;
-        Ok(Statement { db: self, plan })
+        Ok(Statement { conn: self, plan })
     }
 
     /// Returns the shared plan for `sql` from the cache, compiling and caching it
     /// on a miss. The plan-fetching core of [`prepare_cached`], shared with the
-    /// Python binding so it reuses the connection's cache too.
-    pub(crate) fn cached_plan(&mut self, sql: &str) -> Result<Rc<StatementPlan>> {
-        let cache = self.plans.clone();
+    /// Python binding so it reuses the connection's cache too. Keyed by the raw
+    /// SQL text, consistent with [`MonaDB::query`] / [`MonaDB::query_with`].
+    pub(crate) fn cached_plan(&mut self, sql: &str) -> Result<Rc<Plan>> {
+        let cache = self.cache.clone();
         if let Some(plan) = cache.borrow_mut().get(sql) {
             return Ok(plan);
         }
         Ok(cache.borrow_mut().put(sql, self.compile_plan(sql)?))
     }
 
-    /// Parses, binds, and compiles `sql` into a shareable plan (no execution).
-    pub(crate) fn compile_plan(&self, sql: &str) -> Result<StatementPlan> {
+    /// Parses, binds, compiles, and resolves `sql` into a shareable plan (no
+    /// execution).
+    pub(crate) fn compile_plan(&self, sql: &str) -> Result<Plan> {
         let mut bound = Self::parse(sql)?;
         self.bind(&mut bound)?;
         let mut program = self.compile(bound)?;
@@ -98,17 +103,16 @@ impl MonaDB {
         // times compiles to N `LoadParam` ops but counts once (matching rusqlite).
         let mut required_params: Vec<Param> = Vec::new();
         for op in &program.instructions {
-            if let Vop::LoadParam(p) = op {
-                if !required_params.contains(p) {
+            if let Vop::LoadParam(p) = op
+                && !required_params.contains(p) {
                     required_params.push(p.clone());
                 }
-            }
         }
-        Ok(StatementPlan {
+        Ok(Plan {
+            version: self.catalog_version(),
             sql: sql.to_string(),
             program: Rc::new(program),
-            catalog_generation: self.catalog_generation(),
-            required_params,
+            params: required_params,
         })
     }
 
@@ -119,7 +123,7 @@ impl MonaDB {
     ///
     /// Handles are read through the session txn when a session is open — like the
     /// binder's `resolve_table`, it sees the session's own uncommitted DDL, so an
-    /// in-session CREATEd table resolves here and no second transaction is opened —
+    /// in-session CREATE'd table resolves here and no second transaction is opened —
     /// otherwise through a throwaway read txn. Every `Open` targets a table the
     /// binder resolved, and CREATE makes a table's btree atomically with its
     /// catalog row, so a missing handle is a genuine error, surfaced here.
@@ -157,13 +161,13 @@ impl MonaDB {
     /// Runs a compiled plan with bound `params`, returning a lazy row iterator.
     pub(crate) fn execute_plan(
         &mut self,
-        plan: &StatementPlan,
+        plan: &Plan,
         params: &Params,
     ) -> Result<Rows> {
-        if self.catalog_generation() != plan.catalog_generation {
+        if self.catalog_version() != plan.version {
             return Err(Error::StalePreparedStatement);
         }
-        for p in &plan.required_params {
+        for p in &plan.params {
             let bound = match p {
                 Param::Numbered(n) => params.get_numbered(*n).is_some(),
                 Param::Named(name) => params.get_named(name).is_some(),
@@ -178,7 +182,7 @@ impl MonaDB {
         let defer_commit = self.in_transaction();
         Ok(Rows::new(VM::init(
             self.storage.clone(),
-            self.catalog_generation.clone(),
+            self.catalog_version.clone(),
             self.session_catalog_dirty.clone(),
             plan.program.clone(),
             params.clone(),

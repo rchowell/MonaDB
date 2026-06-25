@@ -11,8 +11,9 @@ with silent corruption:
 
 * The string decoder un-doubles quotes and passes backslashes through literally,
   so a literal cannot faithfully carry a ``"`` or ``\\``.
-* Object keys written as quoted strings are stored *with the quotes embedded*
-  (``{"a": 1}`` → field ``'"a"'``), so keys must be bare identifiers.
+
+Object keys are quoted string literals (``{"a": 1}``), matching the engine's
+string-only key grammar.
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ def encode(value: Any) -> str:
     """Render a Python value as a MonaDB literal.
 
     Supports ``None``, ``bool``, ``int``, finite ``float``, ``str`` (without
-    ``"`` or ``\\``), ``list``/``tuple``, and ``dict`` (identifier keys). Raises
+    ``"`` or ``\\``), ``list``/``tuple``, and ``dict`` (string keys). Raises
     ``TypeError`` for unsupported types and ``ValueError`` for values the engine
     cannot represent faithfully.
     """
@@ -53,7 +54,8 @@ def encode(value: Any) -> str:
     if isinstance(value, (list, tuple)):
         return "[" + ", ".join(encode(v) for v in value) + "]"
     if isinstance(value, dict):
-        members = ", ".join(f"{encode_ident(k)}: {encode(v)}" for k, v in value.items())
+        # Object keys are quoted string literals (the engine's key grammar).
+        members = ", ".join(f"{encode_str(str(k))}: {encode(v)}" for k, v in value.items())
         return "{" + members + "}"
     if isinstance(value, (bytes, bytearray)):
         raise TypeError("MonaDB has no byte-string literal; cannot encode bytes")

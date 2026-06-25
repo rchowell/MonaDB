@@ -18,7 +18,7 @@ use crate::MonaDB;
 use crate::config::Config;
 use crate::error::Error;
 use crate::params::Params;
-use crate::prepared::StatementPlan;
+use crate::statement::Plan;
 use crate::value::{Object, Value};
 
 create_exception!(_monadb, MonaDBError, PyException);
@@ -188,7 +188,7 @@ pub struct Connection {
 /// A prepared statement cached from a prior `prepare` call.
 #[pyclass(unsendable, name = "Statement")]
 pub struct Statement {
-    plan: Rc<StatementPlan>,
+    plan: Rc<Plan>,
     db: Rc<RefCell<MonaDB>>,
     result: Vec<Value>,
     cursor: usize,

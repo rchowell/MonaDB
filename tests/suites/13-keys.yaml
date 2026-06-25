@@ -119,14 +119,17 @@ tests:
           insert into t ({"x": "a"});
         error: schema
 
-  - id: int-key-non-integral
-    description: a non-integral number for an int key is a schema error
+  - id: float-subscript-floors-to-int-key
+    description: a float subscript coerces like cast(<float> as int) to find the int key
     steps:
       - sql: |
           create table t (x int);
       - sql: |
-          insert into t ({"x": 1.5});
-        error: schema
+          insert into t ({"x": 1, "z": 9});
+      - sql: |
+          select t[1.5];
+        result:
+          - {x: 1, z: 9}
 
   - id: str-key-roundtrip
     description: string key with payload round-trips whole object

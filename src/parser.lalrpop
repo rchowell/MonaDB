@@ -22,7 +22,6 @@ extern {
         "*"         => Token::Ast,
         ","         => Token::Comma,
         ":"         => Token::Colon,
-        "$"         => Token::Dollar,
         "?"         => Token::Question,
         ".."        => Token::DotDot,
         "..."       => Token::Ellipsis,
@@ -286,29 +285,6 @@ TArray: ir::Type = {
 };
 
 //------------------------------
-// JSONPath
-//------------------------------
-
-Path: ir::Path = <"ident"> "$" <Segment+> => ir::path(<>);
-
-Segment: ir::Segment = {
-    "[" <Selectors> "]"         => ir::segment_child(<>),
-    "." <"ident">               => ir::segment_child_name(<>),
-    "." "*"                     => ir::segment_child_wildcard(),
-    ".." "[" <Selectors> "]"    => ir::segment_descd(<>),
-    ".." <"ident">              => ir::segment_descd_name(<>),
-    ".." "*"                    => ir::segment_descd_wildcard(),
-};
-
-Selectors: Vec<ir::Selector> = List<Selector>;
-
-Selector: ir::Selector = {
-    "string"        => ir::selector_name(<>),
-    "*"             => ir::selector_wildcard(),
-    <n:"number">    => ir::selector_index(n.parse::<usize>().unwrap_or(0)),
-};
-
-//------------------------------
 // EXPRESSIONS
 //------------------------------
 
@@ -408,7 +384,6 @@ Value: Value = {
 
 Members: Vec<ir::Member> = List<Member>;
 
-// Object keys are quoted strings only; a bare identifier key is a syntax error.
 Member: ir::Member = {
     <"string"> ":" <Expr>   => ir::member_assign(<>),
     "..." <Expr>            => ir::member_spread(<>),

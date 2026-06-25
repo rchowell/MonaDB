@@ -90,11 +90,6 @@ harness = false
 path = "benches/insert_breakdown.rs"
 
 [[bench]]
-name = "plan_cache"
-harness = false
-path = "benches/plan_cache.rs"
-
-[[bench]]
 name = "dhat_probe"
 harness = false
 path = "benches/dhat_probe.rs"
@@ -108,6 +103,11 @@ path = "benches/divan.rs"
 name = "cache"
 harness = false
 path = "benches/cache.rs"
+
+[[bench]]
+name = "keying"
+harness = false
+path = "benches/keying.rs"
 
 [[bench]]
 name = "alloc_hotpath"

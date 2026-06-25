@@ -40,7 +40,7 @@ pub struct Program {
     /// prepare time (see `MonaDB::prepare`), so a warm `Open` is a slot read, not
     /// a `hex` alloc + `open_database` dbi walk. A `BTree` is a `Copy`, env-
     /// lifetime dbi reference; reusing it across executions is sound because a
-    /// CREATE/DROP bumps `catalog_generation`, which forces a re-prepare and
+    /// CREATE/DROP bumps `catalog_version`, which forces a re-prepare and
     /// rebuilds this table. Empty until prepare resolves it — a program is never
     /// executed before then.
     pub tables: Vec<BTree>,
@@ -87,11 +87,11 @@ pub enum Vop {
     Clear { tbl: u32 },
     /// Jump to the instruction at jmp.
     Jump { jmp: usize },
-    /// JSON Path Index
+    /// Subscript navigation by constant index — `input[i]`.
     Jpi(usize),
-    /// JSON Path Key
+    /// Subscript navigation by constant key — `input.key`.
     Jpk(String),
-    /// JSON Path Expression
+    /// Subscript navigation by a computed index/key on the stack — `input[expr]`.
     Jpe,
     /// Load the cursor's (csr) current key onto the stack.
     LoadKey { csr: usize },
@@ -320,13 +320,13 @@ pub struct VM {
     /// Rows changed by mutations (inserts, updates, deletes). Reported by
     /// `Rows::finish`, so `execute` returns a real affected-row count.
     affected: u64,
-    /// Shared catalog generation counter; bumped at `Halt` by a non-deferred
+    /// Shared catalog version counter; bumped at `Halt` by a non-deferred
     /// `mutates_catalog` statement. A deferred (in-session) statement sets
     /// [`session_catalog_dirty`] instead, and the bump happens at `commit;`.
-    catalog_generation: Rc<Cell<u64>>,
+    catalog_version: Rc<Cell<u64>>,
     /// Shared "this session mutated the catalog" flag. A deferred `mutates_catalog`
-    /// statement sets it at `Halt` instead of bumping [`catalog_generation`], so a
-    /// rolled-back DDL never advances the generation (and never bricks an earlier
+    /// statement sets it at `Halt` instead of bumping [`catalog_version`], so a
+    /// rolled-back DDL never advances the version (and never bricks an earlier
     /// prepared statement). `commit;` consumes it to bump once; `rollback;` clears it.
     session_catalog_dirty: Rc<Cell<bool>>,
     /// Whether this program changes catalog membership on success.
@@ -380,7 +380,7 @@ impl VM {
     /// ```
     pub fn init(
         storage: Storage,
-        catalog_generation: Rc<Cell<u64>>,
+        catalog_version: Rc<Cell<u64>>,
         session_catalog_dirty: Rc<Cell<bool>>,
         program: Rc<Program>,
         params: Params,
@@ -402,7 +402,7 @@ impl VM {
             counters: vec![0; program.counters],
             aggs: vec![Value::Null; program.aggs],
             affected: 0,
-            catalog_generation,
+            catalog_version,
             session_catalog_dirty,
             mutates_catalog,
             params,
@@ -664,7 +664,7 @@ impl VM {
                     if self.defer_commit {
                         // Leave the borrowed session txn in `self.txn`; `Drop for VM`
                         // returns it to the session slot. Don't commit, and defer the
-                        // generation bump: a session's DDL becomes visible to other
+                        // version bump: a session's DDL becomes visible to other
                         // readers only at `commit;`, recorded here as a dirty flag.
                         if self.mutates_catalog {
                             self.session_catalog_dirty.set(true);
@@ -674,8 +674,8 @@ impl VM {
                             txn.commit()?;
                         }
                         if self.mutates_catalog {
-                            let generation = self.catalog_generation.get();
-                            self.catalog_generation.set(generation + 1);
+                            let version = self.catalog_version.get();
+                            self.catalog_version.set(version + 1);
                         }
                     }
                     return Ok(None);

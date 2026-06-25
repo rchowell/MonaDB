@@ -13,7 +13,7 @@ pub mod highlight;
 pub mod lexer;
 mod config;
 mod params;
-mod prepared;
+mod statement;
 mod query_options;
 mod read;
 mod storage;
@@ -48,7 +48,7 @@ use crate::{
     binder::Binder,
     catalog::Catalog,
     parser::SqlParser,
-    prepared::StatementPlan,
+    statement::Plan,
     transaction::Transaction,
     vm::Program,
 };
@@ -58,7 +58,7 @@ pub use crate::lexer::{SqlLexer, Token};
 pub use crate::config::Config;
 pub use crate::params::{IntoParams, Params};
 pub use crate::query_options::QueryOptions;
-pub use crate::prepared::Statement;
+pub use crate::statement::Statement;
 pub use crate::value::Value;
 pub use crate::vm::Rows;
 
@@ -71,13 +71,11 @@ pub struct MonaDB {
     catalog: Catalog,
     /// Incremented when CREATE/DROP changes catalog membership; compiled prepares
     /// snapshot this to detect staleness.
-    catalog_generation: Rc<Cell<u64>>,
-    /// Auto-parameterizing plan cache: a literal-normalized SQL template →
-    /// its prepared statement. Lets repeated query *shapes* (the same SQL with
-    /// different literals) skip the lexer/parser, the way a real engine caches
-    /// plans. Keyed by [`MonaDB::normalize`]'s template (or the raw SQL, for the
-    /// parameterized [`MonaDB::query_with`] path).
-    plans: Rc<RefCell<Cache<StatementPlan>>>,
+    catalog_version: Rc<Cell<u64>>,
+    /// Cache of compiled plans, keyed by the raw SQL text → its compiled
+    /// statement. A lookup hashes the bytes (no lex, no parse), so re-issuing the
+    /// same statement reuses its plan and skips compilation.
+    cache: Rc<RefCell<Cache<Plan>>>,
     /// An explicit write transaction opened by `begin;`, held across statements
     /// until `commit;` or `rollback;`. The slot goes *temporarily* empty while a
     /// lazy [`Rows`] borrows the txn for an in-flight statement, so it is not a
@@ -90,7 +88,7 @@ pub struct MonaDB {
     /// for a closed session.
     session_active: Cell<bool>,
     /// Set when an in-session statement mutates the catalog (a deferred CREATE/
-    /// DROP records its change here instead of bumping `catalog_generation`).
+    /// DROP records its change here instead of bumping `catalog_version`).
     /// `commit_transaction` consumes it to bump the generation exactly once;
     /// `rollback_transaction` clears it without bumping, so a rolled-back DDL
     /// leaves earlier prepared statements valid.
@@ -114,8 +112,8 @@ impl MonaDB {
         Ok(MonaDB {
             storage,
             catalog,
-            catalog_generation: Rc::new(Cell::new(0)),
-            plans: Rc::new(RefCell::new(Cache::<StatementPlan>::new(256))),
+            catalog_version: Rc::new(Cell::new(0)),
+            cache: Rc::new(RefCell::new(Cache::<Plan>::new(256))),
             session_txn: Rc::new(RefCell::new(None)),
             session_active: Cell::new(false),
             session_catalog_dirty: Rc::new(Cell::new(false)),
@@ -170,118 +168,55 @@ impl MonaDB {
     /// statement's transaction commits once the iterator is exhausted.
     /// Mirrors rusqlite's `Connection::query`.
     ///
-    /// Ad-hoc SQL is run through the auto-parameterizing plan cache: literals are
-    /// normalized to a `?`-templated key (see [`MonaDB::normalize`]) so repeated
-    /// query *shapes* reuse a prepared statement and skip re-parsing. Anything
-    /// that doesn't parameterize cleanly falls back to a direct parse+compile.
+    /// Ad-hoc SQL is run through the plan cache, keyed by the raw SQL text (a
+    /// lookup hashes the bytes — no lex, no parse). Re-issuing the *same*
+    /// statement reuses its compiled plan and skips re-parsing. Literals are
+    /// compiled in as written; for a hot loop over varying keys, prepare once and
+    /// bind (`?`). Keying is byte-exact, so whitespace variants don't share a plan.
     pub fn query(&mut self, sql: &str) -> Result<Rows> {
         if let Some(res) = self.route_session(sql, &Params::none()) {
             return res;
         }
-        // A lex error, or SQL with an explicit placeholder, isn't auto-templated:
-        // run it directly (uncached).
-        let Some((key, vals)) = Self::normalize(sql) else {
-            return self.run_uncached(sql, &Params::none());
-        };
-        let params = Params::positional(vals);
-        match self.run_cached(&key, &key, &params) {
-            // The template didn't prepare (e.g. a literal in a non-expr position);
-            // fall back to the concrete SQL, uncached, exactly as before. Only a
-            // prepare failure reaches here — execution errors surface during
-            // iteration, and a missing param can't occur on this auto-built path.
-            Err(_) => self.run_uncached(sql, &Params::none()),
-            ok => ok,
-        }
+        self.run_cached(sql, &Params::none())
     }
 
-    /// Executes through the plan cache: reuse the plan for `key`, else prepare
-    /// `src`, cache it, and run. Returns the prepare error (so [`query`] can fall
-    /// back) when `src` cannot be prepared.
-    fn run_cached(&mut self, key: &str, src: &str, params: &Params) -> Result<Rows> {
+    /// Executes through the plan cache: reuse the plan for `sql`, else compile
+    /// `sql`, cache it, and run. The cache keys on the raw SQL text (byte-exact),
+    /// so the lookup neither lexes nor parses — it hashes the bytes and probes.
+    fn run_cached(&mut self, sql: &str, params: &Params) -> Result<Rows> {
         // A detached `Rc` handle, so a borrow does not alias `&mut self` below.
-        let cache = self.plans.clone();
+        let cache = self.cache.clone();
         // Fast path: reuse a cached plan (Rc handle, borrow released before execute).
-        let cached = cache.borrow_mut().get(key);
+        let cached = cache.borrow_mut().get(sql);
         if let Some(plan) = cached {
             match self.execute_plan(&plan, params) {
                 // A CREATE/DROP invalidated the plan — evict and rebuild below.
-                Err(Error::StalePreparedStatement) => cache.borrow_mut().del(key),
+                Err(Error::StalePreparedStatement) => cache.borrow_mut().del(sql),
                 other => return other,
             }
         }
-        // Miss (or evicted stale): prepare and cache. A freshly prepared plan is
+        // Miss (or evicted stale): compile and cache. A freshly prepared plan is
         // never stale, and the compiled program is valid regardless of this
         // execution's outcome, so cache it unconditionally.
-        let plan = self.compile_plan(src)?;
-        let plan = cache.borrow_mut().put(key, plan);
+        let plan = self.compile_plan(sql)?;
+        let plan = cache.borrow_mut().put(sql, plan);
         self.execute_plan(&plan, params)
     }
 
     /// Prepares and runs `sql` once without consulting or populating the plan
-    /// cache — the fallback for SQL that can't be auto-parameterized.
+    /// cache — used for in-session statements, where an uncommitted CREATE/DROP
+    /// can change the catalog without bumping the version a cached plan keys
+    /// its staleness on (see [`MonaDB::route_session`]).
     fn run_uncached(&mut self, sql: &str, params: &Params) -> Result<Rows> {
         let plan = self.compile_plan(sql)?;
         self.execute_plan(&plan, params)
     }
 
-    /// Normalizes `sql` into an auto-parameterized template: every *numeric*
-    /// literal token is replaced by a `?` placeholder and its [`Value`] collected,
-    /// in source order. Inter-token text — and string literals — are copied
-    /// verbatim, so the template is valid SQL whose `?`s bind back to the
-    /// extracted values (matching the grammar's `number` → `Value::number` action).
-    ///
-    /// Only numbers in *expression* position are parameterized: a `?` there
-    /// substitutes to an identical `Expr::Lit`. Numbers in a `LIMIT` clause are
-    /// kept literal (they parse as compile-time counts, not expressions, so a `?`
-    /// would fail to parse and defeat the cache). **String literals are left
-    /// intact** because a string in a `FROM` source is lowered to a file scan
-    /// based on the *literal* at parse time (see `looks_like_file`), which a `?`
-    /// would silently defeat.
-    ///
-    /// Returns `None` — falling back to the direct path — on a lexer error, or
-    /// when the SQL already contains an explicit `?`/`$N`/`$name` placeholder
-    /// (which would collide with the auto-extracted positional values).
-    fn normalize(sql: &str) -> Option<(String, Vec<Value>)> {
-        let mut key = String::with_capacity(sql.len());
-        let mut vals = Vec::new();
-        let mut last = 0;
-        // LIMIT operands are parsed as compile-time `number` tokens, not
-        // expressions, so a `?` there fails to parse and would defeat the cache.
-        // Keep them literal. The mode spans `limit N` / `limit N..` / `limit N..M`
-        // and ends at the first token that is neither a number nor `..`.
-        let mut in_limit = false;
-        for item in SqlLexer::new(sql) {
-            let (start, token, end) = item.ok()?;
-            key.push_str(&sql[last..start]);
-            // A LIMIT operand (`limit N` / `N..` / `N..M`) is kept literal; the
-            // mode opens at `limit` and runs while numbers and `..` follow it.
-            let limit_operand = in_limit && matches!(token, Token::Number(_) | Token::DotDot);
-            in_limit = matches!(token, Token::Limit) || limit_operand;
-            match token {
-                // An explicit placeholder shares the positional index space with
-                // the numbers we extract; mixing the two misnumbers bindings (and
-                // a literal can silently satisfy a `$N`). Bail to the direct,
-                // uncached path rather than build a corrupt parameter list.
-                Token::Question | Token::NumberedParam(_) | Token::NamedParam(_) => {
-                    return None;
-                }
-                Token::Number(s) if !limit_operand => {
-                    vals.push(Value::number(&s));
-                    key.push('?');
-                }
-                _ => key.push_str(&sql[start..end]),
-            }
-            last = end;
-        }
-        key.push_str(&sql[last..]);
-        Some((key, vals))
-    }
-
     /// Run a parameterized query, binding `?`/`$N`/`$name` placeholders against
     /// `params` before compilation. `query` is the no-parameter form.
     ///
-    /// Cached by raw SQL: because parameters resolve to runtime slots, one
-    /// compiled program serves every set of bound values, so a repeated
+    /// Keyed by the raw SQL text: because parameters resolve to runtime slots,
+    /// one compiled program serves every set of bound values, so a repeated
     /// parameterized statement reuses its plan instead of re-parsing each call.
     pub fn query_with(
         &mut self,
@@ -292,7 +227,7 @@ impl MonaDB {
         if let Some(res) = self.route_session(sql, &params) {
             return res;
         }
-        self.run_cached(sql, sql, &params)
+        self.run_cached(sql, &params)
     }
 
     /// Run a statement to completion, committing it, and return the number of
@@ -412,8 +347,8 @@ impl MonaDB {
         txn.commit()?;
         self.session_active.set(false);
         if self.session_catalog_dirty.replace(false) {
-            let generation = self.catalog_generation.get();
-            self.catalog_generation.set(generation + 1);
+            let version = self.catalog_version.get();
+            self.catalog_version.set(version + 1);
         }
         Ok(())
     }
@@ -454,18 +389,18 @@ impl MonaDB {
         self.session_catalog_dirty.set(false);
     }
 
-    /// Returns the current catalog generation (for stale-prepare detection).
-    pub(crate) fn catalog_generation(&self) -> u64 {
-        self.catalog_generation.get()
+    /// Returns the current catalog version for stale-prepare detection.
+    pub(crate) fn catalog_version(&self) -> u64 {
+        self.catalog_version.get()
     }
 
-    /// Phase 1: Parse input string into our AST (no binding or compilation).
-    pub fn parse(sql: &str) -> Result<ir::Statement> {
-        let l = crate::lexer::SqlLexer::new(sql);
-        let p = SqlParser::new();
+    /// Phase 1: Parse input string into our IR (no binding or compilation).
+    pub(crate) fn parse(sql: &str) -> Result<ir::Statement> {
+        let lex = SqlLexer::new(sql);
+        let par = SqlParser::new();
         // Counts positional `?` placeholders, numbering them in source order.
-        let param_pos = std::cell::Cell::new(0);
-        Ok(p.parse(&param_pos, l)?)
+        let param_pos = Cell::new(0);
+        Ok(par.parse(&param_pos, lex)?)
     }
 
     /// Phase 2: Bind all tables and variable references in the AST. Parameter
@@ -481,7 +416,7 @@ impl MonaDB {
         let mut binder = Binder::new(
             self.catalog.clone(),
             self.storage.clone(),
-            self.catalog_generation(),
+            self.catalog_version(),
             self.session_txn.clone(),
         );
         binder.bind(statement)
@@ -530,48 +465,39 @@ mod tests {
     }
 
     #[test]
-    fn normalize_templates_numeric_literals() {
-        // Varying numeric literals collapse to one template; the literals are
-        // extracted in source order.
-        let (k1, v1) = MonaDB::normalize("select docs[12345];").unwrap();
-        let (k2, v2) = MonaDB::normalize("select docs[67890];").unwrap();
-        assert_eq!(k1, k2, "varying numeric literals must share one template");
-        assert_eq!(k1, "select docs[?];");
-        assert_eq!(v1, vec![Value::int(12345)]);
-        assert_eq!(v2, vec![Value::int(67890)]);
+    fn cache_keys_on_raw_sql_byte_exact() {
+        // The plan cache keys on the raw SQL text (byte-exact): a lookup never
+        // lexes or parses. Distinct literals are distinct entries (literals are
+        // compiled in, not templated), and — the deliberate trade — a whitespace
+        // variant is also a *separate* entry rather than sharing a plan.
+        let mut db = MonaDB::memory().unwrap();
+        db.execute("create table t (id int);").unwrap();
+        db.execute(r#"insert into t ({"id": 1});"#).unwrap();
+
+        db.query("select t[1];").unwrap().finish().unwrap();
+        db.query("select  t[1] ;").unwrap().finish().unwrap();
+
+        let cache = db.cache.borrow();
+        assert!(cache.exists("select t[1];"));
+        assert!(cache.exists("select  t[1] ;"));
     }
 
     #[test]
-    fn normalize_keeps_strings_verbatim() {
-        // Strings are NOT parameterized (a string in a FROM source is lowered to
-        // a file scan at parse time); only the numeric part of a composite key is.
-        let (k, v) = MonaDB::normalize(r#"select docs["t042", 5700];"#).unwrap();
-        assert_eq!(k, r#"select docs["t042", ?];"#);
-        assert_eq!(v, vec![Value::int(5700)]);
-    }
-
-    #[test]
-    fn normalize_no_literals_is_identity() {
-        let (k, v) = MonaDB::normalize("select * from t;").unwrap();
-        assert_eq!(k, "select * from t;");
-        assert!(v.is_empty());
-    }
-
-    #[test]
-    fn plan_cache_reuses_template_across_literals() {
+    fn point_lookup_caches_each_statement() {
         let mut db = MonaDB::memory().unwrap();
         db.execute("create table t (id int);").unwrap();
         db.execute(r#"insert into t ({"id": 1});"#).unwrap();
         db.execute(r#"insert into t ({"id": 2});"#).unwrap();
 
-        // Two different literals, one template — each must still fetch its own row.
+        // Each distinct literal fetches its own row...
         let mut r1 = db.query("select t[1];").unwrap();
         assert_eq!(r1.next().unwrap().unwrap().jpk("id"), Some(Value::int(1)));
         let mut r2 = db.query("select t[2];").unwrap();
         assert_eq!(r2.next().unwrap().unwrap().jpk("id"), Some(Value::int(2)));
 
-        // The shared template was cached and reused (not one entry per literal).
-        assert!(db.plans.borrow().exists("select t[?];"));
+        // ...and each is cached under its own key.
+        assert!(db.cache.borrow().exists("select t[1];"));
+        assert!(db.cache.borrow().exists("select t[2];"));
     }
 
     #[test]
@@ -615,34 +541,19 @@ mod tests {
     }
 
     #[test]
-    fn normalize_bails_on_explicit_placeholder() {
-        // SQL that already carries a `?`/`$N` is not auto-templated — its
-        // placeholders would collide with the values normalize extracts.
-        assert!(MonaDB::normalize("select 1 + $1;").is_none());
-        assert!(MonaDB::normalize("select t[?];").is_none());
-        // A plain literal query still templates.
-        assert!(MonaDB::normalize("select 1 + 2;").is_some());
-    }
-
-    #[test]
-    fn query_with_explicit_param_and_literal_does_not_misbind() {
-        // Regression: the literal must not silently satisfy the unbound `$1`;
-        // query() (no params) surfaces a clean missing-parameter error instead.
+    fn query_with_explicit_param_unbound_errors() {
+        // query() supplies no params, so an explicit `$1` is unbound and surfaces
+        // a clean missing-parameter error.
         let mut db = MonaDB::memory().unwrap();
         assert!(db.query("select 1 + $1;").is_err());
     }
 
     #[test]
     fn limit_query_is_cached() {
-        // A numeric LIMIT is kept literal so the template parses and caches,
-        // instead of failing to parse and falling back uncached every call.
         let mut db = MonaDB::memory().unwrap();
         db.execute("create table t (id int);").unwrap();
         db.query("select * from t limit 1;").unwrap().finish().unwrap();
-        assert!(
-            db.plans.borrow().exists("select * from t limit 1;"),
-            "a LIMIT query should be cached, not silently fall back"
-        );
+        assert!(db.cache.borrow().exists("select * from t limit 1;"));
     }
 
     #[test]
@@ -653,7 +564,7 @@ mod tests {
             .unwrap()
             .finish()
             .unwrap();
-        assert!(db.plans.borrow().exists("select $1;"));
+        assert!(db.cache.borrow().exists("select $1;"));
     }
 
     #[test]
@@ -972,17 +883,17 @@ mod tests {
 
     #[test]
     fn plan_cache_evicts_least_recently_used() {
-        let mut db = MonaDB::memory().unwrap();
-        let mut cache: Cache<StatementPlan> = Cache::new(2);
-        cache.put("a", db.compile_plan("select 1;").unwrap());
-        cache.put("b", db.compile_plan("select 2;").unwrap());
-        // Touch "a", making "b" the least-recently-used.
-        assert!(cache.get("a").is_some());
-        cache.put("c", db.compile_plan("select 3;").unwrap());
-        assert!(cache.exists("a"));
-        assert!(cache.exists("c"));
+        let db = MonaDB::memory().unwrap();
+        let mut cache: Cache<Plan> = Cache::new(2);
+        cache.put("select 1;", db.compile_plan("select 1;").unwrap());
+        cache.put("select 2;", db.compile_plan("select 2;").unwrap());
+        // Touch the first key, making "select 2;" the least-recently-used.
+        assert!(cache.get("select 1;").is_some());
+        cache.put("select 3;", db.compile_plan("select 3;").unwrap());
+        assert!(cache.exists("select 1;"));
+        assert!(cache.exists("select 3;"));
         assert!(
-            !cache.exists("b"),
+            !cache.exists("select 2;"),
             "the least-recently-used plan should be evicted"
         );
     }

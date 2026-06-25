@@ -36,8 +36,8 @@ pub struct Binder {
     session_txn: Rc<RefCell<Option<Transaction>>>,
     /// Catalog for table lookups, gets us the table 'oid'.
     catalog: Catalog,
-    /// Catalog generation captured at bind start; gates the catalog cache.
-    generation: u64,
+    /// Catalog version captured at bind start; gates the catalog cache.
+    catalog_version: u64,
     scope: Scope,
     /// The next cursor index
     next_cursor: u32,
@@ -51,12 +51,12 @@ pub struct Binder {
 
 impl Binder {
     /// Creates a new binder with a catalog reference. The read transaction for
-    /// cold catalog scans is opened lazily against `storage`; `generation` gates
+    /// cold catalog scans is opened lazily against `storage`; `version` gates
     /// the catalog's in-memory cache.
     pub fn new(
         catalog: Catalog,
         storage: Storage,
-        generation: u64,
+        version: u64,
         session_txn: Rc<RefCell<Option<Transaction>>>,
     ) -> Self {
         Binder {
@@ -64,7 +64,7 @@ impl Binder {
             txn: None,
             session_txn,
             catalog,
-            generation,
+            catalog_version: version,
             scope: Scope::new(),
             next_cursor: 0,
             allow_agg: false,
@@ -103,7 +103,7 @@ impl Binder {
     ///
     /// While an explicit session is open, *no* cache entry can be trusted: an
     /// in-session CREATE or DROP mutates the catalog through the session txn but
-    /// defers the generation bump that would flush the cache, so a positive Hit may
+    /// defers the version bump that would flush the cache, so a positive Hit may
     /// name a since-DROPped table and a NegativeHit may predate an in-session
     /// CREATE. Scan (without caching) through the session txn, which sees the
     /// session's own uncommitted DDL. (A held in-flight statement can't leave the
@@ -113,7 +113,7 @@ impl Binder {
         if let Some(txn) = self.session_txn.borrow().as_ref() {
             return self.catalog.scan_table(txn, name);
         }
-        match self.catalog.cached(name, self.generation) {
+        match self.catalog.cached(name, self.catalog_version) {
             CacheLookup::Hit(def) => return Ok(def),
             CacheLookup::NegativeHit => return Err(Error::UnboundTable(name.to_string())),
             CacheLookup::Miss => {}

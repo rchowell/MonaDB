@@ -79,7 +79,6 @@ fn style_for(tok: &Token) -> &'static str {
         Token::Ast
         | Token::Comma
         | Token::Colon
-        | Token::Dollar
         | Token::Question
         | Token::DotDot
         | Token::Ellipsis

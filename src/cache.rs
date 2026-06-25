@@ -3,9 +3,14 @@ use std::rc::Rc;
 use rustc_hash::FxHashMap;
 
 /// An LRU-cache optimized for reads and being small. It uses the `FxHashMap`
-/// for faster, non-cryptographic hash function for string comps. This cache
-/// is used for short SQL string keys, and it was designed in resposne to slow
-/// cache-plan lookups compared to `SQLite`. Redis-like naming to be cheeky.
+/// for a fast, non-cryptographic hash. This cache is keyed by the raw SQL text
+/// (byte-exact), so a lookup never lexes or parses — it hashes the bytes and
+/// probes. It was designed in response to slow cache-plan lookups compared to
+/// `SQLite`. Redis-like naming to be cheeky.
+///
+/// Keys are byte-exact: two statements that differ only in whitespace are
+/// distinct entries. Re-issuing a statement is the common case, and application
+/// code emits byte-stable SQL, so the hit rate stays high without normalization.
 pub struct Cache<V> {
     /// Cached pairs of values and tick.
     map: FxHashMap<String, (Rc<V>, usize)>,

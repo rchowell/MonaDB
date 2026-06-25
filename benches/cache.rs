@@ -1,5 +1,8 @@
-//! Microbenchmark: Cache<V> (src/cache.rs) vs old PlanCache
-//! (HashMap + VecDeque + deep-clone, reproduced inline).
+//! Microbenchmark: plan-cache key strategies, all reproduced inline so the
+//! comparison is stable regardless of `src/cache.rs`:
+//!   - `old`    — HashMap + VecDeque + deep-clone (the pre-refactor PlanCache)
+//!   - `string` — FxHashMap<String> + Rc (the current raw-SQL-keyed Cache)
+//!   - `u64`    — FxHashMap<u64> + Rc (the prior semantic-hash Cache)
 //!
 //! The value type `MockStmt` approximates `PreparedStatement`'s clone cost:
 //! one heap String + one heap Vec.
@@ -9,9 +12,10 @@
 
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
+use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
-use monadb::Cache;
+use rustc_hash::{FxHashMap, FxHasher};
 
 // ── value type ────────────────────────────────────────────────────────────────
 
@@ -79,6 +83,99 @@ impl OldCache {
     }
 }
 
+// ── string-keyed Cache (FxHashMap<String> — the current src/cache.rs) ───────
+
+struct StringCache<V> {
+    map: FxHashMap<String, (Rc<V>, usize)>,
+    cap: usize,
+    tick: usize,
+}
+
+impl<V> StringCache<V> {
+    fn new(capacity: usize) -> Self {
+        StringCache {
+            map: FxHashMap::default(),
+            cap: capacity,
+            tick: 0,
+        }
+    }
+
+    fn get(&mut self, key: &str) -> Option<Rc<V>> {
+        self.tick += 1;
+        let (val, ts) = self.map.get_mut(key)?;
+        *ts = self.tick;
+        Some(Rc::clone(val))
+    }
+
+    fn put(&mut self, key: &str, val: V) -> Rc<V> {
+        self.tick += 1;
+        let rc = Rc::new(val);
+        self.map.insert(key.to_owned(), (Rc::clone(&rc), self.tick));
+        if self.map.len() > self.cap
+            && let Some(lru) = self
+                .map
+                .iter()
+                .min_by_key(|(_, (_, ts))| *ts)
+                .map(|(k, _)| k.clone())
+        {
+            self.map.remove(&lru);
+        }
+        rc
+    }
+}
+
+// ── u64-keyed Cache (FxHashMap<u64> — the prior src/cache.rs) ────────────────
+//
+// Inlined (like `OldCache`/`StringCache`) so the String-key vs u64-key delta is
+// measured in one run.
+
+struct U64Cache<V> {
+    map: FxHashMap<u64, (Rc<V>, usize)>,
+    cap: usize,
+    tick: usize,
+}
+
+impl<V> U64Cache<V> {
+    fn new(capacity: usize) -> Self {
+        U64Cache {
+            map: FxHashMap::default(),
+            cap: capacity,
+            tick: 0,
+        }
+    }
+
+    fn get(&mut self, key: u64) -> Option<Rc<V>> {
+        self.tick += 1;
+        let (val, ts) = self.map.get_mut(&key)?;
+        *ts = self.tick;
+        Some(Rc::clone(val))
+    }
+
+    fn put(&mut self, key: u64, val: V) -> Rc<V> {
+        self.tick += 1;
+        let rc = Rc::new(val);
+        self.map.insert(key, (Rc::clone(&rc), self.tick));
+        if self.map.len() > self.cap
+            && let Some(&lru) = self
+                .map
+                .iter()
+                .min_by_key(|(_, (_, ts))| *ts)
+                .map(|(k, _)| k)
+        {
+            self.map.remove(&lru);
+        }
+        rc
+    }
+}
+
+/// FxHash of a SQL key — the per-call key-derivation cost the u64 path pays at
+/// the cache boundary (vs the String path hashing the whole template string).
+fn hash_key(sql: &str) -> u64 {
+    let mut h = FxHasher::default();
+    sql.hash(&mut h);
+    h.finish()
+}
+
 // ── setup ─────────────────────────────────────────────────────────────────────
 
 const CAP: usize = 256;
@@ -96,8 +193,8 @@ fn fill_old() -> OldCache {
     c
 }
 
-fn fill_new() -> Cache<MockStmt> {
-    let mut c = Cache::new(CAP);
+fn fill_string() -> StringCache<MockStmt> {
+    let mut c = StringCache::new(CAP);
     for i in 0..CAP {
         let k = format!("select col_{i} from t;");
         c.put(&k, MockStmt::of(&k));
@@ -106,11 +203,22 @@ fn fill_new() -> Cache<MockStmt> {
     c
 }
 
+fn fill_u64() -> U64Cache<MockStmt> {
+    let mut c = U64Cache::new(CAP);
+    for i in 0..CAP {
+        let k = format!("select col_{i} from t;");
+        c.put(hash_key(&k), MockStmt::of(&k));
+    }
+    c.put(hash_key(HOT), MockStmt::of(HOT));
+    c
+}
+
 // Warm thread-locals for the get benchmarks (steady-state hit, page-cache hot).
 // The put benchmarks use with_inputs to reset state each iteration.
 thread_local! {
-    static OLD: RefCell<OldCache>           = RefCell::new(fill_old());
-    static NEW: RefCell<Cache<MockStmt>>    = RefCell::new(fill_new());
+    static OLD: RefCell<OldCache>             = RefCell::new(fill_old());
+    static STRING: RefCell<StringCache<MockStmt>> = RefCell::new(fill_string());
+    static U64: RefCell<U64Cache<MockStmt>>   = RefCell::new(fill_u64());
 }
 
 // ── benchmarks ────────────────────────────────────────────────────────────────
@@ -125,10 +233,10 @@ fn get_old() -> MockStmt {
     OLD.with(|c| c.borrow_mut().get(HOT).unwrap())
 }
 
-// get — new: Rc refcount bump + u64 write, O(1)
+// get — string: hash the HOT String + String eq, O(1)
 #[divan::bench]
-fn get_new() -> Rc<MockStmt> {
-    NEW.with(|c| c.borrow_mut().get(HOT).unwrap())
+fn get_string() -> Rc<MockStmt> {
+    STRING.with(|c| c.borrow_mut().get(HOT).unwrap())
 }
 
 // put — old: O(cap) detach scan on new key (no-op) + insert + evict
@@ -142,10 +250,31 @@ fn put_old(bencher: divan::Bencher) {
     });
 }
 
-// put — new: O(1) insert + O(cap) eviction scan only when over cap
+// put — string: O(1) insert (`key.to_owned()`) + O(cap) eviction scan + String
+// clone of the evicted key.
 #[divan::bench]
-fn put_new(bencher: divan::Bencher) {
-    bencher.with_inputs(fill_new).bench_values(|mut c| {
+fn put_string(bencher: divan::Bencher) {
+    bencher.with_inputs(fill_string).bench_values(|mut c| {
         c.put("select new_key;", MockStmt::of("select new_key;"));
+    });
+}
+
+// get — u64: hash a u64 + u64 eq, O(1). Key derived outside the timed body
+// (deriving it is the lexer's job, measured in `benches/normalize.rs`), so this
+// isolates the cache-boundary cost vs `get_string`'s long-String hash + eq.
+#[divan::bench]
+fn get_u64(bencher: divan::Bencher) {
+    bencher
+        .with_inputs(|| hash_key(HOT))
+        .bench_values(|key| U64.with(|c| c.borrow_mut().get(key).unwrap()));
+}
+
+// put — u64: O(1) insert (no `key.to_owned()`) + O(cap) eviction scan; the
+// evicted key is `Copy`, so eviction sheds the String clone `put_string` pays.
+#[divan::bench]
+fn put_u64(bencher: divan::Bencher) {
+    let key = hash_key("select new_key;");
+    bencher.with_inputs(fill_u64).bench_values(move |mut c| {
+        c.put(key, MockStmt::of("select new_key;"));
     });
 }

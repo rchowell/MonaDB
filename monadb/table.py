@@ -21,6 +21,9 @@ class Table:
     def __init__(self, connection: "object", name: str):
         self._conn = connection
         self._name = name
+        # Prepared `select t[?, …]` per key-arity, so a `table[key]` loop binds
+        # the key instead of recompiling an interpolated-literal statement.
+        self._get_stmts: dict = {}
 
     @property
     def name(self) -> str:
@@ -119,11 +122,28 @@ class Table:
         key_vals = list(keys) + list(named.values())
         if not key_vals:
             raise TypeError("get() requires at least one key value")
-        subscript = ", ".join(encode(k) for k in key_vals)
-        rows = self._conn.execute(
-            f"select {encode_ident(self._name)}[{subscript}];"
-        ).fetchall()
+        arity = len(key_vals)
+        try:
+            rows = self._get_stmt(arity).execute(key_vals).fetchall()
+        except Exception:
+            # A cached plan can go stale if the table was dropped/recreated;
+            # re-prepare once and retry (a key lookup is idempotent).
+            self._get_stmts.pop(arity, None)
+            rows = self._get_stmt(arity).execute(key_vals).fetchall()
         return rows[0] if rows else None
+
+    def _get_stmt(self, arity: int) -> Any:
+        """Return the prepared `select t[?, …]` for a key of ``arity`` values,
+        compiling and caching it per arity so repeated lookups bind rather than
+        re-parse."""
+        stmt = self._get_stmts.get(arity)
+        if stmt is None:
+            placeholders = ", ".join(["?"] * arity)
+            stmt = self._conn.prepare(
+                f"select {encode_ident(self._name)}[{placeholders}];"
+            )
+            self._get_stmts[arity] = stmt
+        return stmt
 
     def delete(self, *, where: Optional[str] = None, **eq: Any) -> "Table":
         """Delete rows matching key predicates or a raw ``where`` clause.

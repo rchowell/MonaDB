@@ -320,8 +320,9 @@ fn cannot_cast(from: &Value, to: &str) -> Error {
 
 /// Truncates a float toward zero into an `i64`, rejecting non-finite or
 /// out-of-range values (mirrors the arithmetic overflow policy). `i64::MAX as
-/// f64` rounds up to `2^63`, so the bound is the exact power of two.
-fn float_to_i64(f: f64) -> Result<i64> {
+/// f64` rounds up to `2^63`, so the bound is the exact power of two. Also the
+/// coercion used for float keys (see [`crate::schema`]).
+pub(crate) fn float_to_i64(f: f64) -> Result<i64> {
     let t = f.trunc();
     if t.is_finite() && (-(2f64.powi(63))..2f64.powi(63)).contains(&t) {
         Ok(t as i64)

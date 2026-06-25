@@ -30,9 +30,12 @@ impl Iterator for SqlLexer<'_> {
     type Item = Spanned<Token, usize, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.tokens
-            .next()
-            .map(|(token, span)| Ok((span.start, token?, span.end)))
+        let (token, span) = self.tokens.next()?;
+        let token = match token {
+            Ok(token) => token,
+            Err(error) => return Some(Err(error)),
+        };
+        Some(Ok((span.start, token, span.end)))
     }
 }
 
@@ -50,8 +53,6 @@ pub enum Token {
     Comma,
     #[token(":")]
     Colon,
-    #[token("$")]
-    Dollar,
     #[token("?")]
     Question,
     #[token("..")]
@@ -211,8 +212,7 @@ pub enum Token {
     //-------------------------
     /// A numbered parameter `$N` (1-based), carrying its raw digits (without the
     /// `$`). The index is parsed later so an out-of-range value surfaces as a
-    /// bind error rather than an opaque lexer failure. Logos prefers this over
-    /// the bare `$`/`Dollar` token by longest match.
+    /// bind error rather than an opaque lexer failure.
     #[regex(r"\$[0-9]+", |lex| lex.slice()[1..].to_owned())]
     NumberedParam(String),
     /// A named parameter `$name`, carrying the name (without the `$`).

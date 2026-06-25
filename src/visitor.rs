@@ -85,18 +85,6 @@ pub mod visit {
             visit_t_member(self, i);
         }
 
-        fn visit_path(&mut self, i: &'ast Path) {
-            visit_path(self, i);
-        }
-
-        fn visit_segment(&mut self, i: &'ast Segment) {
-            visit_segment(self, i);
-        }
-
-        fn visit_selector(&mut self, i: &'ast Selector) {
-            visit_selector(self, i);
-        }
-
         fn visit_expr(&mut self, i: &'ast Expr) {
             visit_expr(self, i);
         }
@@ -344,37 +332,6 @@ pub mod visit {
         v.visit_type(&i.ty);
     }
 
-    pub fn visit_path<'ast, V>(v: &mut V, i: &'ast Path)
-    where
-        V: Visit<'ast> + ?Sized,
-    {
-        for s in &i.segments {
-            v.visit_segment(s);
-        }
-    }
-
-    pub fn visit_segment<'ast, V>(v: &mut V, i: &'ast Segment)
-    where
-        V: Visit<'ast> + ?Sized,
-    {
-        match i {
-            Segment::Child(sels) | Segment::Descd(sels) => {
-                for s in sels {
-                    v.visit_selector(s);
-                }
-            }
-        }
-    }
-
-    pub fn visit_selector<'ast, V>(_v: &mut V, i: &'ast Selector)
-    where
-        V: Visit<'ast> + ?Sized,
-    {
-        match i {
-            Selector::Name(_) | Selector::Wildcard | Selector::Index(_) => {}
-        }
-    }
-
     pub fn visit_expr<'ast, V>(v: &mut V, i: &'ast Expr)
     where
         V: Visit<'ast> + ?Sized,
@@ -535,18 +492,6 @@ pub mod visit_mut {
 
         fn visit_t_member_mut(&mut self, i: &mut TMember) {
             visit_t_member_mut(self, i);
-        }
-
-        fn visit_path_mut(&mut self, i: &mut Path) {
-            visit_path_mut(self, i);
-        }
-
-        fn visit_segment_mut(&mut self, i: &mut Segment) {
-            visit_segment_mut(self, i);
-        }
-
-        fn visit_selector_mut(&mut self, i: &mut Selector) {
-            visit_selector_mut(self, i);
         }
 
         fn visit_expr_mut(&mut self, i: &mut Expr) {
@@ -739,28 +684,6 @@ pub mod visit_mut {
         v.visit_type_mut(&mut i.ty);
     }
 
-    pub fn visit_path_mut<V: VisitMut + ?Sized>(v: &mut V, i: &mut Path) {
-        for s in &mut i.segments {
-            v.visit_segment_mut(s);
-        }
-    }
-
-    pub fn visit_segment_mut<V: VisitMut + ?Sized>(v: &mut V, i: &mut Segment) {
-        match i {
-            Segment::Child(sels) | Segment::Descd(sels) => {
-                for s in sels {
-                    v.visit_selector_mut(s);
-                }
-            }
-        }
-    }
-
-    pub fn visit_selector_mut<V: VisitMut + ?Sized>(_v: &mut V, i: &mut Selector) {
-        match i {
-            Selector::Name(_) | Selector::Wildcard | Selector::Index(_) => {}
-        }
-    }
-
     pub fn visit_expr_mut<V: VisitMut + ?Sized>(v: &mut V, i: &mut Expr) {
         match i {
             Expr::Call(call) => v.visit_call_mut(call),
@@ -887,18 +810,6 @@ pub mod fold {
 
         fn fold_t_member(&mut self, i: TMember) -> TMember {
             fold_t_member(self, i)
-        }
-
-        fn fold_path(&mut self, i: Path) -> Path {
-            fold_path(self, i)
-        }
-
-        fn fold_segment(&mut self, i: Segment) -> Segment {
-            fold_segment(self, i)
-        }
-
-        fn fold_selector(&mut self, i: Selector) -> Selector {
-            fold_selector(self, i)
         }
 
         fn fold_expr(&mut self, i: Expr) -> Expr {
@@ -1096,28 +1007,6 @@ pub mod fold {
             name: i.name,
             ty: Box::new(f.fold_type(*i.ty)),
         }
-    }
-
-    pub fn fold_path<F: Fold + ?Sized>(f: &mut F, i: Path) -> Path {
-        Path {
-            identifier: i.identifier,
-            segments: i.segments.into_iter().map(|s| f.fold_segment(s)).collect(),
-        }
-    }
-
-    pub fn fold_segment<F: Fold + ?Sized>(f: &mut F, i: Segment) -> Segment {
-        match i {
-            Segment::Child(sels) => {
-                Segment::Child(sels.into_iter().map(|s| f.fold_selector(s)).collect())
-            }
-            Segment::Descd(sels) => {
-                Segment::Descd(sels.into_iter().map(|s| f.fold_selector(s)).collect())
-            }
-        }
-    }
-
-    pub fn fold_selector<F: Fold + ?Sized>(_f: &mut F, i: Selector) -> Selector {
-        i
     }
 
     pub fn fold_expr<F: Fold + ?Sized>(f: &mut F, i: Expr) -> Expr {

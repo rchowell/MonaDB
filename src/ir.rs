@@ -1,16 +1,10 @@
-//! AST / IR types and the parser action functions that build them.
-//!
-//! The grammar in `parser.lalrpop` calls the `#[inline]` functions here to
-//! construct nodes; the binder then annotates them (cursor slots, table oids)
-//! and the compiler lowers them to bytecode.
-
 use std::vec;
 
 use crate::value::Value;
 
 pub use crate::display::ToSql;
 
-/// A top-level SQL statement — the unit the compiler turns into a `Program`.
+/// A top-level SQL statement that the compiler turns into a `Program`.
 #[derive(Debug, Clone)]
 pub enum Statement {
     Begin,
@@ -27,6 +21,7 @@ pub enum Statement {
 
 /// A CREATE statement.
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum Create {
     /// `CREATE TABLE` with an optional key declaration.
     Table(TableDefinition),
@@ -39,6 +34,7 @@ pub enum Create {
 
 /// A COPY import/export statement.
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum Copy {
     /// `COPY <table> FROM <file> [<options>]`.
     From {
@@ -56,6 +52,7 @@ pub enum Copy {
 
 /// The data source for `COPY … TO`.
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum CopySource {
     /// A table name.
     Table {
@@ -293,32 +290,6 @@ pub struct TMember {
 }
 
 //------------------------------
-// JSONPath
-//------------------------------
-
-/// A JSONPath: a root identifier followed by navigation segments.
-#[derive(Debug)]
-pub struct Path {
-    pub identifier: String,
-    pub segments: Vec<Segment>,
-}
-
-/// One path segment: a child step (`.x`) or a recursive descent (`..x`).
-#[derive(Debug)]
-pub enum Segment {
-    Child(Vec<Selector>),
-    Descd(Vec<Selector>),
-}
-
-/// A selector within a segment: a name, a `*` wildcard, or an array index.
-#[derive(Debug)]
-pub enum Selector {
-    Name(String),
-    Wildcard,
-    Index(usize),
-}
-
-//------------------------------
 // Expressions
 //------------------------------
 
@@ -411,7 +382,7 @@ impl std::fmt::Display for Param {
     }
 }
 
-/// The supported aggregate functions. The first five mirror SQLite's aggregate
+/// The supported aggregate functions. The first five mirror `SQLite`'s aggregate
 /// set (`count`/`sum`/`min`/`max`/`avg`); the VM's `Agg*` opcodes branch on it.
 /// `First` is compiler-internal (not user-callable): it keeps the first value
 /// folded into the accumulator, used by GROUP BY to carry each group's
@@ -737,6 +708,7 @@ pub fn from_item(src: Expr, alias: Option<String>) -> From {
 
 /// Desugars a file-path string literal into a `read_csv` / `read_jsonl` call.
 #[inline]
+#[allow(clippy::missing_panics_doc)]
 pub fn desugar_file_from(path: &str) -> Expr {
     let format = crate::read::infer_format(path).expect("looks_like_file");
     let name = crate::read::read_builtin(format).to_string();
@@ -868,68 +840,12 @@ pub fn t_array() -> Type {
 }
 
 //------------------------------
-// Parser Actions: JSONPath
-//------------------------------
-
-/// Builds a path from a root identifier and its segments.
-pub fn path(identifier: String, segments: Vec<Segment>) -> Path {
-    Path {
-        identifier,
-        segments,
-    }
-}
-
-/// Builds a child segment (`.[...]`) from its selectors.
-pub fn segment_child(selectors: Vec<Selector>) -> Segment {
-    Segment::Child(selectors)
-}
-
-/// Builds a child name segment (`.name`).
-pub fn segment_child_name(name: String) -> Segment {
-    Segment::Child(vec![Selector::Name(name)])
-}
-
-/// Builds a child wildcard segment (`.*`).
-pub fn segment_child_wildcard() -> Segment {
-    Segment::Child(vec![Selector::Wildcard])
-}
-
-/// Builds a descendant segment (`..[...]`) from its selectors.
-pub fn segment_descd(selectors: Vec<Selector>) -> Segment {
-    Segment::Descd(selectors)
-}
-
-/// Builds a descendant name segment (`..name`).
-pub fn segment_descd_name(name: String) -> Segment {
-    Segment::Descd(vec![Selector::Name(name)])
-}
-
-/// Builds a descendant wildcard segment (`..*`).
-pub fn segment_descd_wildcard() -> Segment {
-    Segment::Descd(vec![Selector::Wildcard])
-}
-
-/// Builds a name selector (`name`).
-pub fn selector_name(name: String) -> Selector {
-    Selector::Name(name)
-}
-
-/// Builds a wildcard selector (`*`).
-pub fn selector_wildcard() -> Selector {
-    Selector::Wildcard
-}
-
-/// Builds an array-index selector (`[i]`).
-pub fn selector_index(idx: usize) -> Selector {
-    Selector::Index(idx)
-}
-
-//------------------------------
 // Parser Actions: Expressions
 //------------------------------
 
 /// Builds an unbound variable reference.
 #[inline]
+#[allow(clippy::needless_pass_by_value)]
 pub fn expr_var(name: String) -> Expr {
     Expr::Var(Var::unbound(&name))
 }

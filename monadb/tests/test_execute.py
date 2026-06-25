@@ -47,7 +47,7 @@ def test_scalar_row_is_unwrapped():
 def test_execute_returns_connection_for_chaining():
     db = monadb.connect()
     db.execute("create table t;")
-    assert db.execute("insert into t ({x: 1});") is db
+    assert db.execute('insert into t ({"x": 1});') is db
 
 
 def test_description_exposes_column_names():
