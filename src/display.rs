@@ -1,8 +1,3 @@
-//! SQL pretty-printing via a small Wadler-style block algebra.
-//!
-//! [`ToSql`] renders IR nodes back to SQL text. `Block`s compose with `+` and
-//! `nest`/`indent`; [`Block::sql`] walks the tree to a string.
-
 use std::ops::Add;
 
 use crate::ir::{Create, Key, Statement, TMember, TObject, TableDefinition, Type};

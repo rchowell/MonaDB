@@ -1,30 +1,3 @@
-//! Builtin scalar functions — the engine's standard library.
-//!
-//! A flat registry of `fn(&[Value]) -> Result<Value>` functions, each dispatching
-//! dynamically on its arguments' `Value` variants. The compiler resolves a call
-//! name to a registry index ([`lookup`]) and emits a single generic
-//! `Vop::Call { fun, cnt }`; the VM pops the arguments and invokes [`call`].
-//! Adding a function is one registry entry plus its `fn` — no new opcode.
-//!
-//! **NULL handling.** Most functions are *strict*: a `null` argument yields a
-//! `null` result, short-circuited in [`call`] so the `fn` never sees a null.
-//! The null-aware exceptions (`strict: false`) handle nulls themselves —
-//! `typeof`, `coalesce`, `nullif`, `ifnull`/`nvl`, `iif`, `concat`, `concat_ws`.
-//!
-//! **Deferred catalog** (a documented follow-up, not yet implemented): more
-//! math (trig, `cbrt`, `log`/`log2`, `pi`, `degrees`/`radians`, `gcd`/`lcm`,
-//! `factorial`); more string (`left`/`right`, `split_part`, `ascii`/`chr`,
-//! `initcap`, `to_hex`); more array (`array_sort`/`_min`/`_max`/`_sum`,
-//! `array_flatten`, `range`); more object (`object_entries`, `object_merge`,
-//! `to_json`/`parse_json`); and whole categories that need their own design or
-//! dependencies — date/time (no temporal type yet), regex, crypto hashes,
-//! `random`/`uuid` (non-deterministic), and aggregates / table-valued `unnest`.
-
-// The numeric builtins convert between `i64`/`f64`/`usize` the way the rest of
-// the engine does — the casts are range-guarded or saturating — and every
-// registry function shares one `fn(&[Value]) -> Result<Value>` signature, so a
-// few never actually error. Both are deliberate; silence the pedantic lints
-// that flag them rather than contort the uniform shape.
 #![allow(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
@@ -77,7 +50,7 @@ struct Builtin {
 /// second name at the same `fn` (e.g. `ceiling`→`ceil`, `power`→`pow`).
 #[rustfmt::skip]
 static BUILTINS: &[Builtin] = &[
-    //   name              arity              strict  func
+    //   name                   arity              strict  func
     // -- type / conditional (null-aware) ------------------------------------
     e("typeof",            Arity::Exact(1),   false,  type_of),
     e("coalesce",          Arity::AtLeast(1), false,  coalesce),

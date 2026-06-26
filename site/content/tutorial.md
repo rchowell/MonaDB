@@ -1,6 +1,6 @@
 +++
 title = "Tutorial"
-description = "A first look at MonaDB — connect, create a table, insert rows, and query them."
+description = "A first look at MonaDB — connect, open a table, insert rows, and query them."
 template = "docs/page.html"
 weight = 2
 +++
@@ -15,50 +15,75 @@ import monadb
 db = monadb.connect("demo.db")  # omit the path for :memory:
 ```
 
-## Create a table
+## Open a table
 
-Tables are created with SQL. Key columns are optional; here we declare an integer `id`:
+Declare an open schema when you open the handle. Key columns are optional; here we declare an integer `id`:
+
+```python
+todos = db.table("todos", {"id": int})
+```
+
+You can also create tables with raw SQL when you prefer:
 
 ```python
 db.execute("create table todos (id int);")
-```
-
-You can also use the dict-like table API:
-
-```python
-todos = db.table("todos")
-todos.create(id=int)
+todos = db.table("todos", {"id": int})
 ```
 
 ## Insert rows
 
+Generated-key insert (returns the key; raises on duplicate):
+
+```python
+tid = todos.insert({"id": 1, "text": "Buy milk", "done": False})
+```
+
+Upsert at a caller-supplied key:
+
+```python
+todos[1] = {"text": "Buy milk", "done": False}
+```
+
+Or via SQL:
+
 ```python
 db.execute("""
     insert into todos ({id: 1, text: "Buy milk", done: false});
-    insert into todos ({id: 2, text: "Walk the dog", done: false});
 """)
 ```
 
-Or via the table handle:
+## Query
+
+Dict-style point lookup:
 
 ```python
-todos.insert({"id": 1, "text": "Buy milk", "done": False})
+todos[1]
 ```
 
-Re-inserting a row with the same key overwrites it — MonaDB has no separate `UPDATE` statement.
+Predicate-driven reads return a lazy `Rows` handle:
 
-## Query
+```python
+for row in todos.select("done = false"):
+    print(row)
+
+open_todos = todos.select("done = false").fetchall()
+```
+
+Raw SQL still works on the connection cursor:
 
 ```python
 db.execute("select * from todos where done = false order by id;")
 db.fetchall()
-# [{'id': 1, 'text': 'Buy milk', 'done': False}, ...]
 ```
 
-`select` maps each binding to an output value. `from` iterates rows (or collection elements). `where` filters, `order by` sorts, and `limit` slices the stream.
+Patch matching rows (whole-table updates require an explicit `None` predicate):
+
+```python
+todos.update({"done": True}, "id = ?", [1])
+```
 
 ## Next steps
 
 - Read the [Introduction](@/language/introduction.md) for how clauses compose
 - Browse runnable [Queries](@/examples/queries.md) examples from the conformance suite
-- See the [Python](@/python.md) API reference for connection and table methods
+- See the [Python](@/python.md) API reference for the full `Table` / `Rows` surface

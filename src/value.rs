@@ -1,10 +1,3 @@
-//! The runtime value type and its in-memory object.
-//!
-//! [`Value`] is the single currency of the VM stack, storage, and query results
-//! — a JSON-like tagged union with `Rc`-backed heap variants (cheap `Clone`,
-//! copy-on-write mutation). The flat [`flat`] codec serializes values to and
-//! from stored bytes; `serde_json` bridges external JSON (input and results).
-
 use std::fmt::{self, Debug, Display};
 use std::rc::Rc;
 

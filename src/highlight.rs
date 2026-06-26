@@ -1,5 +1,3 @@
-//! ANSI syntax highlighting for MonaDB SQL input lines.
-
 use std::fmt::Write as _;
 
 use crate::lexer::{SqlLexer, Token};

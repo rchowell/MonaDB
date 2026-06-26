@@ -1,319 +1,193 @@
 from __future__ import annotations
 
-from typing import Any, Iterator, Optional, Tuple
+from collections.abc import MutableMapping
+import re
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    Iterator,
+    List,
+    Mapping,
+    Optional,
+    Tuple,
+    Union,
+)
 
-from .encode import encode, encode_ident, type_name
+from monadb._monadb import DuplicateKeyError
+from monadb.encode import encode, encode_ident
+
+if TYPE_CHECKING:
+    from monadb.connection import Connection
+
+Patch = Union[Mapping[str, Any], Callable[[dict], dict]]
 
 
-class Table:
-    """Dict-like handle to one table on a :class:`~monadb.connection.Connection`.
-
-    Example:
-        >>> import monadb
-        >>> db = monadb.connect()
-        >>> users = db.table("users")
-        >>> users.create(id=int)
-        >>> users.insert({"id": 1, "name": "Ada"})
-        >>> users[1]
-        {'id': 1, 'name': 'Ada'}
-    """
-
-    def __init__(self, connection: "object", name: str):
-        self._conn = connection
+class Table(MutableMapping[Any, dict]):
+    def __init__(
+        self,
+        conn: Connection,
+        name: str,
+        schema: Optional[Dict[str, Any]] = None,
+    ):
+        self._conn = conn
         self._name = name
-        # Prepared `select t[?, …]` per key-arity, so a `table[key]` loop binds
-        # the key instead of recompiling an interpolated-literal statement.
-        self._get_stmts: dict = {}
+        self._schema = dict(schema) if schema is not None else None
+        self._statements: dict[int, Any] = {}
 
     @property
     def name(self) -> str:
-        """Return this table's name.
-
-        Example:
-            >>> import monadb
-            >>> monadb.connect().table("items").name
-            'items'
-        """
         return self._name
 
     def __repr__(self) -> str:
         return f"Table({self._name!r})"
 
-    def create(self, **columns: Any) -> "Table":
-        """Create this table and declare its key columns.
-
-        Keyword arguments name the composite key in declaration order. Omit them
-        for a keyless table (append-only log).
+    def select(
+        self,
+        predicate: Optional[str] = None,
+        params: Optional[List[Any]] = None,
+    ) -> List[dict]:
+        """Return rows matching an optional predicate as a list.
 
         Args:
-            **columns: ``column_name=int`` or ``column_name=str`` for each key
-                column.
+            predicate: SQL ``WHERE`` fragment without the ``where`` keyword.
+                ``None`` selects all rows.
+            params: Positional ``?`` bindings for ``predicate``.
 
         Returns:
-            This table handle, for chaining.
-
-        Example:
-            >>> import monadb
-            >>> db = monadb.connect()
-            >>> db.table("events").create(ts=int, kind=str)
-            >>> db.table("log").create()  # no key columns
+            The matching rows as a list of dicts.
         """
-        table = encode_ident(self._name)
-        if columns:
-            cols = ", ".join(
-                f"{encode_ident(col)} {type_name(typ)}" for col, typ in columns.items()
-            )
-            sql = f"create table {table} ({cols});"
+        table = self._name
+        if predicate is None:
+            sql = f"select * from {table};"
         else:
-            sql = f"create table {table};"
-        self._conn.execute(sql)
-        self._conn._keys[self._name] = tuple(columns.keys())
-        return self
+            alias = "r"
+            where = self._qualify_predicate(predicate, alias)
+            sql = f"select * from {table} as {alias} where {where};"
+        return self._conn.execute(sql, params)
 
-    def insert(self, rows: Any) -> "Table":
-        """Insert one row or many rows into this table.
-
-        Args:
-            rows: A single row dict, or an iterable of row dicts. Extra fields
-                beyond the declared key columns are stored as payload.
-
-        Returns:
-            This table handle, for chaining.
-
-        Example:
-            >>> import monadb
-            >>> t = monadb.connect().table("scores")
-            >>> t.create(player=str)
-            >>> t.insert({"player": "ada", "score": 100})
-            >>> t.insert([{"player": "linus", "score": 95},
-            ...           {"player": "grace", "score": 99}])
-        """
-        if isinstance(rows, dict):
-            rows = [rows]
-        objs = ", ".join(encode(row) for row in rows)
-        self._conn.execute(f"insert into {encode_ident(self._name)} ({objs});")
-        return self
-
-    def get(self, *keys: Any, **named: Any) -> Any:
-        """Look up rows by key value(s).
-
-        A full key returns the matching row, or ``None`` if absent. A partial
-        key (prefix of the composite key) returns a list of all matching rows.
+    def insert(self, doc: dict) -> Any:
+        """Insert a row with a generated key and return that key.
 
         Args:
-            *keys: Key values in column order.
-            **named: Same values by column name (``get(a="x", b=7)``).
+            doc: Row payload as a dict.
 
         Returns:
-            A row dict, a list of row dicts, or ``None``.
-
-        Example:
-            >>> import monadb
-            >>> c = monadb.connect().table("c")
-            >>> c.create(a=str, b=int)
-            >>> c.insert([{"a": "x", "b": 7}, {"a": "x", "b": 8}])
-            >>> c.get("x", 7)          # full key → row
-            {'a': 'x', 'b': 7}
-            >>> c.get(a="x")           # partial key → list
-            [{'a': 'x', 'b': 7}, {'a': 'x', 'b': 8}]
-            >>> c.get("x", 99) is None
-            True
-        """
-        key_vals = list(keys) + list(named.values())
-        if not key_vals:
-            raise TypeError("get() requires at least one key value")
-        arity = len(key_vals)
-        try:
-            rows = self._get_stmt(arity).execute(key_vals).fetchall()
-        except Exception:
-            # A cached plan can go stale if the table was dropped/recreated;
-            # re-prepare once and retry (a key lookup is idempotent).
-            self._get_stmts.pop(arity, None)
-            rows = self._get_stmt(arity).execute(key_vals).fetchall()
-        return rows[0] if rows else None
-
-    def _get_stmt(self, arity: int) -> Any:
-        """Return the prepared `select t[?, …]` for a key of ``arity`` values,
-        compiling and caching it per arity so repeated lookups bind rather than
-        re-parse."""
-        stmt = self._get_stmts.get(arity)
-        if stmt is None:
-            placeholders = ", ".join(["?"] * arity)
-            stmt = self._conn.prepare(
-                f"select {encode_ident(self._name)}[{placeholders}];"
-            )
-            self._get_stmts[arity] = stmt
-        return stmt
-
-    def delete(self, *, where: Optional[str] = None, **eq: Any) -> "Table":
-        """Delete rows matching key predicates or a raw ``where`` clause.
-
-        To delete every row, use ``db.execute("delete from …")`` —
-        bare ``delete()`` is rejected to avoid accidents.
-
-        Args:
-            where: Raw SQL predicate (``where="score > 90"``).
-            **eq: Key-column equality, e.g. ``delete(x=1)`` or
-                ``delete(a="x", b=7)``.
-
-        Returns:
-            This table handle, for chaining.
+            The generated key — a scalar for a single-column key, otherwise a
+            tuple of key-column values. For keyless tables, the surrogate row
+            id.
 
         Raises:
-            TypeError: When called with no predicates.
-
-        Example:
-            >>> import monadb
-            >>> t = monadb.connect().table("t")
-            >>> t.create(k=int)
-            >>> t.insert([{"k": 1}, {"k": 2}])
-            >>> t.delete(k=1)
-            >>> t.get(1) is None
-            True
+            TypeError: When ``doc`` is not a dict.
+            DuplicateKeyError: When a keyed row with the same key already exists.
         """
+        if not isinstance(doc, dict):
+            raise TypeError("doc must be a dict")
+        cols = self._key_columns()
         table = encode_ident(self._name)
-        if where is not None:
-            self._conn.execute(f"delete from {table} where {where};")
-        elif eq:
-            preds = " and ".join(
-                f"{table}.{encode_ident(col)} = {encode(v)}" for col, v in eq.items()
-            )
-            self._conn.execute(f"delete from {table} where {preds};")
-        else:
-            raise TypeError(
-                "delete() needs key predicates or where=; "
-                "use execute('delete from <table>') to clear all rows"
-            )
-        return self
+        if cols:
+            key = self._key_from_doc(doc)
+            if self._lookup_point(_as_tuple(key)) is not None:
+                raise DuplicateKeyError(f"duplicate key {key!r}")
+            self._conn.execute(f"insert into {table} ({encode(doc)});")
+            return key
+        row_id = self._conn.peek_keyless_row_id(self._name)
+        self._conn.execute(f"insert into {table} ({encode(doc)});")
+        return row_id
 
-    def __getitem__(self, key: Any) -> Any:
-        """Dict-style lookup by key.
-
-        A scalar or tuple subscript is a key lookup. A full key returns the row
-        and raises ``KeyError`` when absent; a partial key returns a list.
+    def update(
+        self,
+        patch: Patch,
+        predicate: Optional[str] = None,
+        params: Optional[List[Any]] = None,
+    ) -> int:
+        """Shallow-merge or transform rows matching an optional predicate.
 
         Args:
-            key: One key value, or a tuple of values for a composite key.
+            patch: Either a dict shallow-merged into each matching document, or
+                a callable ``doc -> doc`` applied to each match.
+            predicate: SQL ``WHERE`` fragment. Pass ``None`` explicitly to
+                update every row.
+            params: Positional ``?`` bindings for ``predicate``.
 
         Returns:
-            A row dict or a list of row dicts.
-
-        Raises:
-            KeyError: When a full key does not match any row.
-
-        Example:
-            >>> import monadb
-            >>> c = monadb.connect().table("c")
-            >>> c.create(a=str, b=int)
-            >>> c.insert({"a": "x", "b": 7})
-            >>> c["x", 7]              # composite full key
-            {'a': 'x', 'b': 7}
-            >>> c["x"]                 # partial prefix
-            [{'a': 'x', 'b': 7}]
+            The number of rows updated.
         """
-        rows = self.get(*_as_tuple(key))
-        if rows is None:
-            raise KeyError(key)
-        return rows
+        if predicate is not None and params is None:
+            params = []
+        rows = self.select(predicate, params)
+        cols = self._key_columns()
+        updated = 0
+        for row in rows:
+            if callable(patch):
+                new_row = patch(row)
+            else:
+                new_row = {**row, **patch}
+            if not isinstance(new_row, dict):
+                raise TypeError("patch callable must return a dict")
+            key = self._key_from_row(row, cols)
+            self._upsert(key, new_row)
+            updated += 1
+        return updated
 
-    def __contains__(self, key: Any) -> bool:
-        """Return whether a full or partial key matches at least one row.
+    def delete(
+        self,
+        predicate: Optional[str] = None,
+        params: Optional[List[Any]] = None,
+    ) -> int:
+        """Delete rows matching an optional predicate.
 
-        Example:
-            >>> import monadb
-            >>> t = monadb.connect().table("t")
-            >>> t.create(k=int)
-            >>> t.insert({"k": 1})
-            >>> 1 in t
-            True
-            >>> 99 in t
-            False
+        Args:
+            predicate: SQL ``WHERE`` fragment. Pass ``None`` explicitly to delete
+                every row.
+            params: Positional ``?`` bindings for ``predicate``.
+
+        Returns:
+            The number of rows deleted.
         """
-        return bool(self.get(*_as_tuple(key)))
+        table = encode_ident(self._name)
+        if predicate is None:
+            return self._conn._mutations(f"delete from {table};")
+        where = self._qualify_predicate(predicate, "r")
+        return self._conn._mutations(f"delete from {table} as r where {where};", params)
 
-    def __iter__(self) -> Iterator[Any]:
-        """Iterate over every row in the table.
+    def count(
+        self,
+        predicate: Optional[str] = None,
+        params: Optional[List[Any]] = None,
+    ) -> int:
+        """Return the number of rows matching an optional predicate.
 
-        Example:
-            >>> import monadb
-            >>> t = monadb.connect().table("t")
-            >>> t.create(k=int)
-            >>> t.insert([{"k": 1}, {"k": 2}])
-            >>> sorted(row["k"] for row in t)
-            [1, 2]
+        Args:
+            predicate: SQL ``WHERE`` fragment. ``None`` counts all rows.
+            params: Positional ``?`` bindings for ``predicate``.
+
+        Returns:
+            The matching row count.
         """
-        rows = self._conn.execute(
-            f"select * from {encode_ident(self._name)};"
-        ).fetchall()
-        return iter(rows)
-
-    def __len__(self) -> int:
-        """Return the number of rows in the table.
-
-        Example:
-            >>> import monadb
-            >>> t = monadb.connect().table("t")
-            >>> t.create(k=int)
-            >>> t.insert([{"k": 1}, {"k": 2}, {"k": 3}])
-            >>> len(t)
-            3
-        """
-        rows = self._conn.execute(
-            f"select count(*) from {encode_ident(self._name)};"
-        ).fetchall()
+        table = encode_ident(self._name)
+        if predicate is None:
+            sql = f"select count(*) from {table};"
+        else:
+            where = self._qualify_predicate(predicate, "r")
+            sql = f"select count(*) from {table} as r where {where};"
+        rows = self._conn.execute(sql, params)
         return int(rows[0]) if rows else 0
 
-    def __delitem__(self, key: Any) -> None:
-        """Delete the row at a full key.
+    # ----- MutableMapping core -----
 
-        Requires the table's key columns to be known (via :meth:`create` or
-        ``connection.table(name, keys=…)``).
+    def __getitem__(self, key: Any) -> Any:
+        """Point-lookup by key, or return a range scan as a list of rows."""
+        if isinstance(key, slice):
+            return self._rows_for_slice(key)
+        row = self._lookup_point(_as_tuple(key))
+        if row is None:
+            raise KeyError(key)
+        return row
 
-        Args:
-            key: The full composite key as a scalar or tuple.
-
-        Raises:
-            KeyError: When ``key`` is not a full key.
-            TypeError: When key columns are unknown.
-
-        Example:
-            >>> import monadb
-            >>> t = monadb.connect().table("t")
-            >>> t.create(k=int)
-            >>> t.insert([{"k": 1}, {"k": 2}])
-            >>> del t[1]
-            >>> 1 in t
-            False
-        """
-        cols = self._key_columns()
-        vals = _as_tuple(key)
-        if len(vals) != len(cols):
-            raise KeyError(f"deleting a row requires the full key {cols}, got {key!r}")
-        self.delete(**dict(zip(cols, vals)))
-
-    def __setitem__(self, key: Any, value: Any) -> None:
-        """Replace (or insert) the row at a full key.
-
-        The subscript key wins over duplicate key fields in ``value``. Requires
-        known key columns (see :meth:`__delitem__`).
-
-        Args:
-            key: The full composite key as a scalar or tuple.
-            value: Row payload as a dict.
-
-        Raises:
-            KeyError: When ``key`` is not a full key.
-            TypeError: When ``value`` is not a dict or key columns are unknown.
-
-        Example:
-            >>> import monadb
-            >>> t = monadb.connect().table("t")
-            >>> t.create(k=int)
-            >>> t.insert({"k": 2, "v": "old"})
-            >>> t[2] = {"v": "new"}
-            >>> t[2]["v"]
-            'new'
-        """
+    def __setitem__(self, key: Any, value: dict) -> None:
+        """Upsert the row at a full caller-supplied key."""
         cols = self._key_columns()
         vals = _as_tuple(key)
         if len(vals) != len(cols):
@@ -321,16 +195,138 @@ class Table:
         if not isinstance(value, dict):
             raise TypeError("row value must be a dict")
         row = {**value, **dict(zip(cols, vals))}
-        self.insert([row])
+        self._upsert(key, row)
+
+    def __delitem__(self, key: Any) -> None:
+        """Delete the row at a full key."""
+        cols = self._key_columns()
+        vals = _as_tuple(key)
+        if len(vals) != len(cols):
+            raise KeyError(f"deleting a row requires the full key {cols}, got {key!r}")
+        if self._lookup_point(vals) is None:
+            raise KeyError(key)
+        preds = " and ".join(
+            f"{encode_ident(self._name)}.{encode_ident(col)} = {encode(v)}"
+            for col, v in zip(cols, vals)
+        )
+        self._conn._mutations(f"delete from {encode_ident(self._name)} where {preds};")
+
+    def __iter__(self) -> Iterator[Any]:
+        """Yield primary-key values in storage order."""
+        cols = self._key_columns()
+        for row in self.select():
+            yield self._key_from_row(row, cols)
+
+    def __len__(self) -> int:
+        """Return the total row count."""
+        return self.count()
+
+    def __contains__(self, key: object) -> bool:
+        """Return whether a full key is present."""
+        cols = self._key_columns()
+        vals = _as_tuple(key)
+        if len(vals) != len(cols):
+            return False
+        return self._lookup_point(vals) is not None
+
+    def values(self) -> Iterator[dict]:
+        """Yield row dicts in a single cursor scan."""
+        yield from self.select()
+
+    def items(self) -> Iterator[Tuple[Any, dict]]:
+        """Yield ``(key, row)`` pairs in a single cursor scan."""
+        cols = self._key_columns()
+        for row in self.select():
+            yield self._key_from_row(row, cols), row
+
+    # ----- internals -----
 
     def _key_columns(self) -> Tuple[str, ...]:
-        cols = self._conn.key_columns(self._name)
-        if not cols:
+        cols = self._conn.schema_columns(self._name)
+        if cols is None:
             raise TypeError(
-                f"key columns for {self._name!r} are unknown; create the table "
-                "via create() or pass keys= to db.table()"
+                f"key columns for {self._name!r} are unknown; pass schema= to "
+                "connection.table()"
             )
         return cols
+
+    def _key_from_doc(self, doc: dict) -> Any:
+        cols = self._key_columns()
+        missing = [col for col in cols if col not in doc]
+        if missing:
+            raise KeyError(f"document missing key field(s): {missing}")
+        values = tuple(doc[col] for col in cols)
+        return values[0] if len(values) == 1 else values
+
+    def _key_from_row(self, row: dict, cols: Tuple[str, ...]) -> Any:
+        values = tuple(row[col] for col in cols)
+        return values[0] if len(values) == 1 else values
+
+    def _lookup_point(self, key_vals: Tuple[Any, ...]) -> Optional[dict]:
+        arity = len(key_vals)
+        try:
+            rows = self._get_stmt(arity).execute(list(key_vals))
+        except Exception:
+            self._statements.pop(arity, None)
+            rows = self._get_stmt(arity).execute(list(key_vals))
+        if not rows or rows[0] is None:
+            return None
+        return rows[0]
+
+    def _get_stmt(self, arity: int) -> Any:
+        stmt = self._statements.get(arity)
+        if stmt is None:
+            placeholders = ", ".join(["?"] * arity)
+            stmt = self._conn.prepare(
+                f"select {encode_ident(self._name)}[{placeholders}];"
+            )
+            self._statements[arity] = stmt
+        return stmt
+
+    def _upsert(self, key: Any, row: dict) -> None:
+        table = encode_ident(self._name)
+        self._conn.execute(f"insert into {table} ({encode(row)});")
+
+    def _rows_for_slice(self, s: slice) -> List[dict]:
+        cols = self._key_columns()
+        if len(cols) != 1:
+            raise TypeError("slice ranges require a single-column primary key")
+        col = cols[0]
+        if self._schema is not None and self._schema.get(col) not in (int, "int"):
+            raise TypeError("slice ranges require an int primary-key column")
+        if s.step not in (None, 1, -1):
+            raise NotImplementedError("slice step values other than 1 or -1")
+        if s.start is None or s.stop is None:
+            raise TypeError("slice bounds must be explicit for range scans")
+        table = encode_ident(self._name)
+        alias = "r"
+        col_ref = f"{alias}.{encode_ident(col)}"
+        if s.step == -1:
+            lo = s.stop + 1
+            hi = s.start
+            predicate = f"{col_ref} >= ? and {col_ref} <= ?"
+            params: List[Any] = [lo, hi]
+            order = f" order by {col_ref} desc"
+        else:
+            predicate = f"{col_ref} >= ? and {col_ref} < ?"
+            params = [s.start, s.stop]
+            order = ""
+        sql = f"select * from {table} as {alias} where {predicate}{order};"
+        return self._conn.execute(sql, params)
+
+    def _qualify_predicate(self, predicate: str, alias: str) -> str:
+        """Prefix bare schema column names with ``alias`` for the binder."""
+        if not self._schema:
+            return predicate
+        qualified = predicate
+        for col in sorted(self._schema.keys(), key=len, reverse=True):
+            ident = encode_ident(col)
+            qualified = re.sub(
+                rf"(?<!\.)\b{re.escape(ident)}\b",
+                f"{alias}.{ident}",
+                qualified,
+            )
+        return qualified
 
 
 def _as_tuple(key: Any) -> Tuple[Any, ...]:

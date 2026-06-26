@@ -14,9 +14,9 @@ def test_session_reads_own_writes_then_commits():
     db.execute("begin;")
     db.execute('insert into t ({"x": 1});')
     # The select runs on the session's write txn and sees the uncommitted row.
-    assert db.execute("select * from t;").fetchall() == [{"x": 1}]
+    assert db.execute("select * from t;") == [{"x": 1}]
     db.execute("commit;")
-    assert db.execute("select * from t;").fetchall() == [{"x": 1}]
+    assert db.execute("select * from t;") == [{"x": 1}]
     db.close()
 
 
@@ -26,7 +26,7 @@ def test_rollback_discards_session_writes():
     db.execute("begin;")
     db.execute('insert into t ({"x": 1});')
     db.execute("rollback;")
-    assert db.execute("select * from t;").fetchall() == []
+    assert db.execute("select * from t;") == []
     db.close()
 
 

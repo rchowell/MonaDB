@@ -123,10 +123,15 @@ impl MonaDB {
     ///
     /// Handles are read through the session txn when a session is open — like the
     /// binder's `resolve_table`, it sees the session's own uncommitted DDL, so an
-    /// in-session CREATE'd table resolves here and no second transaction is opened —
-    /// otherwise through a throwaway read txn. Every `Open` targets a table the
-    /// binder resolved, and CREATE makes a table's btree atomically with its
-    /// catalog row, so a missing handle is a genuine error, surfaced here.
+    /// in-session CREATE'd table resolves here and no second transaction is opened.
+    /// Otherwise they are resolved in a committed **write** txn: a resolved handle
+    /// outlives this call (it is reused across later execution txns), and LMDB only
+    /// registers a named dbi into the shared env when the opening txn commits — a
+    /// dbi first opened in an aborting read txn is unusable by later txns. After a
+    /// reopen no write txn has touched a table's btree in the new env instance, so a
+    /// read-txn resolve would hand back an unregistered handle that `EINVAL`s on use.
+    /// Every `Open` targets a table the binder resolved, and CREATE makes a table's
+    /// btree atomically with its catalog row, so a missing handle is a genuine error.
     fn resolve_tables(&self, program: &mut Program) -> Result<()> {
         let mut oids: Vec<u32> = Vec::new();
         for op in &mut program.instructions {
@@ -149,10 +154,16 @@ impl MonaDB {
                 .map(|&oid| self.storage.open_btree(txn, oid))
                 .collect::<Result<_>>()?,
             None => {
-                let txn = self.storage.read_txn()?;
-                oids.iter()
+                // Commit the dbi opens so the handles survive into later
+                // execution txns (see the doc comment); idempotent for tables
+                // already registered in this env instance.
+                let mut txn = self.storage.write_txn()?;
+                let tables = oids
+                    .iter()
                     .map(|&oid| self.storage.open_btree(&txn, oid))
-                    .collect::<Result<_>>()?
+                    .collect::<Result<_>>()?;
+                txn.commit()?;
+                tables
             }
         };
         Ok(())

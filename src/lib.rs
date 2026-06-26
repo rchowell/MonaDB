@@ -241,6 +241,47 @@ impl MonaDB {
         self.query_with(sql, params)?.finish()
     }
 
+    /// Returns the surrogate row id the next keyless insert would allocate.
+    pub fn peek_keyless_row_id(&mut self, table: &str) -> Result<u32> {
+        use heed::byteorder::{BigEndian, ByteOrder};
+
+        use crate::catalog::CacheLookup;
+        use crate::cursor::Cursor;
+
+        let def = {
+            let txn = self.storage.read_txn()?;
+            let generation = self.catalog_version.get();
+            match self.catalog.cached(table, generation) {
+                CacheLookup::Hit(def) => def,
+                CacheLookup::NegativeHit => {
+                    return Err(Error::UnboundTable(table.to_string()));
+                }
+                CacheLookup::Miss => self.catalog.scan_and_cache(&txn, table)?,
+            }
+        };
+        if !def.keys.is_empty() {
+            return Err(Error::InternalError(format!(
+                "table '{table}' has key columns"
+            )));
+        }
+        let oid = def.oid.ok_or_else(|| {
+            Error::InternalError(format!("table '{table}' has no oid"))
+        })?;
+        let txn = self.storage.read_txn()?;
+        let btree = self.storage.open_btree(&txn, oid)?;
+        let mut cursor = Cursor::new();
+        cursor.open(btree);
+        match cursor.last(&txn)? {
+            Some((key, _)) => {
+                if key.len() < 4 {
+                    return Err(Error::InternalError("invalid keyless row key".into()));
+                }
+                Ok(BigEndian::read_u32(&key) + 1)
+            }
+            None => Ok(0),
+        }
+    }
+
     /// Intercepts an explicit transaction-control statement (`begin;`/`commit;`/
     /// `rollback;`) before the plan cache, running it and returning an empty
     /// [`Rows`]. Returns `None` for any other statement so the caller compiles
@@ -410,7 +451,7 @@ impl MonaDB {
     /// The binder opens a read transaction lazily — only if a catalog lookup
     /// misses the in-memory cache — so a warm bind touches no transaction. When
     /// an explicit session is open, cold lookups instead scan through the session
-    /// txn, so a table CREATEd earlier in the session is visible to a later
+    /// txn, so a table CREATE'd earlier in the session is visible to a later
     /// statement that references it.
     fn bind(&self, statement: &mut ir::Statement) -> Result<()> {
         let mut binder = Binder::new(
@@ -725,6 +766,29 @@ mod tests {
         let path = dir.path().join("nosync.db");
         let db = MonaDB::open_with_config(&path, Config::default().nosync());
         assert!(db.is_ok());
+    }
+
+    #[test]
+    fn reopen_queries_user_table() {
+        // Regression: a user table written, closed, then reopened must remain
+        // queryable. `resolve_tables` resolves btree handles in a committed write
+        // txn so the dbi is registered into the fresh env instance; a read-txn
+        // resolve hands back a handle that EINVALs on use after reopen.
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("reopen.db");
+        {
+            let mut db = MonaDB::open(&path).unwrap();
+            db.execute("create table t;").unwrap();
+            db.execute(r#"insert into t ({"x": 1});"#).unwrap();
+        }
+        let mut db = MonaDB::open(&path).unwrap();
+        let mut rows = db.query("select * from t;").unwrap();
+        let row = rows
+            .next()
+            .unwrap()
+            .expect("reopened table must yield its row");
+        assert_eq!(row.jpk("x"), Some(Value::Int(1)));
+        assert!(rows.next().unwrap().is_none());
     }
 
     // ---- Explicit-transaction correctness (docs/plans/10-transactions.md) ----

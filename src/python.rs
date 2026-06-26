@@ -1,15 +1,15 @@
-#![allow(deprecated)] // tolerate pyo3's IntoPy deprecations across versions
-
-//! Python bindings (pyo3) exposing a DuckDB-style `Connection`.
+//! Python bindings (pyo3) exposing a list-returning `Connection`.
 //!
 //! Feature-gated behind `python`; the default build never compiles this module.
+//! Reads materialize eagerly to a Python `list`; there is no cursor, lazy rows
+//! handle, or `fetch*` buffer.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
 use pyo3::create_exception;
-use pyo3::exceptions::{PyException, PyNotImplementedError};
+use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyList, PyTuple};
 use serde_json::Value as JsonValue;
@@ -22,6 +22,7 @@ use crate::statement::Plan;
 use crate::value::{Object, Value};
 
 create_exception!(_monadb, MonaDBError, PyException);
+create_exception!(_monadb, DuplicateKeyError, PyException);
 
 /// Map a monadb error into a Python `monadb.Error`. `Error::pretty` already
 /// renders the caret-annotated message for syntax errors and falls back to the
@@ -147,193 +148,111 @@ fn py_to_value(obj: &Bound<'_, PyAny>) -> PyResult<Value> {
     ))
 }
 
-fn description_for_rows(py: Python<'_>, result: &[Value]) -> PyObject {
-    let Some(members) = result.first().and_then(Value::members) else {
-        return py.None();
-    };
-    let list = PyList::empty(py);
-    for (name, _) in members {
-        let tuple = PyTuple::new(
-            py,
-            [
-                name.as_str().into_py(py),
-                py.None(),
-                py.None(),
-                py.None(),
-                py.None(),
-                py.None(),
-                py.None(),
-            ],
-        )
-        .expect("build description tuple");
-        list.append(tuple).expect("append description row");
+/// Drive `rows` to exhaustion, converting each row into a Python object.
+fn collect_rows(py: Python<'_>, mut rows: crate::vm::Rows, sql: &str) -> PyResult<Vec<PyObject>> {
+    let mut out = Vec::new();
+    while let Some(row) = rows.next().map_err(|e| to_pyerr(&e, sql))? {
+        out.push(value_to_py(py, &row));
     }
-    list.into()
-}
-
-/// A DuckDB-style connection/cursor over a MonaDB database.
-///
-/// `execute()` eagerly materializes the full result set (which also commits the
-/// statement's transaction, since monadb commits on iterator exhaustion); the
-/// `fetch*` methods then walk that buffer.
-#[pyclass(unsendable, name = "Connection")]
-pub struct Connection {
-    /// `None` once closed — dropping the handle releases the LMDB environment so
-    /// the same path can be reopened (heed forbids opening an env twice at once).
-    db: Option<Rc<RefCell<MonaDB>>>,
-    result: Vec<Value>,
-    cursor: usize,
+    Ok(out)
 }
 
 /// A prepared statement cached from a prior `prepare` call.
-#[pyclass(unsendable, name = "Statement")]
-pub struct Statement {
+#[pyclass(unsendable, name = "_Statement")]
+pub struct PyStatement {
     plan: Rc<Plan>,
     db: Rc<RefCell<MonaDB>>,
-    result: Vec<Value>,
-    cursor: usize,
 }
 
-impl Statement {
-    /// Convert and return rows `[cursor, end)`, advancing the cursor to `end`.
-    fn drain(&mut self, py: Python<'_>, end: usize) -> Vec<PyObject> {
-        let rows = self.result[self.cursor..end]
-            .iter()
-            .map(|v| value_to_py(py, v))
-            .collect();
-        self.cursor = end;
-        rows
-    }
+/// Connection bridge to the MonaDB instance.
+#[pyclass(unsendable, name = "_Connection")]
+pub struct PyConnection {
+    /// Connection becomes None so that we drop the heed env (can't open twice).
+    conn: Option<Rc<RefCell<MonaDB>>>,
 }
 
-impl Connection {
-    /// Run `sql` with bound `params`, draining all rows into `self.result` and
-    /// resetting the cursor.
-    fn run(&mut self, sql: &str, params: &Params) -> PyResult<()> {
-        let out = {
-            let db = self
-                .db
-                .as_ref()
-                .ok_or_else(|| MonaDBError::new_err("connection is closed"))?;
-            let mut rows = db
-                .borrow_mut()
-                .query_with(sql, params)
-                .map_err(|e| to_pyerr(&e, sql))?;
-            let mut out = Vec::new();
-            while let Some(row) = rows.next().map_err(|e| to_pyerr(&e, sql))? {
-                out.push(row);
-            }
-            out
-        };
-
-        self.result = out;
-        self.cursor = 0;
-        Ok(())
-    }
-
+impl PyConnection {
     /// Errors with `monadb.Error` if the connection has been closed.
     fn ensure_open(&self) -> PyResult<()> {
-        if self.db.is_none() {
+        if self.conn.is_none() {
             return Err(MonaDBError::new_err("connection is closed"));
         }
         Ok(())
     }
-
-    /// Convert and return rows `[cursor, end)`, advancing the cursor to `end`.
-    fn drain(&mut self, py: Python<'_>, end: usize) -> Vec<PyObject> {
-        let rows = self.result[self.cursor..end]
-            .iter()
-            .map(|v| value_to_py(py, v))
-            .collect();
-        self.cursor = end;
-        rows
-    }
 }
 
 #[pymethods]
-impl Connection {
-    /// Execute `sql` and return the connection so calls can be chained
-    /// (`db.execute(...).fetchall()`).
+impl PyConnection {
+    /// Execute `sql` and return its rows as a Python list (empty for writes/DDL).
     #[pyo3(signature = (sql, parameters=None))]
-    fn execute<'py>(
-        mut slf: PyRefMut<'py, Self>,
+    fn execute(
+        &self,
+        py: Python<'_>,
         sql: &str,
         parameters: Option<PyObject>,
-    ) -> PyResult<PyRefMut<'py, Self>> {
-        let py = slf.py();
+    ) -> PyResult<Vec<PyObject>> {
+        self.ensure_open()?;
+        let db = self.conn.as_ref().expect("ensure_open");
         let params = match &parameters {
             None => Params::none(),
             Some(obj) => py_to_params(obj.bind(py))?,
         };
-        slf.run(sql, &params)?;
-        Ok(slf)
+        let rows = db
+            .borrow_mut()
+            .query_with(sql, &params)
+            .map_err(|e| to_pyerr(&e, sql))?;
+        collect_rows(py, rows, sql)
     }
 
-    /// Alias of [`execute`](Self::execute); the relation API is deferred.
-    #[pyo3(signature = (query, parameters=None))]
-    fn sql<'py>(
-        slf: PyRefMut<'py, Self>,
-        query: &str,
-        parameters: Option<PyObject>,
-    ) -> PyResult<PyRefMut<'py, Self>> {
-        Self::execute(slf, query, parameters)
-    }
-
-    /// Parse and cache `sql` for repeated execution via [`Statement`].
-    fn prepare(&self, sql: &str) -> PyResult<Statement> {
+    /// Parse and cache `sql` for repeated execution via [`PyStatement`].
+    fn prepare(&self, sql: &str) -> PyResult<PyStatement> {
         self.ensure_open()?;
-        let db = self.db.as_ref().expect("ensure_open");
+        let db = self.conn.as_ref().expect("ensure_open");
         let plan = db
             .borrow_mut()
             .cached_plan(sql)
             .map_err(|e| to_pyerr(&e, sql))?;
-        Ok(Statement {
+        Ok(PyStatement {
             plan,
             db: Rc::clone(db),
-            result: Vec::new(),
-            cursor: 0,
         })
     }
 
-    /// Return the next row (a Python object) or `None` when exhausted.
-    fn fetchone(&mut self, py: Python<'_>) -> PyResult<PyObject> {
+    /// Run a mutating statement and return the number of rows changed.
+    #[pyo3(signature = (sql, parameters=None))]
+    fn execute_mutations(
+        &self,
+        py: Python<'_>,
+        sql: &str,
+        parameters: Option<PyObject>,
+    ) -> PyResult<u64> {
         self.ensure_open()?;
-        if self.cursor < self.result.len() {
-            let idx = self.cursor;
-            self.cursor += 1;
-            Ok(value_to_py(py, &self.result[idx]))
-        } else {
-            Ok(py.None())
-        }
+        let db = self.conn.as_ref().expect("ensure_open");
+        let params = match &parameters {
+            None => Params::none(),
+            Some(obj) => py_to_params(obj.bind(py))?,
+        };
+        let mut rows = db
+            .borrow_mut()
+            .query_with(sql, &params)
+            .map_err(|e| to_pyerr(&e, sql))?;
+        while rows.next().map_err(|e| to_pyerr(&e, sql))?.is_some() {}
+        Ok(rows.mutations())
     }
 
-    /// Return up to `size` rows, clamped to the remaining buffer.
-    #[pyo3(signature = (size=1))]
-    fn fetchmany(&mut self, py: Python<'_>, size: usize) -> PyResult<Vec<PyObject>> {
+    /// Return the surrogate row id the next keyless insert would allocate.
+    fn peek_keyless_row_id(&self, table: &str) -> PyResult<u32> {
         self.ensure_open()?;
-        let end = self.cursor.saturating_add(size).min(self.result.len());
-        Ok(self.drain(py, end))
-    }
-
-    /// Return all remaining rows.
-    fn fetchall(&mut self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
-        self.ensure_open()?;
-        let end = self.result.len();
-        Ok(self.drain(py, end))
-    }
-
-    /// DBAPI-style column metadata derived from the last result's first row,
-    /// `(name, None, None, None, None, None, None)` per column; `None` when the
-    /// rows are not objects. Names are borrowed from the row — no clone.
-    #[getter]
-    fn description(&self, py: Python<'_>) -> PyObject {
-        description_for_rows(py, &self.result)
+        let db = self.conn.as_ref().expect("ensure_open");
+        db.borrow_mut()
+            .peek_keyless_row_id(table)
+            .map_err(|e| to_pyerr(&e, ""))
     }
 
     /// Close the connection, releasing the underlying database handle.
     /// Subsequent operations raise `monadb.Error`.
     fn close(&mut self) {
-        self.db = None;
+        self.conn = None;
     }
 
     fn __enter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
@@ -353,68 +272,27 @@ impl Connection {
 }
 
 #[pymethods]
-impl Statement {
-    /// Execute the prepared statement and return it for chaining.
+impl PyStatement {
+    /// Execute the prepared statement and return its rows as a Python list.
     #[pyo3(signature = (parameters=None))]
-    fn execute<'py>(
-        mut slf: PyRefMut<'py, Self>,
-        parameters: Option<PyObject>,
-    ) -> PyResult<PyRefMut<'py, Self>> {
-        let py = slf.py();
+    fn execute(&self, py: Python<'_>, parameters: Option<PyObject>) -> PyResult<Vec<PyObject>> {
         let params = match &parameters {
             None => Params::none(),
             Some(obj) => py_to_params(obj.bind(py))?,
         };
-        let out = {
-            let sql = slf.plan.sql();
-            let mut rows = slf
-                .db
-                .borrow_mut()
-                .execute_plan(&slf.plan, &params)
-                .map_err(|e| to_pyerr(&e, sql))?;
-            let mut out = Vec::new();
-            while let Some(row) = rows.next().map_err(|e| to_pyerr(&e, sql))? {
-                out.push(row);
-            }
-            out
-        };
-        slf.result = out;
-        slf.cursor = 0;
-        Ok(slf)
+        let sql = self.plan.sql();
+        let rows = self
+            .db
+            .borrow_mut()
+            .execute_plan(&self.plan, &params)
+            .map_err(|e| to_pyerr(&e, sql))?;
+        collect_rows(py, rows, sql)
     }
 
     /// Returns the original SQL text passed to `prepare`.
     #[getter]
     fn sql(&self) -> &str {
         self.plan.sql()
-    }
-
-    /// DBAPI-style column metadata from the last result's first row.
-    #[getter]
-    fn description(&self, py: Python<'_>) -> PyObject {
-        description_for_rows(py, &self.result)
-    }
-
-    /// Return the next buffered row, or `None` when exhausted.
-    fn fetchone(&mut self, py: Python<'_>) -> PyResult<PyObject> {
-        if self.cursor < self.result.len() {
-            let idx = self.cursor;
-            self.cursor += 1;
-            Ok(value_to_py(py, &self.result[idx]))
-        } else {
-            Ok(py.None())
-        }
-    }
-
-    #[pyo3(signature = (size=1))]
-    fn fetchmany(&mut self, py: Python<'_>, size: usize) -> PyResult<Vec<PyObject>> {
-        let end = self.cursor.saturating_add(size).min(self.result.len());
-        Ok(self.drain(py, end))
-    }
-
-    fn fetchall(&mut self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
-        let end = self.result.len();
-        Ok(self.drain(py, end))
     }
 }
 
@@ -442,39 +320,28 @@ fn config_from_py(config: Option<&Bound<'_, PyDict>>) -> PyResult<Config> {
     Ok(cfg)
 }
 
-/// Open a connection. `":memory:"` (or omitted) opens an in-memory database;
-/// any other string is treated as a filesystem path.
+/// Opens a connection from a filesystem path or in-memory if path omitted.
 #[pyfunction]
-#[pyo3(signature = (database=None, *, read_only=false, config=None))]
-fn connect(
-    database: Option<&str>,
-    read_only: bool,
-    config: Option<&Bound<'_, PyDict>>,
-) -> PyResult<Connection> {
-    if read_only {
-        return Err(PyNotImplementedError::new_err(
-            "read_only connections are not supported yet",
-        ));
-    }
+#[pyo3(signature = (path=None, *, config=None))]
+fn connect(path: Option<&str>, config: Option<&Bound<'_, PyDict>>) -> PyResult<PyConnection> {
     let cfg = config_from_py(config)?;
-    let db = match database {
+    let conn = match path {
         None | Some(":memory:") => MonaDB::memory_with_config(cfg),
         Some(path) => MonaDB::open_with_config(path, cfg),
     }
     .map_err(|e| to_pyerr(&e, ""))?;
 
-    Ok(Connection {
-        db: Some(Rc::new(RefCell::new(db))),
-        result: Vec::new(),
-        cursor: 0,
+    Ok(PyConnection {
+        conn: Some(Rc::new(RefCell::new(conn))),
     })
 }
 
 #[pymodule]
 fn _monadb(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_class::<Connection>()?;
-    m.add_class::<Statement>()?;
+    m.add_class::<PyConnection>()?;
+    m.add_class::<PyStatement>()?;
     m.add_function(wrap_pyfunction!(connect, m)?)?;
     m.add("Error", m.py().get_type::<MonaDBError>())?;
+    m.add("DuplicateKeyError", m.py().get_type::<DuplicateKeyError>())?;
     Ok(())
 }

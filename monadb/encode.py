@@ -1,26 +1,8 @@
-"""Encode Python values into MonaDB literal SQL text.
-
-The high-level façade (``Connection``/``Table``) builds SQL by hand because the
-engine has no parameter binding yet, so every Python value must be rendered as a
-MonaDB literal. The rules below are pinned to the actual lexer/parser
-(``src/lexer.rs``, ``src/parser.lalrpop``) and to the string decoder
-(``parse_string_literal`` in ``src/value.rs``), verified by round-trip tests.
-
-Two engine limitations are surfaced honestly as errors rather than papered over
-with silent corruption:
-
-* The string decoder un-doubles quotes and passes backslashes through literally,
-  so a literal cannot faithfully carry a ``"`` or ``\\``.
-
-Object keys are quoted string literals (``{"a": 1}``), matching the engine's
-string-only key grammar.
-"""
-
 from __future__ import annotations
 
 import math
 import re
-from typing import Any
+from typing import Any, Mapping
 
 # Mirrors the `ident` token in src/lexer.rs: [a-zA-Z_][a-zA-Z0-9_]*
 _IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -37,6 +19,12 @@ def encode(value: Any) -> str:
     ``"`` or ``\\``), ``list``/``tuple``, and ``dict`` (string keys). Raises
     ``TypeError`` for unsupported types and ``ValueError`` for values the engine
     cannot represent faithfully.
+
+    Args:
+        value: The Python value to render.
+
+    Returns:
+        A MonaDB literal string.
     """
     # bool must precede int: bool is a subclass of int in Python.
     if value is None:
@@ -54,7 +42,6 @@ def encode(value: Any) -> str:
     if isinstance(value, (list, tuple)):
         return "[" + ", ".join(encode(v) for v in value) + "]"
     if isinstance(value, dict):
-        # Object keys are quoted string literals (the engine's key grammar).
         members = ", ".join(f"{encode_str(str(k))}: {encode(v)}" for k, v in value.items())
         return "{" + members + "}"
     if isinstance(value, (bytes, bytearray)):
@@ -65,10 +52,14 @@ def encode(value: Any) -> str:
 def encode_str(s: str) -> str:
     """Render a Python string as a double-quoted MonaDB string literal.
 
-    The engine's string decoder passes backslashes through literally and has no
-    working escape for an embedded double-quote, so strings containing ``"`` or
-    ``\\`` are rejected rather than silently corrupted. Newlines, tabs, single
-    quotes, and non-ASCII characters round-trip fine and are emitted verbatim.
+    Args:
+        s: The string to encode.
+
+    Returns:
+        A quoted MonaDB string literal.
+
+    Raises:
+        ValueError: When ``s`` contains ``"`` or ``\\``.
     """
     if '"' in s or "\\" in s:
         raise ValueError(
@@ -84,6 +75,16 @@ def encode_ident(name: Any) -> str:
     The single choke point for identifier rendering, mirroring :func:`encode`
     for values. Quoted-string object keys are stored with their quotes embedded
     by the engine, so only identifier-shaped names are supported.
+
+    Args:
+        name: The identifier to render.
+
+    Returns:
+        The identifier unchanged.
+
+    Raises:
+        TypeError: When ``name`` is not a string.
+        ValueError: When ``name`` is not identifier-shaped.
     """
     if not isinstance(name, str):
         raise TypeError(f"identifiers must be strings, got {type(name).__name__}: {name!r}")
@@ -94,10 +95,25 @@ def encode_ident(name: Any) -> str:
     return name
 
 
-def type_name(typ: Any) -> str:
-    """Map a key-column type spec to its MonaDB keyword (``int`` or ``string``)."""
+def type_sql(typ: Any) -> str:
+    """Map a key-column type spec to its MonaDB keyword.
+
+    Args:
+        typ: ``int``, ``str``, or the string ``"int"`` / ``"string"``.
+
+    Returns:
+        The MonaDB type keyword.
+    """
     if isinstance(typ, str):
         return typ
     if typ in _TYPE_NAMES:
         return _TYPE_NAMES[typ]
     raise TypeError(f"unsupported key column type {typ!r}; use int or str")
+
+
+def create_table_sql(name: str, schema: Mapping[str, Any]) -> str:
+    if not schema:
+        return f"create table {name};"
+    else:
+        cols = ", ".join(f"{col} {type_sql(typ)}" for col, typ in schema.items())
+        return f"create table {name} ({cols});"

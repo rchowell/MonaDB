@@ -3,19 +3,13 @@ use std::rc::Rc;
 use rustc_hash::FxHashMap;
 
 /// An LRU-cache optimized for reads and being small. It uses the `FxHashMap`
-/// for a fast, non-cryptographic hash. This cache is keyed by the raw SQL text
-/// (byte-exact), so a lookup never lexes or parses — it hashes the bytes and
-/// probes. It was designed in response to slow cache-plan lookups compared to
-/// `SQLite`. Redis-like naming to be cheeky.
-///
-/// Keys are byte-exact: two statements that differ only in whitespace are
-/// distinct entries. Re-issuing a statement is the common case, and application
-/// code emits byte-stable SQL, so the hit rate stays high without normalization.
+/// for a fast, non-cryptographic hash. It was designed in response to slow
+/// cache-plan lookups compared to `SQLite`. Redis-like naming to be cheeky.
 pub struct Cache<V> {
     /// Cached pairs of values and tick.
     map: FxHashMap<String, (Rc<V>, usize)>,
     /// Configure cache capacity.
-    cap: usize,
+    capacity: usize,
     /// Global monotonic counter.
     tick: usize,
 }
@@ -25,7 +19,7 @@ impl<V> Cache<V> {
     pub fn new(capacity: usize) -> Self {
         Cache {
             map: FxHashMap::default(),
-            cap: capacity,
+            capacity,
             tick: 0,
         }
     }
@@ -43,7 +37,7 @@ impl<V> Cache<V> {
         self.tick += 1;
         let rc = Rc::new(val);
         self.map.insert(key.to_owned(), (Rc::clone(&rc), self.tick));
-        if self.map.len() > self.cap
+        if self.map.len() > self.capacity
             && let Some(lru) = self
                 .map
                 .iter()
