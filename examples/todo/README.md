@@ -38,9 +38,9 @@ todo> quit
 
 | Action    | Table API                                              |
 | --------- | ------------------------------------------------------ |
-| (startup) | `todos.create(id=int)`                                 |
+| (startup) | `db.table("todos", {"id": int})`                       |
 | `add`     | `todos.insert({"id": N, "text": "...", "done": False})` |
-| `list`    | `for row in todos: ...`                                |
-| `done`    | `todos.get(id)` then `todos.insert(...)` with `done` flipped |
-| `rm`      | `todos.delete(id=N)`                                   |
-| `clear`   | `db.execute("delete from todos;")`                    |
+| `list`    | `for row in todos.values(): ...`                       |
+| `done`    | `todos.update({"done": ...}, "id = ?", [id])`          |
+| `rm`      | `del todos[id]`                                        |
+| `clear`   | `todos.delete(None)`                                   |

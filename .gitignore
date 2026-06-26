@@ -4,18 +4,11 @@
 # rust
 target/
 
-# docs
+# docs (old asciidoc)
 docs/build/
-
-# monadb
-.monadb_history
 
 # other
 .DS_Store
-
-# claude
-.claude/worktrees
-docs/superpowers/
 
 # python
 .venv/
@@ -27,10 +20,9 @@ dist/
 wheels/
 .pytest_cache/
 
-# example data (the todo example writes a database file)
-examples/todo/*.db
-todos.db
+# monadb
 *.monadb
+.monadb_history
 
 # zola
 site/public/
@@ -38,11 +30,15 @@ site/public/
 # node
 site/node_modules/
 
-# private LLM context documents
-.context/
-
 # rust
 target/
 
+# agents et al
 .agents/
 .claude/
+
+# superpowers is noisy, likely to be removed..
+docs/superpowers/
+
+# tasks (monadb beads alternative)
+.tasks/

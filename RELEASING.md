@@ -2,14 +2,15 @@
 
 This project publishes **four artifacts** from one git tag:
 
-| Channel | Artifact | Trigger |
-|---------|----------|---------|
-| [crates.io](https://crates.io/crates/monadb) | Rust library | `cargo publish` in CI |
-| [PyPI](https://pypi.org/project/monadb/) | Python wheel | `maturin upload` in CI |
-| [GitHub Releases](https://github.com/rchowell/MonaDB/releases) | `monadb` CLI tarballs | CI upload |
-| [Homebrew tap](https://github.com/rchowell/homebrew-tap) | `monadb` formula | Manual bump after release |
+| Channel                                                        | Artifact              | Trigger                   |
+| -------------------------------------------------------------- | --------------------- | ------------------------- |
+| [crates.io](https://crates.io/crates/monadb)                   | Rust library          | `cargo publish` in CI     |
+| [PyPI](https://pypi.org/project/monadb/)                       | Python wheel          | `maturin upload` in CI    |
+| [GitHub Releases](https://github.com/rchowell/MonaDB/releases) | `monadb` CLI tarballs | CI upload                 |
+| [Homebrew tap](https://github.com/rchowell/homebrew-tap)       | `monadb` formula      | Manual bump after release |
 
-Version is defined in [`Cargo.toml`](Cargo.toml); PyPI reads it via `dynamic = ["version"]` in [`pyproject.toml`](pyproject.toml).
+Version is defined in [`Cargo.toml`](Cargo.toml); PyPI reads it via
+`dynamic = ["version"]` in [`pyproject.toml`](pyproject.toml).
 
 ---
 
@@ -43,10 +44,10 @@ Version is defined in [`Cargo.toml`](Cargo.toml); PyPI reads it via `dynamic = [
 
 Repository secrets (Settings → Secrets → Actions):
 
-| Secret | Purpose |
-|--------|---------|
-| `CARGO_REGISTRY_TOKEN` | `cargo publish` |
-| `PYPI_API_TOKEN` | Only if not using trusted publishing |
+| Secret                 | Purpose                              |
+| ---------------------- | ------------------------------------ |
+| `CARGO_REGISTRY_TOKEN` | `cargo publish`                      |
+| `PYPI_API_TOKEN`       | Only if not using trusted publishing |
 
 `GITHUB_TOKEN` is provided automatically for release uploads.
 
@@ -137,10 +138,10 @@ Monitor the Actions tab until all jobs succeed.
 
 ## Troubleshooting
 
-| Problem | Fix |
-|---------|-----|
-| `cargo publish` fails: crate already exists | Bump version; you cannot republish the same version |
-| maturin upload 403 | Check PyPI trusted publishing or `PYPI_API_TOKEN` |
-| Conformance tests fail in CI | Six known failures; CI runs them with `continue-on-error` until fixed |
-| Release jobs stuck on macOS x86_64 | Replace retired `macos-13` with `macos-15-intel` in `release.yml` |
-| Homebrew `sha256 mismatch` | Re-download tarball URL from the exact release tag |
+| Problem                                     | Fix                                                                   |
+| ------------------------------------------- | --------------------------------------------------------------------- |
+| `cargo publish` fails: crate already exists | Bump version; you cannot republish the same version                   |
+| maturin upload 403                          | Check PyPI trusted publishing or `PYPI_API_TOKEN`                     |
+| Conformance tests fail in CI                | Six known failures; CI runs them with `continue-on-error` until fixed |
+| Release jobs stuck on macOS x86_64          | Replace retired `macos-13` with `macos-15-intel` in `release.yml`     |
+| Homebrew `sha256 mismatch`                  | Re-download tarball URL from the exact release tag                    |

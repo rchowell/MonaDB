@@ -10,12 +10,10 @@ Then type commands at the `todo>` prompt (try `help`).
 What this demonstrates about driving monadb from Python:
 
   * ``monadb.connect(path)`` opens a persistent, file-backed database.
-  * ``db.table("todos")`` returns a dict-like :class:`~monadb.table.Table` handle.
-  * ``create`` / ``insert`` / ``get`` / ``delete`` / iteration map CRUD onto
-    monadb's keyed document model without hand-built SQL.
-  * monadb has no ``UPDATE`` statement — re-inserting an object whose key
-    already exists overwrites that row (upsert), so "toggle done" is a
-    read-modify-write via :meth:`~monadb.table.Table.insert`.
+  * ``db.table("todos", {"id": int})`` returns a dict-like :class:`~monadb.table.Table`.
+  * ``insert`` / subscript lookup / ``delete`` / iteration map CRUD onto the
+    keyed document model without hand-built SQL.
+  * ``update`` patches matching rows in place.
 """
 
 import sys
@@ -42,34 +40,35 @@ def add(todos, text):
     text = text.strip()
     if not text:
         return "usage: add <text>"
-    tid = max((_id(r) for r in todos), default=0) + 1
+    tid = max((_id(r) for r in todos.values()), default=0) + 1
     todos.insert({"id": tid, "text": text, "done": False})
     return f"added #{tid}"
 
 
 def toggle_done(todos, tid):
-    row = todos.get(tid)
-    if row is None:
+    try:
+        row = todos[tid]
+    except KeyError:
         return f"no todo #{tid}"
     new_done = not row["done"]
-    todos.insert({"id": tid, "text": row["text"], "done": new_done})
+    todos.update({"done": new_done}, "id = ?", [tid])
     return f"#{tid} {'done' if new_done else 'todo'}"
 
 
 def remove(todos, tid):
-    if todos.get(tid) is None:
+    if tid not in todos:
         return f"no todo #{tid}"
-    todos.delete(id=tid)
+    del todos[tid]
     return f"removed #{tid}"
 
 
-def clear(db):
-    db.execute("delete from todos;")
+def clear(todos):
+    todos.delete(None)
     return "cleared"
 
 
 def render_list(todos):
-    rows = sorted(todos, key=_id)
+    rows = sorted(todos.values(), key=_id)
     if not rows:
         return "(no todos)"
     return "\n".join(
@@ -101,7 +100,7 @@ def dispatch(db, todos, line):
     if cmd in ("rm", "remove", "del"):
         return _with_id(arg, lambda tid: remove(todos, tid))
     if cmd == "clear":
-        return clear(db)
+        return clear(todos)
     if cmd == "help":
         return HELP
     return f"unknown command: {cmd!r} (type 'help')"
@@ -110,12 +109,7 @@ def dispatch(db, todos, line):
 def main():
     db_path = sys.argv[1] if len(sys.argv) > 1 else "todos.db"
     db = monadb.connect(db_path)
-    todos = db.table("todos")
-
-    try:
-        todos.create(id=int)
-    except monadb.Error:
-        pass
+    todos = db.table("todos", {"id": int})
 
     print(f"todo — monadb @ {db_path}  (type 'help')")
     try:

@@ -41,21 +41,14 @@ cargo publish --dry-run --no-default-features
 maturin build --release --features python
 ```
 
-## Task Management
+## Rules
 
-Use the 'bd' command for task management of work items.
-
-```bash
-bd ready              # Find available work
-bd show <id>          # View issue details
-bd update <id> --status in_progress  # Claim work
-bd close <id>         # Complete work
-bd sync               # Sync with git
-```
+- Do NOT edit `docs/ideas/README.md` but you can add a new `<DD>-<IDEA>.md` file upon request.
 
 ## Conventions
 
 ### Comment Style
+
 - Every public item (and non-obvious private one) opens with a one-line `///` summary: imperative, present tense, ends with a period — `/// Opens a btree with the given transaction mode.`
 - When one line isn't enough: the summary, a blank `///` line, then prose and/or an indented ASCII illustration. Use backticks for identifiers and byte literals, and intra-doc links (`` [`encode_key`] ``) to related items.
 - Illustrate layouts, stack effects, and bytecode addresses with ASCII diagrams *inside* the doc comment — byte layouts (`schema.rs`), `stack: … a b → … (a+b)` effects (`vm.rs`), address maps (`compiler.rs`), lifecycles (`cursor.rs`). Aesthetics matter: align the art.
