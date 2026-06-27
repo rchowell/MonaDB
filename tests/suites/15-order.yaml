@@ -85,6 +85,14 @@ tests:
       - sql: select t.s from T as t order by t.s;
         result: ["apple", "banana", "cherry"]
 
+  - id: order-by-cross-type-total-order
+    description: mixed types sort by the same total order as the comparison operators (bool < number < string < null)
+    steps:
+      - sql: |
+          insert into T ({"x": "s"}, {"x": null}, {"x": 1}, {"x": true});
+      - sql: select t.x from T as t order by t.x;
+        result: [true, 1, "s", null]
+
   - id: order-by-limit-topn
     description: order by then limit yields the top N
     steps:

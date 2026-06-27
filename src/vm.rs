@@ -559,7 +559,7 @@ impl VM {
                 Vop::ObjSet => {
                     let val = self.pop();
                     let name = self.pop();
-                    if let Some(key) = name.as_str() {
+                    if let Ok(key) = name.as_string() {
                         self.peek().set(key, val);
                     }
                 }
@@ -705,39 +705,42 @@ impl VM {
                     let l = self.pop();
                     self.push(l.rem(r)?);
                 }
+                // Comparisons are three-valued: a NULL operand yields NULL (not
+                // false), and non-null operands compare under the cross-type total
+                // order (see `cmp3` / `Value::partial_cmp`).
                 Vop::Lt => {
                     let r = self.pop();
                     let l = self.pop();
-                    self.push_bool(l < r);
+                    self.push(cmp3(CmpOp::Lt, &l, &r).map_or_else(Value::null, Value::bool));
                 }
                 Vop::Le => {
                     let r = self.pop();
                     let l = self.pop();
-                    self.push_bool(l <= r);
+                    self.push(cmp3(CmpOp::Le, &l, &r).map_or_else(Value::null, Value::bool));
                 }
                 Vop::Gt => {
                     let r = self.pop();
                     let l = self.pop();
-                    self.push_bool(l > r);
+                    self.push(cmp3(CmpOp::Gt, &l, &r).map_or_else(Value::null, Value::bool));
                 }
                 Vop::Ge => {
                     let r = self.pop();
                     let l = self.pop();
-                    self.push_bool(l >= r);
+                    self.push(cmp3(CmpOp::Ge, &l, &r).map_or_else(Value::null, Value::bool));
                 }
                 Vop::Eq => {
                     let r = self.pop();
                     let l = self.pop();
-                    self.push_bool(l.eq(&r));
+                    self.push(cmp3(CmpOp::Eq, &l, &r).map_or_else(Value::null, Value::bool));
                 }
                 Vop::Ne => {
                     let r = self.pop();
                     let l = self.pop();
-                    self.push_bool(l.ne(&r));
+                    self.push(cmp3(CmpOp::Ne, &l, &r).map_or_else(Value::null, Value::bool));
                 }
                 Vop::Not => {
                     let v = self.pop();
-                    match to_bool(&v) {
+                    match as_predicate(&v) {
                         Some(true) => self.push_bool(false),
                         Some(false) => self.push_bool(true),
                         None => self.push(Value::null()),
@@ -746,8 +749,8 @@ impl VM {
                 Vop::And => {
                     let r = self.pop();
                     let l = self.pop();
-                    let lv = to_bool(&l);
-                    let rv = to_bool(&r);
+                    let lv = as_predicate(&l);
+                    let rv = as_predicate(&r);
                     if lv == Some(false) || rv == Some(false) {
                         self.push_bool(false);
                     } else if lv == Some(true) && rv == Some(true) {
@@ -759,8 +762,8 @@ impl VM {
                 Vop::Or => {
                     let r = self.pop();
                     let l = self.pop();
-                    let lv = to_bool(&l);
-                    let rv = to_bool(&r);
+                    let lv = as_predicate(&l);
+                    let rv = as_predicate(&r);
                     if lv == Some(true) || rv == Some(true) {
                         self.push_bool(true);
                     } else if lv == Some(false) && rv == Some(false) {
@@ -775,11 +778,11 @@ impl VM {
                 }
                 Vop::IsTrue => {
                     let v = self.pop();
-                    self.push_bool(to_bool(&v) == Some(true));
+                    self.push_bool(as_predicate(&v) == Some(true));
                 }
                 Vop::IsFalse => {
                     let v = self.pop();
-                    self.push_bool(to_bool(&v) == Some(false));
+                    self.push_bool(as_predicate(&v) == Some(false));
                 }
                 Vop::IsUnknown => {
                     let v = self.pop();
@@ -789,19 +792,44 @@ impl VM {
                     let b = self.pop();
                     let a = self.pop();
                     let x = self.pop();
-                    self.push_bool(x.ge(&a) && x.le(&b));
+                    // x BETWEEN a AND b  ≡  (x >= a) AND (x <= b), three-valued —
+                    // matching the comparison operators and the Kleene `And` Vop.
+                    let ge = cmp3(CmpOp::Ge, &x, &a);
+                    let le = cmp3(CmpOp::Le, &x, &b);
+                    let r = if ge == Some(false) || le == Some(false) {
+                        Value::bool(false)
+                    } else if ge.is_none() || le.is_none() {
+                        Value::null()
+                    } else {
+                        Value::bool(true)
+                    };
+                    self.push(r);
                 }
                 Vop::InList(n) => {
                     let items = self.take(*n);
                     let target = self.pop();
+                    // x IN (…)  ≡  OR of (x = item), three-valued (Kleene OR): true
+                    // on a match, else null if any comparison was unknown, else false.
+                    let mut saw_null = false;
                     let mut hit = false;
                     for item in &items {
-                        if target.eq(item) {
-                            hit = true;
-                            break;
+                        match cmp3(CmpOp::Eq, &target, item) {
+                            Some(true) => {
+                                hit = true;
+                                break;
+                            }
+                            None => saw_null = true,
+                            Some(false) => {}
                         }
                     }
-                    self.push_bool(hit);
+                    let r = if hit {
+                        Value::bool(true)
+                    } else if saw_null {
+                        Value::null()
+                    } else {
+                        Value::bool(false)
+                    };
+                    self.push(r);
                 }
                 Vop::Scalar => {
                     let arr = self.pop();
@@ -1045,7 +1073,7 @@ fn sum_add(cell: Value, v: Value) -> Result<Value> {
     // Either operand is a float; both are numbers, so `as_f64` is total here.
     // Reject a non-finite total: `Value::Float` forbids NaN/∞ (a JSON number
     // can't encode them — they'd silently serialize to `null`).
-    let sum = cell.as_f64().unwrap_or(0.0) + v.as_f64().unwrap_or(0.0);
+    let sum = cell.num_f64().unwrap_or(0.0) + v.num_f64().unwrap_or(0.0);
     if !sum.is_finite() {
         return Err(Error::InternalError(
             "sum() overflowed to a non-finite value".into(),
@@ -1055,8 +1083,8 @@ fn sum_add(cell: Value, v: Value) -> Result<Value> {
 }
 
 /// Keeps whichever of `cell`/`v` compares `want` (min keeps the lesser, max the
-/// greater). Incomparable operands (e.g. int vs string) are a runtime error —
-/// `Value`'s ordering defines no cross-type collation.
+/// greater). `Value`'s ordering is total across types (see [`Value::partial_cmp`]),
+/// so the `None` arm is defensive only.
 fn extremum(cell: Value, v: Value, want: Ordering, name: &str) -> Result<Value> {
     if cell.is_null() {
         return Ok(v); // first non-null value
@@ -1073,7 +1101,7 @@ fn extremum(cell: Value, v: Value, want: Ordering, name: &str) -> Result<Value> 
 /// Folds a non-null numeric `v` into an avg accumulator `[sum, count]`,
 /// accumulating the sum in `f64`; a non-number `v` is a runtime type error.
 fn avg_step(cell: Value, v: Value) -> Result<Value> {
-    let Some(x) = v.as_f64() else {
+    let Some(x) = v.num_f64() else {
         return Err(Error::InternalError(format!(
             "avg() requires numbers, got {v}"
         )));
@@ -1097,7 +1125,7 @@ fn avg_step(cell: Value, v: Value) -> Result<Value> {
 fn avg_parts(cell: &Value) -> (f64, i64) {
     match cell {
         Value::Array(items) => {
-            let sum = items.first().and_then(Value::as_f64).unwrap_or(0.0);
+            let sum = items.first().and_then(Value::num_f64).unwrap_or(0.0);
             let count = match items.get(1) {
                 Some(Value::Int(c)) => *c,
                 _ => 0,
@@ -1135,7 +1163,7 @@ fn ensure_object(val: &Value) -> Result<()> {
 
 /// Coerces a value to a 3VL truth value: `null` → unknown (`None`), else its
 /// truthiness as `Some(bool)`.
-fn to_bool(v: &Value) -> Option<bool> {
+fn as_predicate(v: &Value) -> Option<bool> {
     if v.is_null() {
         None
     } else {
@@ -1323,11 +1351,12 @@ mod agg_tests {
     }
 
     #[test]
-    fn min_incomparable_types_errors() {
-        let mut cell = agg_init(AggKind::Min);
-        cell = agg_step(cell, AggKind::Min, Value::Int(1)).expect("first");
-        let err = agg_step(cell, AggKind::Min, Value::from("a".to_string()));
-        assert!(err.is_err(), "comparing int and string should error");
+    fn min_and_max_across_types_follow_total_order() {
+        // Comparison is now total (bool < number < string < composite < null), so
+        // min/max no longer error across types: the number sorts before the string.
+        let vals = [Value::Int(1), Value::from("a".to_string())];
+        assert!(matches!(run(AggKind::Min, &vals), Value::Int(1)));
+        assert!(matches!(run(AggKind::Max, &vals), Value::String(_)));
     }
 
     #[test]

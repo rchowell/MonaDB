@@ -135,7 +135,7 @@ fn want_bool(name: &str, v: &Value) -> Result<bool> {
 }
 
 fn want_char(name: &str, v: &Value) -> Result<char> {
-    let s = v.as_str().ok_or_else(|| {
+    let s = v.as_string().map_err(|_| {
         Error::InternalError(format!("option '{name}' requires a string"))
     })?;
     let mut chars = s.chars();
@@ -169,9 +169,9 @@ fn want_string_array(name: &str, v: &Value) -> Result<Vec<String>> {
     items
         .iter()
         .map(|item| {
-            item.as_str()
+            item.as_string()
                 .map(str::to_string)
-                .ok_or_else(|| {
+                .map_err(|_| {
                     Error::InternalError(format!(
                         "option '{name}' requires an array of strings"
                     ))

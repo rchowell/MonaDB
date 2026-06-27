@@ -260,9 +260,9 @@ tests:
         error: static
 
   - id: min-mixed-types-runtime
-    description: min over incomparable types (int vs string) is a runtime error
+    description: min over mixed types follows the total order (number < string)
     steps:
       - sql: |
           insert into T ({"v": 1}, {"v": "a"});
       - sql: select min(t.v) from T as t;
-        error: runtime
+        result: [1]

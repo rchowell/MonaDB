@@ -41,6 +41,11 @@ pub enum Error {
 }
 
 impl Error {
+    /// A "wrong type" error for a strict accessor: `expected int, got string`.
+    pub fn type_expected(want: &str, got: &str) -> Error {
+        Error::InternalError(format!("expected {want}, got {got}"))
+    }
+
     /// Renders the error against the source `input`. A syntax error shows the
     /// offending line with a caret and an "expected" hint; others use concise
     /// one-line messages.

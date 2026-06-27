@@ -204,7 +204,7 @@ impl Value {
         match (self, other) {
             (Value::Null, Value::Null) => return true,
             (Value::Bool(a), Value::Bool(b)) => return a == b,
-            (a, b) if a.is_number() && b.is_number() => return a.as_f64() == b.as_f64(),
+            (a, b) if a.is_number() && b.is_number() => return a.num_f64() == b.num_f64(),
             (Value::String(a), Value::String(b)) => return a == b,
             (Value::Oid(a), Value::Oid(b)) => return a == b,
             (Value::Bytes(a), Value::Bytes(b)) => return a == b,
@@ -225,13 +225,13 @@ impl Value {
             return self.is_null() && other.is_null();
         }
         if self.is_number() && other.is_number() {
-            return self.as_f64() == other.as_f64();
+            return self.num_f64() == other.num_f64();
         }
         if self.is_bool() && other.is_bool() {
-            return self.as_bool() == other.as_bool();
+            return self.as_bool().ok() == other.as_bool().ok();
         }
         if self.is_string() && other.is_string() {
-            return self.as_str() == other.as_str();
+            return self.as_string().ok() == other.as_string().ok();
         }
         // Internal scalar kinds (`Oid`/`Bytes`) compare by content too, so a
         // flat-backed value still equals its owned twin — `type_name` and the
@@ -308,16 +308,16 @@ impl Value {
         }
     }
 
-    /// Returns the boolean, or `None` if this is not a boolean.
-    pub fn as_bool(&self) -> Option<bool> {
+    /// Returns the boolean, or a type error if this is not a boolean.
+    pub fn as_bool(&self) -> Result<bool> {
         match self {
-            Value::Bool(b) => Some(*b),
+            Value::Bool(b) => Ok(*b),
             Value::Raw(r) => match r.tag() {
-                flat::FALSE => Some(false),
-                flat::TRUE => Some(true),
-                _ => None,
+                flat::FALSE => Ok(false),
+                flat::TRUE => Ok(true),
+                _ => Err(Error::type_expected("bool", self.type_name())),
             },
-            _ => None,
+            _ => Err(Error::type_expected("bool", self.type_name())),
         }
     }
 
@@ -339,12 +339,40 @@ impl Value {
         }
     }
 
-    /// Returns the value as an `f64` (an `Int` widens), or `None` if non-numeric.
-    pub fn as_f64(&self) -> Option<f64> {
+    /// Returns the integer, or a type error if this is not an integer. Strict: a
+    /// float is *not* an int (use [`Value::to_int`] to coerce).
+    pub fn as_int(&self) -> Result<i64> {
+        match self {
+            Value::Int(i) => Ok(*i),
+            Value::Raw(r) => match r.scalar() {
+                Some(Value::Int(i)) => Ok(i),
+                _ => Err(Error::type_expected("int", self.type_name())),
+            },
+            _ => Err(Error::type_expected("int", self.type_name())),
+        }
+    }
+
+    /// Returns the float, or a type error if this is not a float. Strict: an int
+    /// is *not* a float (use [`Value::to_float`] to widen/coerce).
+    pub fn as_float(&self) -> Result<f64> {
+        match self {
+            Value::Float(f) => Ok(*f),
+            Value::Raw(r) => match r.scalar() {
+                Some(Value::Float(f)) => Ok(f),
+                _ => Err(Error::type_expected("float", self.type_name())),
+            },
+            _ => Err(Error::type_expected("float", self.type_name())),
+        }
+    }
+
+    /// Widens a number to `f64` (an `Int` widens), or `None` if non-numeric. The
+    /// internal numeric view shared by comparison, ordering, and aggregation —
+    /// *not* a user-facing cast (see [`Value::to_float`]).
+    pub(crate) fn num_f64(&self) -> Option<f64> {
         match self {
             Value::Int(i) => Some(*i as f64),
             Value::Float(f) => Some(*f),
-            Value::Raw(r) => r.scalar().and_then(|v| v.as_f64()),
+            Value::Raw(r) => r.scalar().and_then(|v| v.num_f64()),
             _ => None,
         }
     }
@@ -358,12 +386,14 @@ impl Value {
         }
     }
 
-    /// Returns the string slice, or `None` if this is not a string.
-    pub fn as_str(&self) -> Option<&str> {
+    /// Returns the string slice, or a type error if this is not a string.
+    pub fn as_string(&self) -> Result<&str> {
         match self {
-            Value::String(s) => Some(s),
-            Value::Raw(r) => r.as_str(),
-            _ => None,
+            Value::String(s) => Ok(s),
+            Value::Raw(r) => r
+                .as_str()
+                .ok_or_else(|| Error::type_expected("string", self.type_name())),
+            _ => Err(Error::type_expected("string", self.type_name())),
         }
     }
 
@@ -430,6 +460,23 @@ impl Value {
         }
     }
 
+    /// The cross-type ordering rank — mirrors the `schema` ORDER BY tags so that
+    /// the comparison operators and `ORDER BY` agree on one total order:
+    /// `bool < number < string < composite < null`.
+    pub(crate) fn type_rank(&self) -> u8 {
+        if self.is_null() {
+            0xFF
+        } else if self.is_bool() {
+            0x01
+        } else if self.is_number() {
+            0x02
+        } else if self.is_string() {
+            0x03
+        } else {
+            0xFE
+        }
+    }
+
     //------------------------------
     // Navigation (Rc-sharing, not deep copy)
     //------------------------------
@@ -438,14 +485,14 @@ impl Value {
     /// keys an object (the computed-path step `input[expr]`).
     pub fn jpe(&self, v: Value) -> Option<Value> {
         if v.is_number() {
-            let f = v.as_f64()?;
+            let f = v.num_f64()?;
             return if f >= 0.0 && f.fract() == 0.0 {
                 self.jpi(f as usize)
             } else {
                 None
             };
         }
-        v.as_str().and_then(|s| self.jpk(s))
+        v.as_string().ok().and_then(|s| self.jpk(s))
     }
 
     /// Number of elements, or `None` if this is not an array.
@@ -562,6 +609,110 @@ impl Value {
     }
 
     //------------------------------
+    // Coercions (cast + implicit)
+    //
+    // The `to_*` layer converts *across* types (the forceful `CAST` and the
+    // implicit operand coercions), as opposed to the strict `as_*` accessors
+    // which only unwrap a value that already is the target type. Every `to_*`
+    // returns a want-like type error rather than `None`.
+    //------------------------------
+
+    /// Coerces to `i64`: ints pass through, floats truncate toward zero, bools map
+    /// to 0/1, and strings parse leniently (an integer or decimal truncated toward
+    /// zero, else an exponent form via `f64`).
+    pub fn to_int(&self) -> Result<i64> {
+        if let Ok(i) = self.as_int() {
+            return Ok(i);
+        }
+        if let Ok(f) = self.as_float() {
+            return float_to_i64(f);
+        }
+        if let Ok(b) = self.as_bool() {
+            return Ok(i64::from(b));
+        }
+        if let Ok(s) = self.as_string() {
+            let t = s.trim();
+            return if let Some(i) = trunc_decimal_str(t) {
+                Ok(i)
+            } else if let Ok(f) = t.parse::<f64>() {
+                float_to_i64(f)
+            } else {
+                Err(Error::type_expected("int", "string"))
+            };
+        }
+        Err(Error::type_expected("int", self.type_name()))
+    }
+
+    /// Coerces to `f64`: numbers widen, bools map to 0.0/1.0, and strings parse
+    /// leniently.
+    pub fn to_float(&self) -> Result<f64> {
+        if let Some(f) = self.num_f64() {
+            return Ok(f);
+        }
+        if let Ok(b) = self.as_bool() {
+            return Ok(if b { 1.0 } else { 0.0 });
+        }
+        if let Ok(s) = self.as_string() {
+            return s
+                .trim()
+                .parse::<f64>()
+                .map_err(|_| Error::type_expected("float", "string"));
+        }
+        Err(Error::type_expected("float", self.type_name()))
+    }
+
+    /// Coerces to text: a scalar's text form (strings raw, other scalars their
+    /// JSON form). Arrays, objects, null, and internal kinds are not convertible.
+    pub fn to_text(&self) -> Result<String> {
+        if let Ok(s) = self.as_string() {
+            return Ok(s.to_string());
+        }
+        if self.is_bool() || self.is_number() {
+            return Ok(self.to_string());
+        }
+        Err(Error::type_expected("a scalar", self.type_name()))
+    }
+
+    /// Coerces to bool: zero is false and nonzero true; the strings `true`/`false`
+    /// (case-insensitive) map to their values, anything else errors.
+    pub fn to_bool(&self) -> Result<bool> {
+        if let Ok(b) = self.as_bool() {
+            return Ok(b);
+        }
+        if let Some(f) = self.num_f64() {
+            return Ok(f != 0.0);
+        }
+        if let Ok(s) = self.as_string() {
+            let t = s.trim();
+            if t.eq_ignore_ascii_case("true") {
+                return Ok(true);
+            } else if t.eq_ignore_ascii_case("false") {
+                return Ok(false);
+            }
+        }
+        Err(Error::type_expected("bool", self.type_name()))
+    }
+
+    /// Coerces to a number value: numbers pass through (normalized to owned), bools
+    /// map to 0/1, and a string parses exactly as the matching numeric literal
+    /// would ([`Value::number`]), rejecting a non-numeric (non-finite) result.
+    pub fn to_number(&self) -> Result<Value> {
+        if self.is_number() {
+            return Ok(self.clone().materialized());
+        }
+        if let Ok(b) = self.as_bool() {
+            return Ok(Value::Int(i64::from(b)));
+        }
+        if let Ok(s) = self.as_string() {
+            return match Value::number(s.trim()) {
+                Value::Float(f) if !f.is_finite() => Err(Error::type_expected("number", "string")),
+                n => Ok(n),
+            };
+        }
+        Err(Error::type_expected("number", self.type_name()))
+    }
+
+    //------------------------------
     // Arithmetic (non-panicking)
     //
     // Promotion policy:
@@ -571,6 +722,8 @@ impl Value {
     //   - any division or remainder by zero (int or float) -> Err (a float
     //     inf/NaN can't serialize to JSON, so we reject rather than produce one).
     //   - a non-number operand -> Err (a user-reachable type error, not a panic).
+    //   - a null operand propagates to null (SQL semantics), short-circuiting the
+    //     coercion, the type check, and the divide-by-zero check.
     //------------------------------
 
     /// Adds two numbers.
@@ -585,6 +738,7 @@ impl Value {
     }
 
     /// Subtracts two numbers.
+    #[allow(clippy::should_implement_trait)]
     pub fn sub(self, other: Value) -> Result<Value> {
         if let (Value::Int(a), Value::Int(b)) = (&self, &other) {
             return a
@@ -629,31 +783,70 @@ impl Value {
         Self::float_op_nonzero(&self, &other, "%", |a, b| a % b)
     }
 
-    /// Float arithmetic on two numeric operands; non-numbers are a type error.
+    /// Float arithmetic on two operands, coercing each through [`Value::to_float`]
+    /// (a numeric string coerces, `'5' + 1` → `6.0`); a null operand propagates to
+    /// null (SQL semantics), and a non-coercible operand is a type error.
     fn float_op(a: &Value, b: &Value, op: &str, f: impl Fn(f64, f64) -> f64) -> Result<Value> {
-        match (a.as_f64(), b.as_f64()) {
-            (Some(x), Some(y)) => Ok(Value::Float(f(x, y))),
+        if a.is_null() || b.is_null() {
+            return Ok(Value::Null);
+        }
+        match (a.to_float(), b.to_float()) {
+            (Ok(x), Ok(y)) => Ok(Value::Float(f(x, y))),
             _ => Err(Error::InternalError(format!(
                 "operator '{op}' requires numbers, got {a} and {b}"
             ))),
         }
     }
 
-    /// Like `float_op`, but rejects a zero right operand (no JSON inf/NaN).
+    /// Like `float_op`, but rejects a zero right operand (no JSON inf/NaN). A null
+    /// operand still propagates to null, short-circuiting before the zero check.
     fn float_op_nonzero(
         a: &Value,
         b: &Value,
         op: &str,
         f: impl Fn(f64, f64) -> f64,
     ) -> Result<Value> {
-        match (a.as_f64(), b.as_f64()) {
-            (Some(_), Some(y)) if y == 0.0 => Err(Error::InternalError("division by zero".into())),
-            (Some(x), Some(y)) => Ok(Value::Float(f(x, y))),
+        if a.is_null() || b.is_null() {
+            return Ok(Value::Null);
+        }
+        match (a.to_float(), b.to_float()) {
+            (Ok(_), Ok(y)) if y == 0.0 => Err(Error::InternalError("division by zero".into())),
+            (Ok(x), Ok(y)) => Ok(Value::Float(f(x, y))),
             _ => Err(Error::InternalError(format!(
                 "operator '{op}' requires numbers, got {a} and {b}"
             ))),
         }
     }
+}
+
+/// Truncates a float toward zero into an `i64`, rejecting non-finite or
+/// out-of-range values (mirrors the arithmetic overflow policy). `i64::MAX as
+/// f64` rounds up to `2^63`, so the bound is the exact power of two. Shared by
+/// [`Value::to_int`] and the float-key coercion in [`crate::schema`].
+pub(crate) fn float_to_i64(f: f64) -> Result<i64> {
+    let t = f.trunc();
+    if t.is_finite() && (-(2f64.powi(63))..2f64.powi(63)).contains(&t) {
+        Ok(t as i64)
+    } else {
+        Err(Error::InternalError("value is out of range for int".into()))
+    }
+}
+
+/// Truncates a plain decimal string toward zero into an `i64` *exactly* — the
+/// integer part is parsed directly, so magnitudes beyond `f64`'s 53-bit mantissa
+/// keep full precision. Returns `None` for non-plain forms (e.g. exponents),
+/// which the caller routes through `f64`.
+fn trunc_decimal_str(t: &str) -> Option<i64> {
+    if let Ok(i) = t.parse::<i64>() {
+        return Some(i);
+    }
+    let (int_part, frac) = t.split_once('.')?;
+    if !frac.bytes().all(|b| b.is_ascii_digit()) {
+        return None; // exponent or junk → let the caller try f64
+    }
+    // A sign-only or empty integer part (".5", "-.5") fails here and falls back
+    // to the caller's f64 path, which truncates to the same 0.
+    int_part.parse::<i64>().ok()
 }
 
 impl From<String> for Value {
@@ -717,14 +910,24 @@ impl PartialEq for Value {
 }
 
 impl PartialOrd for Value {
+    /// A total order across every type, matching `ORDER BY` (see
+    /// [`Value::type_rank`]): different kinds order by rank
+    /// (`bool < number < string < composite < null`); same-kind values compare by
+    /// content. The three-valued NULL semantics of the comparison *operators* live
+    /// in the VM (`cmp3`), not here — this ordering is total so sorting is stable.
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        if self.is_number() && other.is_number() {
-            return self.as_f64().partial_cmp(&other.as_f64());
+        use std::cmp::Ordering;
+        let (a, b) = (self.type_rank(), other.type_rank());
+        if a != b {
+            return Some(a.cmp(&b));
         }
-        if self.is_string() && other.is_string() {
-            return Some(self.as_str()?.cmp(other.as_str()?));
+        match a {
+            0x01 => self.as_bool().ok().partial_cmp(&other.as_bool().ok()),
+            0x02 => self.num_f64().partial_cmp(&other.num_f64()),
+            0x03 => Some(self.as_string().ok()?.cmp(other.as_string().ok()?)),
+            // Composites and null share a bucket with no finer order (v1).
+            _ => Some(Ordering::Equal),
         }
-        None
     }
 
     fn lt(&self, other: &Self) -> bool {
@@ -1288,6 +1491,16 @@ mod tests {
         assert!(Value::string("a".to_string()).add(Value::int(1)).is_err());
     }
 
+    #[test]
+    fn arithmetic_propagates_null() {
+        // A null operand yields null (SQL semantics), regardless of the other
+        // side or the operator — and short-circuits the divide-by-zero check.
+        assert!(matches!(Value::null().add(Value::int(1)), Ok(Value::Null)));
+        assert!(matches!(Value::int(1).add(Value::null()), Ok(Value::Null)));
+        assert!(matches!(Value::null().mul(Value::null()), Ok(Value::Null)));
+        assert!(matches!(Value::null().div(Value::int(0)), Ok(Value::Null)));
+    }
+
     /// `decode` (single-pass `Deserialize`) must round-trip `encode` exactly,
     /// including nested arrays/objects, every scalar kind, and wide objects (the
     /// `visit_map` path that no longer dedup-scans per field).
@@ -1328,7 +1541,10 @@ mod tests {
 
         // …and navigation matches between Raw and owned.
         assert_eq!(raw.jpk("i"), doc.jpk("i"));
-        assert_eq!(raw.jpk("s").as_ref().and_then(Value::as_str), Some("hello"));
+        assert_eq!(
+            raw.jpk("s").as_ref().and_then(|v| v.as_string().ok()),
+            Some("hello")
+        );
         assert_eq!(raw.jpk("arr").and_then(|a| a.jpi(0)), Some(Value::int(1)));
         assert_eq!(
             raw.jpk("arr").and_then(|a| a.len()),
@@ -1371,6 +1587,47 @@ mod tests {
             !Value::Bytes(Rc::from(&b"\x01\x02"[..])).structural_eq(&raw_bytes),
             "distinct bytes"
         );
+    }
+
+    #[test]
+    fn as_accessors_are_strict() {
+        // Each `as_*` unwraps only its own type; a mismatch is a type error and
+        // is *not* coerced (an int is not a float, a float is not an int).
+        assert_eq!(Value::int(7).as_int().ok(), Some(7));
+        assert!(Value::float(7.0).as_int().is_err());
+        assert!(Value::string("7".into()).as_int().is_err());
+        assert_eq!(Value::float(1.5).as_float().ok(), Some(1.5));
+        assert!(Value::int(1).as_float().is_err());
+        assert_eq!(Value::string("hi".into()).as_string().ok(), Some("hi"));
+        assert!(Value::int(1).as_string().is_err());
+        assert_eq!(Value::bool(true).as_bool().ok(), Some(true));
+        assert!(Value::int(1).as_bool().is_err());
+    }
+
+    #[test]
+    fn to_coercions_convert_across_types() {
+        assert_eq!(Value::string("5".into()).to_int().ok(), Some(5));
+        assert_eq!(Value::float(3.7).to_int().ok(), Some(3)); // truncates toward zero
+        assert_eq!(Value::bool(true).to_int().ok(), Some(1));
+        assert!(Value::string("abc".into()).to_int().is_err());
+        assert_eq!(Value::string("5".into()).to_float().ok(), Some(5.0));
+        assert_eq!(Value::bool(false).to_float().ok(), Some(0.0));
+        assert_eq!(Value::int(0).to_bool().ok(), Some(false));
+        assert_eq!(Value::string("true".into()).to_bool().ok(), Some(true));
+        assert_eq!(Value::int(42).to_text().ok().as_deref(), Some("42"));
+        assert!(Value::array().to_text().is_err());
+    }
+
+    #[test]
+    fn comparison_is_a_total_order_across_types() {
+        // bool < number < string < composite < null (mirrors `type_rank` and the
+        // ORDER BY encoding so `<` and ORDER BY agree).
+        assert!(Value::bool(true) < Value::int(0));
+        assert!(Value::int(100) < Value::string("20".into()));
+        assert!(Value::string("z".into()) < Value::array());
+        assert!(Value::array() < Value::null());
+        // Same-kind comparisons still compare by content, ints vs floats numerically.
+        assert!(Value::int(2) < Value::float(2.5));
     }
 
     #[test]

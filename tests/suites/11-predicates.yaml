@@ -380,6 +380,62 @@ tests:
           select 'a' >= 'a' from T;
         result: [true]
 
+  - id: cross-type-number-lt-string
+    description: cross-type ordering is total — a number sorts before a string
+    steps:
+      - sql: |
+          select 100 < '20' from T;
+        result: [true]
+
+  - id: cross-type-string-gt-number
+    description: a string sorts after any number (the mirror of the above)
+    steps:
+      - sql: |
+          select '20' > 100 from T;
+        result: [true]
+
+  - id: cross-type-bool-lt-number
+    description: bool sorts before number in the total order
+    steps:
+      - sql: |
+          select true < 0 from T;
+        result: [true]
+
+  - id: cross-type-eq-is-false
+    description: equality across types is a definite false (not null), no coercion
+    steps:
+      - sql: |
+          select 1 = '1' from T;
+        result: [false]
+
+  - id: arith-coerces-numeric-string
+    description: arithmetic coerces a numeric string operand (to_float)
+    steps:
+      - sql: |
+          select '5' + 1 from T;
+        result: [6.0]
+
+  - id: arith-non-numeric-string-errors
+    description: a non-numeric string operand is a runtime type error
+    steps:
+      - sql: |
+          select 'abc' + 1 from T;
+        error: runtime
+
+  - id: arith-null-propagates
+    description: a null operand propagates to null (SQL semantics)
+    steps:
+      - sql: |
+          select null + 1 from T;
+        result: [null]
+
+  - id: arith-null-propagates-div-zero
+    description: null short-circuits before the divide-by-zero check
+    steps:
+      - sql: |
+          select null / 0 from T;
+        result: [null]
+
   - id: string-between-inside
     steps:
       - sql: |
@@ -392,10 +448,45 @@ tests:
           select 'd' between 'a' and 'c' from T;
         result: [false]
 
+  - id: between-null-value-unknown
+    description: BETWEEN is three-valued — a null subject is unknown, like x >= a and x <= b
+    steps:
+      - sql: |
+          select null between 1 and 10 from T;
+        result: [null]
+
+  - id: between-null-bound-unknown
+    description: a null bound makes BETWEEN unknown (null), not false
+    steps:
+      - sql: |
+          select 5 between 1 and null from T;
+        result: [null]
+
   - id: in-hit
     steps:
       - sql: |
           select 2 in (1, 2, 3) from T;
+        result: [true]
+
+  - id: in-null-target-unknown
+    description: IN is three-valued — a null target is unknown (null), not false
+    steps:
+      - sql: |
+          select null in (1, 2, 3) from T;
+        result: [null]
+
+  - id: in-miss-with-null-element-unknown
+    description: no match but a null element present yields unknown (null)
+    steps:
+      - sql: |
+          select 9 in (1, null, 3) from T;
+        result: [null]
+
+  - id: in-hit-with-null-element-true
+    description: a definite match wins even when a null element is present
+    steps:
+      - sql: |
+          select 1 in (1, null, 3) from T;
         result: [true]
 
   - id: in-miss
@@ -439,39 +530,39 @@ tests:
         result: [true]
 
   - id: eq-null-null
-    description: pin existing semantics, null = null is true
+    description: SQL three-valued logic, null = null is unknown (null)
     steps:
       - sql: |
           select null = null from T;
-        result: [true]
+        result: [null]
 
   - id: eq-null-value
-    description: pin existing semantics, null = 1 is false
+    description: SQL three-valued logic, null = 1 is unknown (null)
     steps:
       - sql: |
           select null = 1 from T;
-        result: [false]
+        result: [null]
 
   - id: ne-null-value
-    description: pin existing semantics, null contaminates ne to false
+    description: SQL three-valued logic, null != 1 is unknown (null)
     steps:
       - sql: |
           select null != 1 from T;
-        result: [false]
+        result: [null]
 
   - id: ne-null-null
-    description: pin existing semantics, null != null is false
+    description: SQL three-valued logic, null != null is unknown (null)
     steps:
       - sql: |
           select null != null from T;
-        result: [false]
+        result: [null]
 
   - id: lt-null
-    description: pin existing semantics, ordering with null is false
+    description: SQL three-valued logic, ordering with null is unknown (null)
     steps:
       - sql: |
           select null < 1 from T;
-        result: [false]
+        result: [null]
 
   - id: where-null-excludes
     description: a null predicate result excludes the row at the where boundary

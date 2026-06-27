@@ -119,53 +119,18 @@ pub fn encode_order_key(vals: &[Value], desc: &[bool]) -> Vec<u8> {
 ///   03    String         encode_str bytes
 ///   FE    Oid/Bytes/…    (none — composites share one bucket)
 ///   FF    Null           (none)
-#[allow(clippy::cast_precision_loss)]
 fn encode_order_value(out: &mut Vec<u8>, val: &Value) {
-    match val {
-        Value::Bool(b) => {
-            out.push(0x01);
-            out.push(u8::from(*b));
-        }
-        Value::Int(i) => {
-            out.push(0x02);
-            out.extend_from_slice(&order_f64(*i as f64));
-        }
-        Value::Float(f) => {
-            out.push(0x02);
-            out.extend_from_slice(&order_f64(*f));
-        }
-        Value::String(s) => {
-            out.push(0x03);
-            out.extend(encode_str(s));
-        }
-        // Composite / internal values have no defined order in v1; bucket them
-        // under one tag so they sort deterministically among themselves.
-        Value::Oid(_) | Value::Bytes(_) | Value::Array(_) | Value::Object(_) => {
-            out.push(0xFE);
-        }
-        // null sorts last in ascending order (highest tag).
-        Value::Null => {
-            out.push(0xFF);
-        }
-        // A flat-backed value: navigate through the scalar accessors so only the
-        // tag (and a scalar body) is read — never materialize the whole subtree.
-        // Containers report none of `is_*` below and fall into the 0xFE bucket.
-        Value::Raw(_) => {
-            if val.is_null() {
-                out.push(0xFF);
-            } else if val.is_bool() {
-                out.push(0x01);
-                out.push(u8::from(val.as_bool().unwrap_or(false)));
-            } else if val.is_number() {
-                out.push(0x02);
-                out.extend_from_slice(&order_f64(val.as_f64().unwrap_or(0.0)));
-            } else if val.is_string() {
-                out.push(0x03);
-                out.extend(encode_str(val.as_str().unwrap_or("")));
-            } else {
-                out.push(0xFE);
-            }
-        }
+    // The order tag *is* the value's cross-type rank (see [`Value::type_rank`]),
+    // so the comparison operators and `ORDER BY` share one total order. Scalars
+    // carry a body; composites (0xFE) and null (0xFF) are tag-only. Flat-backed
+    // values resolve through the scalar accessors without materializing.
+    let tag = val.type_rank();
+    out.push(tag);
+    match tag {
+        0x01 => out.push(u8::from(val.as_bool().unwrap_or(false))),
+        0x02 => out.extend_from_slice(&order_f64(val.num_f64().unwrap_or(0.0))),
+        0x03 => out.extend(encode_str(val.as_string().unwrap_or(""))),
+        _ => {}
     }
 }
 
@@ -192,7 +157,7 @@ fn encode_key_field(out: &mut Vec<u8>, field: &Value, col: &Key) -> Result<()> {
                 // A float key coerces like `cast(<float> as int)`: truncate
                 // toward zero (`t[1.5]` ≡ `t[1]`). Non-finite / out-of-range
                 // floats can't be a key.
-                Value::Float(f) => crate::functions::float_to_i64(*f)
+                Value::Float(f) => crate::value::float_to_i64(*f)
                     .map_err(|_| Error::Schema(format!("key '{}' must be int", col.name)))?,
                 _ => {
                     return Err(Error::Schema(format!("key '{}' must be int", col.name)));
@@ -202,8 +167,8 @@ fn encode_key_field(out: &mut Vec<u8>, field: &Value, col: &Key) -> Result<()> {
         }
         Type::String => {
             let s = field
-                .as_str()
-                .ok_or_else(|| Error::Schema(format!("key '{}' must be string", col.name)))?;
+                .as_string()
+                .map_err(|_| Error::Schema(format!("key '{}' must be string", col.name)))?;
             out.extend(encode_str(s));
         }
         _ => {

@@ -92,13 +92,12 @@ tests:
           - {x: 1}
 
   - id: where-null-member
-    description: null member compares equal to null
+    description: under 3VL, x = null is unknown so the row is excluded (use IS NULL)
     steps:
       - sql: |
           insert into T ({"x": null});
       - sql: select * from T where T.x = null;
-        result:
-          - {x: null}
+        result: []
 
   - id: where-null-member-ne
     description: null member fails inequality against non-null
@@ -109,13 +108,12 @@ tests:
         result: []
 
   - id: where-absent-member-eq-null
-    description: absent field reads as null and matches null
+    description: absent field reads as null, so x = null is unknown and excluded
     steps:
       - sql: |
           insert into T ({});
       - sql: select * from T where T.x = null;
-        result:
-          - {}
+        result: []
 
   - id: where-absent-member-gt
     description: absent field reads as null and fails ordering comparison

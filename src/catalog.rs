@@ -150,10 +150,11 @@ impl Catalog {
         for entry in self.catalog.iter(txn.as_ro())? {
             let (key, val) = entry?;
             let row = Value::from_storage(val)?;
-            let is_table = row.jpk("type").as_ref().and_then(Value::as_str) == Some("table");
+            let is_table =
+                row.jpk("type").as_ref().and_then(|v| v.as_string().ok()) == Some("table");
             let row_name = row.jpk("name");
-            if is_table && row_name.as_ref().and_then(Value::as_str) == Some(name) {
-                let sql = row.jpk("sql").and_then(|v| v.as_str().map(str::to_owned));
+            if is_table && row_name.as_ref().and_then(|v| v.as_string().ok()) == Some(name) {
+                let sql = row.jpk("sql").and_then(|v| v.as_string().ok().map(str::to_owned));
                 let sql = sql.ok_or_else(|| {
                     Error::InternalError(format!("catalog row for table '{name}' missing sql"))
                 })?;
