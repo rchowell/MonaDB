@@ -23,8 +23,8 @@
     clippy::unnecessary_wraps
 )]
 
+pub mod ast;
 pub mod error;
-pub mod ir;
 pub mod schema;
 
 mod binder;
@@ -448,8 +448,8 @@ impl MonaDB {
         self.catalog_version.get()
     }
 
-    /// Phase 1: Parse input string into our IR (no binding or compilation).
-    pub(crate) fn parse(sql: &str) -> Result<ir::Statement> {
+    /// Phase 1: Parse input string into our AST (no binding or compilation).
+    pub(crate) fn parse(sql: &str) -> Result<ast::Statement> {
         let lex = SqlLexer::new(sql);
         let par = SqlParser::new();
         // Counts positional `?` placeholders, numbering them in source order.
@@ -466,7 +466,7 @@ impl MonaDB {
     /// an explicit session is open, cold lookups instead scan through the session
     /// txn, so a table CREATE'd earlier in the session is visible to a later
     /// statement that references it.
-    fn bind(&self, statement: &mut ir::Statement) -> Result<()> {
+    fn bind(&self, statement: &mut ast::Statement) -> Result<()> {
         let mut binder = Binder::new(
             self.catalog.clone(),
             self.storage.clone(),
@@ -478,7 +478,7 @@ impl MonaDB {
 
     /// Phase 3: Compilation is pure bytecode generation.
     #[allow(clippy::unused_self)]
-    fn compile(&self, statement: ir::Statement) -> Result<Program> {
+    fn compile(&self, statement: ast::Statement) -> Result<Program> {
         let cc = Compiler::new();
         cc.compile(statement)
     }
@@ -663,9 +663,9 @@ mod tests {
             .map(|r| r.map(|(_, t, _)| t))
             .collect();
         assert_eq!(tokens, vec![Ok(Token::Begin), Ok(Token::SemiColon)]);
-        assert!(matches!(MonaDB::parse("begin;"), Ok(ir::Statement::Begin)));
-        assert!(matches!(MonaDB::parse("commit;"), Ok(ir::Statement::Commit)));
-        assert!(matches!(MonaDB::parse("rollback;"), Ok(ir::Statement::Rollback)));
+        assert!(matches!(MonaDB::parse("begin;"), Ok(ast::Statement::Begin)));
+        assert!(matches!(MonaDB::parse("commit;"), Ok(ast::Statement::Commit)));
+        assert!(matches!(MonaDB::parse("rollback;"), Ok(ast::Statement::Rollback)));
     }
 
     #[test]

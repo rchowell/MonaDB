@@ -1,11 +1,11 @@
 //! Visitor traits based on the `syn` crate. I will change
-//! to generated free functions once the IR stabilizes.
+//! to generated free functions once the AST stabilizes.
 
 #![allow(dead_code)]
 
 pub mod visit {
     #[allow(clippy::wildcard_imports)]
-    use crate::ir::*;
+    use crate::ast::*;
 
     /// Immutable borrowing walk, see: [`syn::visit`](https://docs.rs/syn/latest/syn/visit/index.html).
     pub trait Visit<'ast> {
@@ -206,14 +206,14 @@ pub mod visit {
     where
         V: Visit<'ast> + ?Sized,
     {
-        // No child IR to walk; the binder overrides `visit_drop` to bind the oid.
+        // No child AST to walk; the binder overrides `visit_drop` to bind the oid.
     }
 
     pub fn visit_clear<'ast, V>(_v: &mut V, _i: &'ast Clear)
     where
         V: Visit<'ast> + ?Sized,
     {
-        // No child IR to walk; the binder overrides `visit_clear` to bind the oid.
+        // No child AST to walk; the binder overrides `visit_clear` to bind the oid.
     }
 
     pub fn visit_select<'ast, V>(v: &mut V, i: &'ast Select)
@@ -407,7 +407,7 @@ pub mod visit {
 
 pub mod visit_mut {
     #[allow(clippy::wildcard_imports)]
-    use crate::ir::*;
+    use crate::ast::*;
 
     /// Mutable borrowing walk, see: [`syn::visit_mut`](https://docs.rs/syn/latest/syn/visit_mut/index.html).
     pub trait VisitMut {
@@ -588,11 +588,11 @@ pub mod visit_mut {
     }
 
     pub fn visit_drop_mut<V: VisitMut + ?Sized>(_v: &mut V, _i: &mut Drop) {
-        // No child IR to walk; the binder overrides `visit_drop_mut` to bind the oid.
+        // No child AST to walk; the binder overrides `visit_drop_mut` to bind the oid.
     }
 
     pub fn visit_clear_mut<V: VisitMut + ?Sized>(_v: &mut V, _i: &mut Clear) {
-        // No child IR to walk; the binder overrides `visit_clear_mut` to bind the oid.
+        // No child AST to walk; the binder overrides `visit_clear_mut` to bind the oid.
     }
 
     pub fn visit_select_mut<V: VisitMut + ?Sized>(v: &mut V, i: &mut Select) {
@@ -744,7 +744,7 @@ pub mod visit_mut {
 
 pub mod fold {
     #[allow(clippy::wildcard_imports)]
-    use crate::ir::*;
+    use crate::ast::*;
 
     /// Owned transform, see [`syn::fold`](https://docs.rs/syn/latest/syn/fold/index.html).
     pub trait Fold {
@@ -1080,7 +1080,7 @@ mod tests {
     use super::visit::Visit;
     use super::visit_mut::VisitMut;
     use super::*;
-    use crate::ir::*;
+    use crate::ast::*;
     use crate::lexer::SqlLexer;
     use crate::parser::SqlParser;
 

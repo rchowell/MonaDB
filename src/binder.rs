@@ -1,6 +1,6 @@
 //! The binder: name resolution and cursor-slot assignment.
 //!
-//! A `VisitMut` pass over the IR that assigns each from-source a cursor slot,
+//! A `VisitMut` pass over the AST that assigns each from-source a cursor slot,
 //! resolves table names to oids and variables to their binding, and lowers a
 //! keyed-table subscript (`t[k]`) to an `Expr::Get`. Errors are collected; the
 //! first encountered is returned.
@@ -8,12 +8,12 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::catalog::{CacheLookup, Catalog};
-use crate::error::{Error, Result};
-use crate::ir::{
+use crate::ast::{
     Agg, AggKind, Call, Clear, Constructor, Copy, CopySource, Create, Drop, Expr, From, Get,
     Insert, Select, Source, Statement, TableDefinition,
 };
+use crate::catalog::{CacheLookup, Catalog};
+use crate::error::{Error, Result};
 use crate::storage::Storage;
 use crate::transaction::Transaction;
 use crate::value::Value;
@@ -606,8 +606,8 @@ impl Scope {
 mod test {
     use crate::{
         MonaDB,
+        ast::{Constructor, Expr, Source, Statement},
         error::Error,
-        ir::{Constructor, Expr, Source, Statement},
     };
 
     fn db_fixture() -> MonaDB {

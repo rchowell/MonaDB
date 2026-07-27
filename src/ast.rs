@@ -1,3 +1,9 @@
+//! The AST — the shape the parser produces.
+//!
+//! Defines the statement, expression, and type nodes the grammar builds, along with
+//! the `#[inline]` action functions the LALRPOP rules call to construct them. The
+//! binder mutates this tree in place; the compiler consumes it to emit `Vop` bytecode.
+
 use std::vec;
 
 use crate::value::Value;
@@ -296,7 +302,7 @@ pub struct TMember {
 /// A boxed [`Expr`], for the recursive cases.
 pub type ExprRef = Box<Expr>;
 
-/// An expression node — the value-producing core of the IR.
+/// An expression node — the value-producing core of the AST.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     /// A builtin operator/function call.
@@ -958,7 +964,7 @@ pub fn expr_call_star(name: String) -> Expr {
 
 /// Builds a constructor cast `int(expr)` as a call to the per-type conversion
 /// builtin (`int`, `float`, …) — like `is not null` desugaring to
-/// `not(is_null(...))`, no new IR node or opcode is needed.
+/// `not(is_null(...))`, no new AST node or opcode is needed.
 #[inline]
 pub fn expr_cast(expr: Expr, ty: &Type) -> Expr {
     expr_call(cast_target(ty).to_string(), vec![expr])

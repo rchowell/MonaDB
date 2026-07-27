@@ -13,8 +13,8 @@ use std::sync::Arc;
 use heed::byteorder::{BigEndian, ByteOrder};
 
 use crate::MonaDB;
+use crate::ast::{Create, Statement, TableDefinition};
 use crate::error::{Error, Result};
-use crate::ir::{Create, Statement, TableDefinition};
 use crate::storage::{BTree, Storage};
 use crate::transaction::Transaction;
 use crate::value::Value;

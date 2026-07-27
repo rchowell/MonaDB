@@ -4,8 +4,8 @@
 //! so that lexicographic byte order matches logical sort order — the property
 //! every point lookup, prefix scan, and `ORDER BY` relies on.
 
+use crate::ast::{Key, Type};
 use crate::error::{Error, Result};
-use crate::ir::{Key, Type};
 use crate::value::Value;
 
 /// Encodes a signed integer so raw byte order matches numeric order.

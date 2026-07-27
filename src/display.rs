@@ -1,8 +1,8 @@
 use std::ops::Add;
 
-use crate::ir::{Create, Key, Statement, TMember, TObject, TableDefinition, Type};
+use crate::ast::{Create, Key, Statement, TMember, TObject, TableDefinition, Type};
 
-/// Renders an IR node back to SQL text.
+/// Renders an AST node back to SQL text.
 pub trait ToSql {
     /// Returns a block tree for formatting.
     fn block(&self) -> Block;

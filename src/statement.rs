@@ -7,8 +7,8 @@
 use std::rc::Rc;
 
 use crate::MonaDB;
+use crate::ast::Param;
 use crate::error::{Error, Result};
-use crate::ir::Param;
 use crate::params::{IntoParams, Params};
 use crate::vm::{Program, Rows, VM, Vop};
 

@@ -1,15 +1,15 @@
 use serde_json::json;
 
 use crate::Result;
-use crate::catalog::CATALOG_OID;
-use crate::error::Error;
-use crate::unsupported;
-use crate::functions;
-use crate::ir::{
+use crate::ast::{
     AggKind, Call, Clear, CmpOp, Constructor, Copy, CopySource, Create, Delete, Drop, Expr, From,
     Get, Insert, Jpe, Jpi, Jpk, Key, Limit, Member, Obj, Select, Source, Statement,
     TableDefinition, ToSql, Type, Var,
 };
+use crate::catalog::CATALOG_OID;
+use crate::error::Error;
+use crate::unsupported;
+use crate::functions;
 use crate::read::{self, FileFormat};
 use crate::schema;
 use crate::transaction::TransactionMode;
@@ -436,7 +436,7 @@ impl Compiler {
     /// The bound (cursor slot, table oid) of a mutation's `from`. Both are set
     /// by the binder; a missing one means the target was never bound (a compiler
     /// invariant), so error rather than panic.
-    fn bound_target(from: &crate::ir::From) -> Result<(usize, u32)> {
+    fn bound_target(from: &crate::ast::From) -> Result<(usize, u32)> {
         let Some(csr) = from.csr else {
             crate::error!("mutation target was not bound to a cursor");
         };
@@ -500,7 +500,7 @@ impl Compiler {
     /// Compiles a DROP TABLE: delete the catalog row, then clear the data btree.
     #[expect(
         clippy::needless_pass_by_value,
-        reason = "cc_* take their IR node by ownership per convention; only the Copy oid is read"
+        reason = "cc_* take their AST node by ownership per convention; only the Copy oid is read"
     )]
     fn cc_drop(&mut self, drop: Drop) {
         self.ensure_txn(TransactionMode::Write);
@@ -526,7 +526,7 @@ impl Compiler {
     /// Compiles a CLEAR: empty the table's data btree, leaving its catalog row.
     #[expect(
         clippy::needless_pass_by_value,
-        reason = "cc_* take their IR node by ownership per convention; only the Copy oid is read"
+        reason = "cc_* take their AST node by ownership per convention; only the Copy oid is read"
     )]
     fn cc_clear(&mut self, clear: Clear) {
         self.ensure_txn(TransactionMode::Write);
@@ -547,7 +547,7 @@ impl Compiler {
     /// caller via [`analyze_from`] so it can also read `fp.bindings`/`fp.loop_csr`).
     fn cc_loop_open(
         &mut self,
-        from: Vec<crate::ir::From>,
+        from: Vec<crate::ast::From>,
         fp: &FromPlan,
         where_: Option<Expr>,
     ) -> Result<LoopFrame> {
@@ -698,7 +698,7 @@ impl Compiler {
 
     /// Opens every table source's btree once before the loop; value and unpivot
     /// sources need no open.
-    fn open_tables(&mut self, from: &[crate::ir::From]) {
+    fn open_tables(&mut self, from: &[crate::ast::From]) {
         for f in from {
             if let Source::Table(_) | Source::Range(_) = &f.src {
                 let csr = f.csr.expect("from item should be bound") as usize;
@@ -713,7 +713,7 @@ impl Compiler {
     /// unpivot source begins on its expression so a correlated source
     /// re-evaluates it. An unpivot expands the tuple to `[name, value]` pairs
     /// with `Entries` before iterating.
-    fn cc_source_begin(&mut self, csr: usize, f: crate::ir::From) -> Result<usize> {
+    fn cc_source_begin(&mut self, csr: usize, f: crate::ast::From) -> Result<usize> {
         let entry = match f.src {
             Source::Table(_) => {
                 self.emit_scan(csr, 0);
@@ -1932,7 +1932,7 @@ fn plan(select: &Select) -> Plan {
 /// Analyzes a from clause in a single pass, producing the cursor list, the
 /// flattened projection bindings, and the unpivot reseed triples needed by
 /// [`Compiler::cc_loop_open`] and its callers.
-fn analyze_from(from: &[crate::ir::From]) -> FromPlan {
+fn analyze_from(from: &[crate::ast::From]) -> FromPlan {
     let mut loop_csr = Vec::with_capacity(from.len());
     let mut bindings = Vec::new();
     let mut seeds = Vec::new();

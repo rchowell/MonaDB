@@ -5,7 +5,7 @@ description = "How MonaDB compiles query text to bytecode and executes it agains
 
 # Design
 
-MonaDB is a compiler and a virtual machine. A query enters as text and exits as a result set. Between those two points it passes through six stages: lexer, parser, IR, compiler, VM, and storage. Each stage has a single job and hands off a well-typed value to the next.
+MonaDB is a compiler and a virtual machine. A query enters as text and exits as a result set. Between those two points it passes through six stages: lexer, parser, AST, compiler, VM, and storage. Each stage has a single job and hands off a well-typed value to the next.
 
 ## Lexer
 
@@ -15,23 +15,23 @@ The token set is small. Keywords (`select`, `from`, `where`, `insert`, `into`, `
 
 ## Parser
 
-The parser is a [LALRPOP](https://github.com/lalrpop/lalrpop) LR(1) grammar. Grammar rules stay thin — each action constructs an IR value by calling a function in `ir.rs`. No transformation or validation happens inside the grammar. The parser's only job is shape, not meaning.
+The parser is a [LALRPOP](https://github.com/lalrpop/lalrpop) LR(1) grammar. Grammar rules stay thin — each action constructs an AST value by calling a function in `ast.rs`. No transformation or validation happens inside the grammar. The parser's only job is shape, not meaning.
 
 Operator precedence and associativity are declared inline on the `Expr` production using LALRPOP's `#[precedence]` and `#[assoc]` annotations. This keeps the grammar readable while avoiding ambiguity.
 
-## IR
+## AST
 
-The IR distinguishes two kinds of types.
+The AST distinguishes two kinds of types.
 
 **Enums** for sum types — when a value is one of several alternatives. `Statement`, `Expr`, `Type`, `Fetch`, `Constructor`, `Member`, `Source`, `Selector`, and `Segment` are all enums.
 
 **Structs** for product types — when a value groups several named fields. `Select`, `Insert`, `Create`, `Update`, `Op`, `Jpk`, `Jpi`, `Jpe`, `Iter`, and `Table` are all structs.
 
-Recursive types are always boxed through a type alias. `ExprRef = Box<Expr>` and `TypeRef = Box<Type>` appear throughout; `Box<Expr>` inline does not. This discipline keeps the IR consistent and refactoring tractable.
+Recursive types are always boxed through a type alias. `ExprRef = Box<Expr>` and `TypeRef = Box<Type>` appear throughout; `Box<Expr>` inline does not. This discipline keeps the AST consistent and refactoring tractable.
 
 ## Compiler
 
-The compiler is a tree-walking pass over the IR that emits a flat sequence of `Vop` instructions. Dispatch methods carry the `cc_` prefix — `cc_select`, `cc_expr`, `cc_insert`. Append helpers carry `emit_` — `emit_push`, `emit_jpk`, `emit_rewind`.
+The compiler is a tree-walking pass over the AST that emits a flat sequence of `Vop` instructions. Dispatch methods carry the `cc_` prefix — `cc_select`, `cc_expr`, `cc_insert`. Append helpers carry `emit_` — `emit_push`, `emit_jpk`, `emit_rewind`.
 
 Control-flow instructions — `Rewind`, `IfNot`, `Next`, `CntIfPos`, `CntIfZero` — are emitted with placeholder jump targets of `0`. After the loop body is fully emitted and its size is known, the compiler back-patches the target addresses via `patch(pc, dst)`. This avoids a two-pass approach while keeping the emitter linear.
 

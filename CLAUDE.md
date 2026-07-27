@@ -5,7 +5,7 @@ Embedded database with a custom SQL query language compiled to stack-based bytec
 ## Architecture
 
 ```
-SQL text → Lexer (logos) → Parser (lalrpop) → IR → Compiler → Vop bytecode → VM → LMDB
+SQL text → Lexer (logos) → Parser (lalrpop) → AST → Compiler → Vop bytecode → VM → LMDB
 ```
 
 ## Key Files
@@ -13,9 +13,9 @@ SQL text → Lexer (logos) → Parser (lalrpop) → IR → Compiler → Vop byte
 | File                 | Role                                                               |
 |----------------------|--------------------------------------------------------------------|
 | `src/lexer.rs`       | Token definitions — logos DFA lexer, produces spanned token stream |
-| `src/parser.lalrpop` | Grammar — LALRPOP LR(1) parser, calls action functions in `ir.rs`  |
-| `src/ir.rs`          | AST/IR types + parser action functions (called from grammar rules) |
-| `src/compiler.rs`    | IR → Vop bytecode (`cc_*` methods, `emit_*` helpers)               |
+| `src/parser.lalrpop` | Grammar — LALRPOP LR(1) parser, calls action functions in `ast.rs` |
+| `src/ast.rs`         | AST types + parser action functions (called from grammar rules)    |
+| `src/compiler.rs`    | AST → Vop bytecode (`cc_*` methods, `emit_*` helpers)              |
 | `src/vm.rs`          | Stack-based bytecode interpreter — `next()` loop over `Vop`        |
 | `src/functions.rs`   | Builtin scalar standard library — flat `fn(&[Value])` registry      |
 | `src/error.rs`       | Error enum + `error!` / `unsupported!` macros                      |
@@ -78,21 +78,21 @@ Add,
 - Implement `From<T> for Error` for each external error type (see `error.rs`)
 - Never use `unwrap()` on user-controlled paths; reserve it for invariants that must hold
 
-### AST / IR Shape
+### AST Shape
 - **Enum** for sum types (alternatives): `Statement`, `Expr`, `Type`, `Fetch`, `Constructor`, `Member`, `Source`, `Selector`, `Segment`
 - **Struct** for product types (grouped fields): `Select`, `Insert`, `Create`, `Op`, `Jpk`, `Jpi`, `Jpe`, `Iter`, `Table`
 - Recursive types always boxed through a type alias — `ExprRef`, `TypeRef` — never `Box<Expr>` inline
-- Parser action functions live in `ir.rs` and are `#[inline]` public functions (not methods)
+- Parser action functions live in `ast.rs` and are `#[inline]` public functions (not methods)
 
 ### Grammar
 - External lexer declared in the `extern` block at the top of `parser.lalrpop`
-- Grammar rule actions stay thin — construct an IR value via an `ir.rs` function, nothing else
+- Grammar rule actions stay thin — construct an AST value via an `ast.rs` function, nothing else
 - Operator precedence: `#[precedence(level="N")]` and `#[assoc(side="left")]` annotations on `Expr` alternatives
 - Comma-separated repetition: use the `List<T>` macro (defined at the bottom of the grammar file)
 
 ### Compiler
 - `Compiler` holds `code: Program`, `vars: Vec<Var>`, `counters: usize`
-- `cc_*` methods take ownership of their IR node and call `emit_*` helpers to append `Vop` instructions
+- `cc_*` methods take ownership of their AST node and call `emit_*` helpers to append `Vop` instructions
 - Control-flow instructions (`Rewind`, `IfNot`, `Next`, `CntIfPos`, `CntIfZero`) are emitted with placeholder `0` jump targets and back-patched via `patch(pc, dst)` after the loop body is known
 - `define(name)` appends a `Var` and its stack depth is its index — `Load(idx)` addresses by index
 - `define_counter(n)` allocates a counter slot and emits `CntSet`

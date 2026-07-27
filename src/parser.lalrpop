@@ -1,15 +1,15 @@
 // MonaDB grammar — the LALRPOP LR(1) parser.
 //
-// Rules stay thin: each action constructs an IR node via an `ir.rs` function.
+// Rules stay thin: each action constructs an AST node via an `ast.rs` function.
 // Tokens come from the external `lexer.rs`, declared in the `extern` block below.
 
+use crate::ast;
 use crate::error::Error;
-use crate::ir;
 use crate::lexer::Token;
 use crate::value::Value;
 
 // `param_pos` is a positional-parameter counter threaded so each `?` is
-// numbered in source order (see `ir::expr_param_positional`).
+// numbered in source order (see `ast::expr_param_positional`).
 grammar(param_pos: &std::cell::Cell<u32>);
 
 extern {
@@ -109,140 +109,140 @@ pub Sql = <Statement> ";";
 // STATEMENTS
 //------------------------------
 
-Statement: ir::Statement = {
-    "begin"    => ir::Statement::Begin,
-    Clear      => ir::Statement::Clear(<>),
-    "commit"   => ir::Statement::Commit,
-    Copy       => ir::Statement::Copy(<>),
-    Create     => ir::Statement::Create(<>),
-    Delete     => ir::Statement::Delete(<>),
-    Drop       => ir::Statement::Drop(<>),
-    Insert     => ir::Statement::Insert(<>),
-    "rollback" => ir::Statement::Rollback,
-    Select     => ir::Statement::Select(<>),
+Statement: ast::Statement = {
+    "begin"    => ast::Statement::Begin,
+    Clear      => ast::Statement::Clear(<>),
+    "commit"   => ast::Statement::Commit,
+    Copy       => ast::Statement::Copy(<>),
+    Create     => ast::Statement::Create(<>),
+    Delete     => ast::Statement::Delete(<>),
+    Drop       => ast::Statement::Drop(<>),
+    Insert     => ast::Statement::Insert(<>),
+    "rollback" => ast::Statement::Rollback,
+    Select     => ast::Statement::Select(<>),
 };
 
 // CREATE STATEMENT
 //------------------------------
 
-Create: ir::Create = {
+Create: ast::Create = {
     CreateTableAs,
     CreateTable,
 };
 
-CreateTableAs: ir::Create =
+CreateTableAs: ast::Create =
     "create" "table" <def:TableDefinition> "as" <query:Select> =>
-        ir::create_table_as(def, query);
+        ast::create_table_as(def, query);
 
-CreateTable: ir::Create = "create" "table" <TableDefinition> => ir::create_table(<>);
+CreateTable: ast::Create = "create" "table" <TableDefinition> => ast::create_table(<>);
 
-TableDefinition: ir::TableDefinition = {
-    <name:TableName>                        => ir::table_definition(name, vec![]),
-    <name:TableName> "(" <keys:Keys> ")"    => ir::table_definition(name, keys),
+TableDefinition: ast::TableDefinition = {
+    <name:TableName>                        => ast::table_definition(name, vec![]),
+    <name:TableName> "(" <keys:Keys> ")"    => ast::table_definition(name, keys),
 };
 
 TableName: String = "ident";
 
-Keys: Vec<ir::Key> = List<Key>;
+Keys: Vec<ast::Key> = List<Key>;
 
-Key: ir::Key = <name:"ident"> <ty:Type> => ir::table_key(name, ty);
+Key: ast::Key = <name:"ident"> <ty:Type> => ast::table_key(name, ty);
 
 // SELECT STATEMENT
 //------------------------------
 
-Select: ir::Select = {
-    "select" <SelectConstructor>                => ir::select_value(<>),
-    "select" <SelectConstructor> <SelectBlock>  => ir::select(<>),
-    "pivot" <Expr> "at" <Expr> <SelectBlock>    => ir::pivot(<>),
+Select: ast::Select = {
+    "select" <SelectConstructor>                => ast::select_value(<>),
+    "select" <SelectConstructor> <SelectBlock>  => ast::select(<>),
+    "pivot" <Expr> "at" <Expr> <SelectBlock>    => ast::pivot(<>),
 };
 
-SelectConstructor: ir::Constructor = {
-    "."                => ir::Constructor::None,
-    "*"                => ir::Constructor::Star,
-    <Expr>             => ir::Constructor::Expr(<>),
-    <List<SelectItem>> => ir::Constructor::List(<>),
+SelectConstructor: ast::Constructor = {
+    "."                => ast::Constructor::None,
+    "*"                => ast::Constructor::Star,
+    <Expr>             => ast::Constructor::Expr(<>),
+    <List<SelectItem>> => ast::Constructor::List(<>),
 };
 
 // TODO clean up select item modeling when implementing the with clause.
-SelectItem: ir::Member = <Expr> "as" <"ident"> => ir::select_item(<>);
+SelectItem: ast::Member = <Expr> "as" <"ident"> => ast::select_item(<>);
 
-SelectBlock: ir::Select =
+SelectBlock: ast::Select =
     <From>
     <Where?>
     <GroupBy?>
     <Having?>
     <OrderBy?>
-    <Limit?> => ir::select_block(<>);
+    <Limit?> => ast::select_block(<>);
 
-From: Vec<ir::From> = "from" <List<FromItem>>;
+From: Vec<ast::From> = "from" <List<FromItem>>;
 
-GroupBy: ir::GroupBy = "group" "by" <List<Expr>> => ir::group_by(<>);
+GroupBy: ast::GroupBy = "group" "by" <List<Expr>> => ast::group_by(<>);
 
-OrderBy: ir::OrderBy = "order" "by" <List<OrderItem>> => ir::order_by(<>);
+OrderBy: ast::OrderBy = "order" "by" <List<OrderItem>> => ast::order_by(<>);
 
-OrderItem: ir::OrderKey = <Expr> <OrderDir?> => ir::order_key(<>);
+OrderItem: ast::OrderKey = <Expr> <OrderDir?> => ast::order_key(<>);
 
 OrderDir: bool = {
     "asc"   => false,
     "desc"  => true,
 };
 
-FromItem: ir::From = {
-    <Expr> <("as"? <"ident">)?>                              => ir::from_item(<>),
-    "unpivot" <Expr> <("as"? <"ident">)?> <("at" <"ident">)?> => ir::unpivot_item(<>),
+FromItem: ast::From = {
+    <Expr> <("as"? <"ident">)?>                              => ast::from_item(<>),
+    "unpivot" <Expr> <("as"? <"ident">)?> <("at" <"ident">)?> => ast::unpivot_item(<>),
 };
 
-Where: ir::Where = "where" <Expr>;
+Where: ast::Where = "where" <Expr>;
 
-Having: ir::Where = "having" <Expr>;
+Having: ast::Where = "having" <Expr>;
 
-Limit: ir::Limit = {
-    "limit" <n:"number">                       => ir::limit_take(n.parse().unwrap_or(0)),
-    "limit" <n:"number"> ".."                  => ir::limit_skip(n.parse().unwrap_or(0)),
-    "limit" <a:"number"> ".." <b:"number">     => ir::limit_slice(a.parse().unwrap_or(0), b.parse().unwrap_or(0)),
+Limit: ast::Limit = {
+    "limit" <n:"number">                       => ast::limit_take(n.parse().unwrap_or(0)),
+    "limit" <n:"number"> ".."                  => ast::limit_skip(n.parse().unwrap_or(0)),
+    "limit" <a:"number"> ".." <b:"number">     => ast::limit_slice(a.parse().unwrap_or(0), b.parse().unwrap_or(0)),
 };
 
 // INSERT STATEMENT
 //------------------------------
 
-Insert: ir::Insert = "insert" "into" <InsertTarget> "(" <InsertSource> ")" => ir::insert(<>);
+Insert: ast::Insert = "insert" "into" <InsertTarget> "(" <InsertSource> ")" => ast::insert(<>);
 
 InsertTarget: String = "ident";
 
-InsertSource: Vec<ir::Expr> = List<Expr>;
+InsertSource: Vec<ast::Expr> = List<Expr>;
 
 // DELETE STATEMENT
 //------------------------------
 
-Delete: ir::Delete =
-    "delete" "from" <"ident"> <("as"? <"ident">)?> <Where?> => ir::delete(<>);
+Delete: ast::Delete =
+    "delete" "from" <"ident"> <("as"? <"ident">)?> <Where?> => ast::delete(<>);
 
 // DROP STATEMENT
 //------------------------------
 
-Drop: ir::Drop = "drop" "table" <"ident"> => ir::drop_table(<>);
+Drop: ast::Drop = "drop" "table" <"ident"> => ast::drop_table(<>);
 
 // CLEAR STATEMENT
 //------------------------------
 
-Clear: ir::Clear = "clear" "table" <"ident"> => ir::clear_table(<>);
+Clear: ast::Clear = "clear" "table" <"ident"> => ast::clear_table(<>);
 
 // COPY STATEMENT
 //------------------------------
 
-Copy: ir::Copy = {
+Copy: ast::Copy = {
     "copy" <target:TableDefinition> "from" <path:"string"> <opts:CopyOptions> =>
-        ir::copy_from(target, path, opts),
+        ast::copy_from(target, path, opts),
     "copy" <source:CopySource> "to" <path:"string"> <opts:CopyOptions> =>
-        ir::copy_to(source, path, opts),
+        ast::copy_to(source, path, opts),
 };
 
-CopySource: ir::CopySource = {
-    <name:TableName> => ir::copy_source_table(name),
-    "(" <Select> ")" => ir::copy_source_query(<>),
+CopySource: ast::CopySource = {
+    <name:TableName> => ast::copy_source_table(name),
+    "(" <Select> ")" => ast::copy_source_query(<>),
 };
 
-CopyOptions: ir::Obj = {
+CopyOptions: ast::Obj = {
     => vec![],
     "{" <Members> "}" => <>,
 };
@@ -251,123 +251,123 @@ CopyOptions: ir::Obj = {
 // TYPES
 //------------------------------
 
-Type: ir::Type = {
+Type: ast::Type = {
     TAny,
     TScalar,
     TObject,
     TArray,
 };
 
-TAny: ir::Type = {
-    "t_any" => ir::t_any(),
+TAny: ast::Type = {
+    "t_any" => ast::t_any(),
 };
 
-TScalar: ir::Type = {
-    "t_bool"    => ir::t_bool(),
-    "t_int"     => ir::t_int(),
-    "t_float"   => ir::t_float(),
-    "t_number"  => ir::t_number(),
-    "t_string"  => ir::t_string(),
+TScalar: ast::Type = {
+    "t_bool"    => ast::t_bool(),
+    "t_int"     => ast::t_int(),
+    "t_float"   => ast::t_float(),
+    "t_number"  => ast::t_number(),
+    "t_string"  => ast::t_string(),
 };
 
-TObject: ir::Type = {
-    "t_object"          => ir::t_object(vec![]),
-    "{" <TMembers> "}"  => ir::t_object(<>),
+TObject: ast::Type = {
+    "t_object"          => ast::t_object(vec![]),
+    "{" <TMembers> "}"  => ast::t_object(<>),
 };
 
-TMembers: Vec<ir::TMember> = List<TMember>;
+TMembers: Vec<ast::TMember> = List<TMember>;
 
-TMember: ir::TMember = <"ident"> ":" <Type> => ir::t_member(<>);
+TMember: ast::TMember = <"ident"> ":" <Type> => ast::t_member(<>);
 
-TArray: ir::Type = {
-    "t_array"   => ir::t_array(),
-    "[" "]"     => ir::t_array(),
+TArray: ast::Type = {
+    "t_array"   => ast::t_array(),
+    "[" "]"     => ast::t_array(),
 };
 
 //------------------------------
 // EXPRESSIONS
 //------------------------------
 
-Atom: ir::Expr = {
-    "ident"                         => ir::expr_var(<>),
-    <"ident"> "(" <List<Expr>> ")"  => ir::expr_call(<>),
-    <"ident"> "(" "*" ")"           => ir::expr_call_star(<>),
-    <t:TScalar> "(" <e:Expr> ")"    => ir::expr_cast(e, &t),
-    Value                           => ir::expr_lit(<>),
-    "?"                             => ir::expr_param_positional(param_pos),
-    "$num"                          => ir::expr_param_numbered(<>),
-    "$name"                         => ir::expr_param_named(<>),
-    "{" <Members> "}"               => ir::expr_obj(<>),
-    "[" <List<Expr>> "]"            => ir::expr_array(<>),
+Atom: ast::Expr = {
+    "ident"                         => ast::expr_var(<>),
+    <"ident"> "(" <List<Expr>> ")"  => ast::expr_call(<>),
+    <"ident"> "(" "*" ")"           => ast::expr_call_star(<>),
+    <t:TScalar> "(" <e:Expr> ")"    => ast::expr_cast(e, &t),
+    Value                           => ast::expr_lit(<>),
+    "?"                             => ast::expr_param_positional(param_pos),
+    "$num"                          => ast::expr_param_numbered(<>),
+    "$name"                         => ast::expr_param_named(<>),
+    "{" <Members> "}"               => ast::expr_obj(<>),
+    "[" <List<Expr>> "]"            => ast::expr_array(<>),
     "(" <Expr> ")"                  => <>,
-    "(" <Select> ")"                => ir::expr_subquery(<>),
-    "exists" "(" <Select> ")"       => ir::expr_exists(<>),
+    "(" <Select> ")"                => ast::expr_subquery(<>),
+    "exists" "(" <Select> ")"       => ast::expr_exists(<>),
 };
 
-Expr: ir::Expr = {
+Expr: ast::Expr = {
     #[precedence(level="0")]
     Atom                        => <>,
 
     #[precedence(level="1")]    #[assoc(side="left")]
-    <Expr> "[" <Expr> "]"                               => ir::expr_jpe(<>),
-    <base:Expr> "[" <first:Expr> "," <rest:List<Expr>> "]" => ir::expr_subscript(base, first, rest),
-    <Expr> "." <"ident">                                => ir::expr_jpk(<>),
+    <Expr> "[" <Expr> "]"                               => ast::expr_jpe(<>),
+    <base:Expr> "[" <first:Expr> "," <rest:List<Expr>> "]" => ast::expr_subscript(base, first, rest),
+    <Expr> "." <"ident">                                => ast::expr_jpk(<>),
 
     #[precedence(level="2")]    #[assoc(side="left")]
-    <Expr> "*" <Expr>           => ir::expr_binary("*", <>),
-    <Expr> "/" <Expr>           => ir::expr_binary("/", <>),
-    <Expr> "%" <Expr>           => ir::expr_binary("%", <>),
+    <Expr> "*" <Expr>           => ast::expr_binary("*", <>),
+    <Expr> "/" <Expr>           => ast::expr_binary("/", <>),
+    <Expr> "%" <Expr>           => ast::expr_binary("%", <>),
 
     #[precedence(level="3")]    #[assoc(side="left")]
-    <Expr> "+" <Expr>           => ir::expr_binary("+", <>),
-    <Expr> "-" <Expr>           => ir::expr_binary("-", <>),
+    <Expr> "+" <Expr>           => ast::expr_binary("+", <>),
+    <Expr> "-" <Expr>           => ast::expr_binary("-", <>),
 
     #[precedence(level="4")]    #[assoc(side="left")]
-    <Expr> "<" <Expr>           => ir::expr_binary("<", <>),
-    <Expr> "<=" <Expr>          => ir::expr_binary("<=", <>),
-    <Expr> "=" <Expr>           => ir::expr_binary("=", <>),
-    <Expr> ">" <Expr>           => ir::expr_binary(">", <>),
-    <Expr> ">=" <Expr>          => ir::expr_binary(">=", <>),
-    <Expr> "!=" <Expr>          => ir::expr_binary("!=", <>),
+    <Expr> "<" <Expr>           => ast::expr_binary("<", <>),
+    <Expr> "<=" <Expr>          => ast::expr_binary("<=", <>),
+    <Expr> "=" <Expr>           => ast::expr_binary("=", <>),
+    <Expr> ">" <Expr>           => ast::expr_binary(">", <>),
+    <Expr> ">=" <Expr>          => ast::expr_binary(">=", <>),
+    <Expr> "!=" <Expr>          => ast::expr_binary("!=", <>),
     // Quantified comparisons `lhs <op> any/all (select ...)`. The `any`/`all`
     // tail can't begin an ordinary expression, so LR(1) picks these apart from
     // the binary rules above by a single lookahead token after the operator.
-    <l:Expr> "<"  <r:QuantRhs>  => ir::expr_quantify(l, ir::CmpOp::Lt, r.0, r.1),
-    <l:Expr> "<=" <r:QuantRhs>  => ir::expr_quantify(l, ir::CmpOp::Le, r.0, r.1),
-    <l:Expr> "="  <r:QuantRhs>  => ir::expr_quantify(l, ir::CmpOp::Eq, r.0, r.1),
-    <l:Expr> ">"  <r:QuantRhs>  => ir::expr_quantify(l, ir::CmpOp::Gt, r.0, r.1),
-    <l:Expr> ">=" <r:QuantRhs>  => ir::expr_quantify(l, ir::CmpOp::Ge, r.0, r.1),
-    <l:Expr> "!=" <r:QuantRhs>  => ir::expr_quantify(l, ir::CmpOp::Ne, r.0, r.1),
+    <l:Expr> "<"  <r:QuantRhs>  => ast::expr_quantify(l, ast::CmpOp::Lt, r.0, r.1),
+    <l:Expr> "<=" <r:QuantRhs>  => ast::expr_quantify(l, ast::CmpOp::Le, r.0, r.1),
+    <l:Expr> "="  <r:QuantRhs>  => ast::expr_quantify(l, ast::CmpOp::Eq, r.0, r.1),
+    <l:Expr> ">"  <r:QuantRhs>  => ast::expr_quantify(l, ast::CmpOp::Gt, r.0, r.1),
+    <l:Expr> ">=" <r:QuantRhs>  => ast::expr_quantify(l, ast::CmpOp::Ge, r.0, r.1),
+    <l:Expr> "!=" <r:QuantRhs>  => ast::expr_quantify(l, ast::CmpOp::Ne, r.0, r.1),
 
     #[precedence(level="5")]                    #[assoc(side="left")]
-    <Expr> "is" "null"                          => ir::expr_is_null(<>),
-    <Expr> "is" "not" "null"                    => ir::expr_is_not_null(<>),
-    <Expr> "is" "true"                          => ir::expr_is_true(<>),
-    <Expr> "is" "false"                         => ir::expr_is_false(<>),
-    <Expr> "is" "unknown"                       => ir::expr_is_unknown(<>),
-    <Expr> "is" "not" "true"                    => ir::expr_is_not_true(<>),
-    <Expr> "is" "not" "false"                   => ir::expr_is_not_false(<>),
-    <Expr> "is" "not" "unknown"                 => ir::expr_is_not_unknown(<>),
-    <Expr> "between" <Expr> "and" <Expr>        => ir::expr_between(<>),
-    <Expr> "not" "between" <Expr> "and" <Expr>  => ir::expr_not_between(<>),
-    <Expr> "in" "(" <List<Expr>> ")"            => ir::expr_in_list(<>),
-    <Expr> "not" "in" "(" <List<Expr>> ")"      => ir::expr_not_in_list(<>),
-    <Expr> "in" "(" <Select> ")"                => ir::expr_in_subquery(<>),
-    <Expr> "not" "in" "(" <Select> ")"          => ir::expr_not_in_subquery(<>),
+    <Expr> "is" "null"                          => ast::expr_is_null(<>),
+    <Expr> "is" "not" "null"                    => ast::expr_is_not_null(<>),
+    <Expr> "is" "true"                          => ast::expr_is_true(<>),
+    <Expr> "is" "false"                         => ast::expr_is_false(<>),
+    <Expr> "is" "unknown"                       => ast::expr_is_unknown(<>),
+    <Expr> "is" "not" "true"                    => ast::expr_is_not_true(<>),
+    <Expr> "is" "not" "false"                   => ast::expr_is_not_false(<>),
+    <Expr> "is" "not" "unknown"                 => ast::expr_is_not_unknown(<>),
+    <Expr> "between" <Expr> "and" <Expr>        => ast::expr_between(<>),
+    <Expr> "not" "between" <Expr> "and" <Expr>  => ast::expr_not_between(<>),
+    <Expr> "in" "(" <List<Expr>> ")"            => ast::expr_in_list(<>),
+    <Expr> "not" "in" "(" <List<Expr>> ")"      => ast::expr_not_in_list(<>),
+    <Expr> "in" "(" <Select> ")"                => ast::expr_in_subquery(<>),
+    <Expr> "not" "in" "(" <Select> ")"          => ast::expr_not_in_subquery(<>),
 
     #[precedence(level="6")]
-    "not" <Expr>                => ir::expr_not(<>),
+    "not" <Expr>                => ast::expr_not(<>),
 
     #[precedence(level="7")]    #[assoc(side="left")]
-    <Expr> "and" <Expr>         => ir::expr_binary("and", <>),
+    <Expr> "and" <Expr>         => ast::expr_binary("and", <>),
 
     #[precedence(level="8")]    #[assoc(side="left")]
-    <Expr> "or" <Expr>          => ir::expr_binary("or", <>),
+    <Expr> "or" <Expr>          => ast::expr_binary("or", <>),
 }
 
 // The right-hand side of a quantified comparison: the quantifier (`any` reuses
 // the `t_any` type token; `all` returns `true`) and the subquery it ranges over.
-QuantRhs: (bool, ir::Select) = {
+QuantRhs: (bool, ast::Select) = {
     "t_any" "(" <Select> ")"    => (false, <>),
     "all"   "(" <Select> ")"    => (true, <>),
 };
@@ -382,11 +382,11 @@ Value: Value = {
 
 //=== Objects
 
-Members: Vec<ir::Member> = List<Member>;
+Members: Vec<ast::Member> = List<Member>;
 
-Member: ir::Member = {
-    <"string"> ":" <Expr>   => ir::member_assign(<>),
-    "..." <Expr>            => ir::member_spread(<>),
+Member: ast::Member = {
+    <"string"> ":" <Expr>   => ast::member_assign(<>),
+    "..." <Expr>            => ast::member_spread(<>),
 }
 
 //------------------------------
