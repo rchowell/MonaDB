@@ -32,6 +32,7 @@ fn to_pyerr(err: &Error, sql: &str) -> PyErr {
 }
 
 /// Convert a monadb `Value` into a native Python object.
+#[allow(deprecated)]
 fn value_to_py(py: Python<'_>, value: &Value) -> PyObject {
     match value {
         Value::Oid(oid) => oid.into_py(py),
@@ -44,6 +45,7 @@ fn value_to_py(py: Python<'_>, value: &Value) -> PyObject {
 
 /// Recursively convert a `serde_json::Value` into a native Python object.
 /// Object key order is preserved (serde_json `preserve_order` is enabled).
+#[allow(deprecated)]
 fn json_to_py(py: Python<'_>, json: &JsonValue) -> PyObject {
     match json {
         JsonValue::Null => py.None(),
@@ -326,8 +328,8 @@ fn config_from_py(config: Option<&Bound<'_, PyDict>>) -> PyResult<Config> {
 fn connect(path: Option<&str>, config: Option<&Bound<'_, PyDict>>) -> PyResult<PyConnection> {
     let cfg = config_from_py(config)?;
     let conn = match path {
-        None | Some(":memory:") => MonaDB::memory_with_config(cfg),
-        Some(path) => MonaDB::open_with_config(path, cfg),
+        None | Some(":memory:") => MonaDB::memory_with_config(&cfg),
+        Some(path) => MonaDB::open_with_config(path, &cfg),
     }
     .map_err(|e| to_pyerr(&e, ""))?;
 

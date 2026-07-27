@@ -7,7 +7,7 @@ This is a guide for CPU profiling, memory analysis, and system-level tracing. Na
 Use samply for firefox-comptaible profiling and flamegraph for SVGs.
 
 ```bash
-cargo install sampy
+cargo install samply
 cargo install flamegraph
 ```
 

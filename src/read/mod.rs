@@ -51,17 +51,17 @@ pub fn looks_like_file(path: &str) -> bool {
 /// Reads all rows from `path` using `format` and `opts`.
 pub fn read_rows(path: &str, format: FileFormat, opts: ReadOptions) -> Result<Vec<Value>> {
     match format {
-        FileFormat::Csv => read_csv(path, opts),
-        FileFormat::Tsv => read_csv(path, opts.for_tsv()),
-        FileFormat::Jsonl => read_jsonl(path, opts),
+        FileFormat::Csv => read_csv(path, &opts),
+        FileFormat::Tsv => read_csv(path, &opts.for_tsv()),
+        FileFormat::Jsonl => read_jsonl(path, &opts),
     }
 }
 
 /// Writes `rows` to `path` using `format` and `opts`.
 pub fn write_rows(path: &str, format: FileFormat, opts: WriteOptions, rows: &[Value]) -> Result<()> {
     match format {
-        FileFormat::Csv => write_csv(path, opts, rows),
-        FileFormat::Tsv => write_csv(path, opts.for_tsv(), rows),
+        FileFormat::Csv => write_csv(path, &opts, rows),
+        FileFormat::Tsv => write_csv(path, &opts.for_tsv(), rows),
         FileFormat::Jsonl => write_jsonl(path, rows),
     }
 }
@@ -91,7 +91,7 @@ pub fn write_builtin(format: FileFormat) -> &'static str {
     }
 }
 
-fn read_csv(path: &str, opts: ReadOptions) -> Result<Vec<Value>> {
+fn read_csv(path: &str, opts: &ReadOptions) -> Result<Vec<Value>> {
     let file = File::open(path).map_err(|e| read_err(path, e))?;
     let mut reader = ReaderBuilder::new()
         .has_headers(opts.header)
@@ -135,7 +135,7 @@ fn read_csv(path: &str, opts: ReadOptions) -> Result<Vec<Value>> {
     Ok(rows)
 }
 
-fn read_jsonl(path: &str, opts: ReadOptions) -> Result<Vec<Value>> {
+fn read_jsonl(path: &str, opts: &ReadOptions) -> Result<Vec<Value>> {
     let file = File::open(path).map_err(|e| read_err(path, e))?;
     let reader = BufReader::new(file);
     let mut rows = Vec::new();
@@ -161,7 +161,7 @@ fn read_jsonl(path: &str, opts: ReadOptions) -> Result<Vec<Value>> {
     Ok(rows)
 }
 
-fn write_csv(path: &str, opts: WriteOptions, rows: &[Value]) -> Result<()> {
+fn write_csv(path: &str, opts: &WriteOptions, rows: &[Value]) -> Result<()> {
     let file = File::create(path).map_err(|e| read_err(path, e))?;
     let mut writer = WriterBuilder::new()
         .has_headers(opts.header)

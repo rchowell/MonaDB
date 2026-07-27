@@ -184,8 +184,7 @@ mod tests {
     fn session_take_put_abort_discards_writes() {
         let (_dir, storage) = open();
         let btree = make_btree(&storage, 1);
-        let mut session: Option<Transaction> = None;
-        session = Some(Transaction::write(&storage).unwrap());
+        let mut session: Option<Transaction> = Some(Transaction::write(&storage).unwrap());
 
         let mut txn = session.take().unwrap();
         btree.put(txn.as_rw().unwrap(), b"k", b"v").unwrap();

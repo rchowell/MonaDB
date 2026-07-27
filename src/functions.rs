@@ -435,7 +435,7 @@ fn log10(args: &[Value]) -> Result<Value> {
 
 /// Remainder of the first argument divided by the second (errors on zero).
 fn modulo(args: &[Value]) -> Result<Value> {
-    args[0].clone().rem(args[1].clone())
+    args[0].clone().rem(&args[1])
 }
 
 /// Largest of the arguments (by value order); incomparable args error.

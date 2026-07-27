@@ -1,3 +1,28 @@
+#![allow(
+    clippy::doc_markdown,
+    clippy::needless_pass_by_value,
+    clippy::implicit_hasher,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::manual_let_else,
+    clippy::should_implement_trait,
+    clippy::large_enum_variant,
+    clippy::field_reassign_with_default,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss,
+    clippy::redundant_closure_for_method_calls,
+    clippy::return_self_not_must_use,
+    clippy::match_same_arms,
+    clippy::redundant_guards,
+    clippy::too_many_lines,
+    clippy::elidable_lifetimes,
+    clippy::uninlined_format_args,
+    clippy::cloned_instead_of_copied,
+    clippy::trivially_copy_pass_by_ref,
+    clippy::unnecessary_wraps
+)]
+
 pub mod error;
 pub mod ir;
 pub mod schema;
@@ -14,7 +39,7 @@ pub mod lexer;
 mod config;
 mod params;
 mod statement;
-mod query_options;
+mod options;
 mod read;
 mod storage;
 mod transaction;
@@ -57,7 +82,7 @@ pub use crate::cache::Cache;
 pub use crate::lexer::{SqlLexer, Token};
 pub use crate::config::Config;
 pub use crate::params::{IntoParams, Params};
-pub use crate::query_options::QueryOptions;
+pub use crate::options::Options;
 pub use crate::statement::Statement;
 pub use crate::value::Value;
 pub use crate::vm::Rows;
@@ -94,7 +119,7 @@ pub struct MonaDB {
     /// leaves earlier prepared statements valid.
     session_catalog_dirty: Rc<Cell<bool>>,
     /// Runtime options applied to every query until changed.
-    query_options: QueryOptions,
+    options: Options,
 }
 
 impl MonaDB {
@@ -102,12 +127,12 @@ impl MonaDB {
     ///
     /// Equivalent to `open_with_config(path, Config::default())`.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<MonaDB> {
-        Self::open_with_config(path, Config::default())
+        Self::open_with_config(path, &Config::default())
     }
 
     /// Open or create a database at the given path with the given configuration.
-    pub fn open_with_config<P: AsRef<Path>>(path: P, config: Config) -> Result<MonaDB> {
-        let storage = Storage::open_with_config(path, &config)?;
+    pub fn open_with_config<P: AsRef<Path>>(path: P, config: &Config) -> Result<MonaDB> {
+        let storage = Storage::open_with_config(path, config)?;
         let catalog = Catalog::load(&storage)?;
         Ok(MonaDB {
             storage,
@@ -117,48 +142,36 @@ impl MonaDB {
             session_txn: Rc::new(RefCell::new(None)),
             session_active: Cell::new(false),
             session_catalog_dirty: Rc::new(Cell::new(false)),
-            query_options: QueryOptions::default(),
+            options: Options::default(),
         })
     }
 
     /// Returns the connection's query options.
-    pub fn query_options(&self) -> &QueryOptions {
-        &self.query_options
-    }
-
-    /// Replaces the connection's query options.
-    pub fn set_query_options(&mut self, opts: QueryOptions) {
-        self.query_options = opts;
-    }
-
-    /// Sets query options, returning `self` for chaining at open time.
-    #[must_use]
-    pub fn with_query_options(mut self, opts: QueryOptions) -> Self {
-        self.query_options = opts;
-        self
+    pub fn options(&self) -> &Options {
+        &self.options
     }
 
     /// Enables or disables bytecode tracing for subsequent queries.
     #[must_use]
     pub fn debug(mut self, enabled: bool) -> Self {
-        self.query_options.set_debug(enabled);
+        self.options.set_debug(enabled);
         self
     }
 
     /// Enables or disables bytecode tracing for subsequent queries.
     pub fn set_debug(&mut self, enabled: bool) {
-        self.query_options.set_debug(enabled);
+        self.options.set_debug(enabled);
     }
 
     /// Open an in-memory database.
     ///
     /// Equivalent to `memory_with_config(Config::default())`.
     pub fn memory() -> Result<MonaDB> {
-        Self::memory_with_config(Config::default())
+        Self::memory_with_config(&Config::default())
     }
 
     /// Open an in-memory database with the given configuration.
-    pub fn memory_with_config(config: Config) -> Result<MonaDB> {
+    pub fn memory_with_config(config: &Config) -> Result<MonaDB> {
         let tmp_dir = TempDir::new()?;
         let tmp_pth = tmp_dir.path().join("memory.db");
         Self::open_with_config(&tmp_pth, config)
@@ -764,7 +777,7 @@ mod tests {
     fn nosync_opens() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("nosync.db");
-        let db = MonaDB::open_with_config(&path, Config::default().nosync());
+        let db = MonaDB::open_with_config(&path, &Config::default().nosync());
         assert!(db.is_ok());
     }
 

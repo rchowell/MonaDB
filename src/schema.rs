@@ -13,8 +13,8 @@ use crate::value::Value;
 /// Flips the sign bit of the big-endian two's-complement, which maps the
 /// signed range onto unsigned byte order (`i64::MIN` → all-zero high bit):
 ///
-///   42_i64   two's-complement BE   00 00 00 00 00 00 00 2A
-///            flip bit 63       ─▶  80 00 00 00 00 00 00 2A
+///   `42_i64`   two's-complement BE   00 00 00 00 00 00 00 2A
+///              flip bit 63       ─▶  80 00 00 00 00 00 00 2A
 pub fn encode_int(n: i64) -> [u8; 8] {
     (n.cast_unsigned() ^ (1 << 63)).to_be_bytes()
 }
@@ -47,8 +47,8 @@ pub fn encode_str(s: &str) -> Vec<u8> {
 /// defensive). For `create table t (id int, name string)`, row
 /// `{id: 42, name: "ab"}`:
 ///
-///   id   = 42    ─▶  80 00 00 00 00 00 00 2A       (encode_int)
-///   name = "ab"  ─▶  61 62 00 00                   (encode_str)
+///   id   = 42    ─▶  80 00 00 00 00 00 00 2A       (`encode_int`)
+///   name = "ab"  ─▶  61 62 00 00                   (`encode_str`)
 ///                    ───────────────────────────────────────────
 ///   key          =   80 00 00 00 00 00 00 2A 61 62 00 00
 pub fn encode_key(val: &Value, keys: &[Key]) -> Result<Vec<u8>> {

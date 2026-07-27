@@ -1,13 +1,10 @@
-//! Per-connection query execution options.
-
-/// Runtime options that apply to every query on a [`crate::MonaDB`] handle until
-/// changed.
+/// Runtime options that apply to every query on a [`crate::MonaDB`] handle.
 #[derive(Debug, Clone, Default)]
-pub struct QueryOptions {
+pub struct Options {
     debug: bool,
 }
 
-impl QueryOptions {
+impl Options {
     /// Enables bytecode tracing before execution.
     #[must_use]
     pub fn debug(mut self, enabled: bool) -> Self {

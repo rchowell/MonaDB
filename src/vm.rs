@@ -482,7 +482,7 @@ impl VM {
                 Vop::Jpe => {
                     let e = self.pop();
                     let v = self.pop();
-                    let v = v.jpe(e).unwrap_or_default();
+                    let v = v.jpe(&e).unwrap_or_default();
                     self.push(v);
                 }
                 Vop::Jpi(idx) => {
@@ -683,27 +683,27 @@ impl VM {
                 Vop::Add => {
                     let r = self.pop();
                     let l = self.pop();
-                    self.push(l.add(r)?);
+                    self.push(l.add(&r)?);
                 }
                 Vop::Sub => {
                     let r = self.pop();
                     let l = self.pop();
-                    self.push(l.sub(r)?);
+                    self.push(l.sub(&r)?);
                 }
                 Vop::Mul => {
                     let r = self.pop();
                     let l = self.pop();
-                    self.push(l.mul(r)?);
+                    self.push(l.mul(&r)?);
                 }
                 Vop::Div => {
                     let r = self.pop();
                     let l = self.pop();
-                    self.push(l.div(r)?);
+                    self.push(l.div(&r)?);
                 }
                 Vop::Rem => {
                     let r = self.pop();
                     let l = self.pop();
-                    self.push(l.rem(r)?);
+                    self.push(l.rem(&r)?);
                 }
                 // Comparisons are three-valued: a NULL operand yields NULL (not
                 // false), and non-null operands compare under the cross-type total
@@ -1021,11 +1021,11 @@ fn agg_step(cell: Value, kind: AggKind, v: Value) -> Result<Value> {
     }
     match kind {
         // `cell` starts at `Int(0)` and stays an int.
-        AggKind::Count => cell.add(Value::Int(1)),
-        AggKind::Sum => sum_add(cell, v),
+        AggKind::Count => cell.add(&Value::Int(1)),
+        AggKind::Sum => sum_add(&cell, v),
         AggKind::Min => extremum(cell, v, Ordering::Less, "min"),
         AggKind::Max => extremum(cell, v, Ordering::Greater, "max"),
-        AggKind::Avg => avg_step(cell, v),
+        AggKind::Avg => avg_step(&cell, &v),
         // Keep the first folded value; within a group every key is equal, so
         // this captures the group's representative (used by GROUP BY).
         AggKind::First => Ok(if cell.is_null() { v } else { cell }),
@@ -1055,7 +1055,7 @@ fn agg_final(cell: &Value, kind: AggKind) -> Value {
 /// but **promotes to `Float` on i64 overflow** (SQLite-faithful) and once either
 /// side is a float; a non-number `v` is a runtime type error.
 #[allow(clippy::cast_precision_loss)]
-fn sum_add(cell: Value, v: Value) -> Result<Value> {
+fn sum_add(cell: &Value, v: Value) -> Result<Value> {
     if !v.is_number() {
         return Err(Error::InternalError(format!(
             "sum() requires numbers, got {v}"
@@ -1064,7 +1064,7 @@ fn sum_add(cell: Value, v: Value) -> Result<Value> {
     if cell.is_null() {
         return Ok(v); // first non-null value seeds the sum
     }
-    if let (Value::Int(a), Value::Int(b)) = (&cell, &v) {
+    if let (Value::Int(a), Value::Int(b)) = (cell, &v) {
         // The promotion `(a + b) as f64` is bounded by 2·i64::MAX, always finite.
         return Ok(a
             .checked_add(*b)
@@ -1100,13 +1100,13 @@ fn extremum(cell: Value, v: Value, want: Ordering, name: &str) -> Result<Value> 
 
 /// Folds a non-null numeric `v` into an avg accumulator `[sum, count]`,
 /// accumulating the sum in `f64`; a non-number `v` is a runtime type error.
-fn avg_step(cell: Value, v: Value) -> Result<Value> {
+fn avg_step(cell: &Value, v: &Value) -> Result<Value> {
     let Some(x) = v.num_f64() else {
         return Err(Error::InternalError(format!(
             "avg() requires numbers, got {v}"
         )));
     };
-    let (sum, count) = avg_parts(&cell);
+    let (sum, count) = avg_parts(cell);
     // Reject a non-finite running sum, as `sum_add` does (the no-NaN/∞ invariant).
     let sum = sum + x;
     if !sum.is_finite() {

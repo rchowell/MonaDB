@@ -115,7 +115,7 @@ impl Value {
 
     /// Recursive `serde_json::Value -> Value`. Integers that fit `i64` become
     /// `Int`; everything else numeric becomes `Float`. Object order is preserved
-    /// (serde_json `preserve_order` is enabled).
+    /// (`serde_json` `preserve_order` is enabled).
     pub fn from_json(value: JsonValue) -> Value {
         match value {
             JsonValue::Null => Value::Null,
@@ -180,6 +180,7 @@ impl Value {
     //------------------------------
 
     /// SQL equality: `null = null` is true; `null = x` (x non-null) is false.
+    #[allow(clippy::should_implement_trait)]
     pub fn eq(&self, other: &Self) -> bool {
         if self.is_null() || other.is_null() {
             return self.is_null() && other.is_null();
@@ -197,7 +198,7 @@ impl Value {
 
     /// Structural equality with numeric cross-type comparison (`Int(1)` equals
     /// `Float(1.0)`), order-independent object comparison, and element-wise
-    /// array comparison. Mirrors the old all-`f64` serde_json semantics.
+    /// array comparison. Mirrors the old all-`f64` `serde_json` semantics.
     fn structural_eq(&self, other: &Self) -> bool {
         // Fast path: both fully-owned. Handles the common comparisons without
         // touching the accessor layer.
@@ -368,6 +369,7 @@ impl Value {
     /// Widens a number to `f64` (an `Int` widens), or `None` if non-numeric. The
     /// internal numeric view shared by comparison, ordering, and aggregation —
     /// *not* a user-facing cast (see [`Value::to_float`]).
+    #[allow(clippy::cast_precision_loss)]
     pub(crate) fn num_f64(&self) -> Option<f64> {
         match self {
             Value::Int(i) => Some(*i as f64),
@@ -452,6 +454,7 @@ impl Value {
 
     /// The wrapped OID (owned or flat-backed). Panics if not an `Oid`
     /// (compiler-guaranteed invariant).
+    #[allow(clippy::cast_possible_truncation)]
     pub fn as_oid(&self) -> u32 {
         match self {
             Value::Oid(oid) => *oid,
@@ -483,7 +486,8 @@ impl Value {
 
     /// Navigates by a value: a non-negative int indexes an array, a string
     /// keys an object (the computed-path step `input[expr]`).
-    pub fn jpe(&self, v: Value) -> Option<Value> {
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    pub fn jpe(&self, v: &Value) -> Option<Value> {
         if v.is_number() {
             let f = v.num_f64()?;
             return if f >= 0.0 && f.fract() == 0.0 {
@@ -502,6 +506,11 @@ impl Value {
             Value::Raw(r) if r.tag() == flat::ARRAY => Some(r.count()),
             _ => None,
         }
+    }
+
+    /// Returns `true` if this is an empty array, `None` if not an array.
+    pub fn is_empty(&self) -> Option<bool> {
+        self.len().map(|l| l == 0)
     }
 
     /// Returns `array[idx]`, or `None` if out of range or not an array. The
@@ -588,6 +597,7 @@ impl Value {
             return Ok(Value::Null);
         }
         let buf: Rc<[u8]> = Rc::from(bytes);
+        #[allow(clippy::cast_possible_truncation)]
         let end = buf.len() as u32;
         Ok(Value::Raw(RawValue { buf, at: 0, end }))
     }
@@ -727,65 +737,66 @@ impl Value {
     //------------------------------
 
     /// Adds two numbers.
-    pub fn add(self, other: Value) -> Result<Value> {
-        if let (Value::Int(a), Value::Int(b)) = (&self, &other) {
+    pub fn add(self, other: &Value) -> Result<Value> {
+        if let (Value::Int(a), Value::Int(b)) = (&self, other) {
             return a
                 .checked_add(*b)
                 .map(Value::Int)
                 .ok_or_else(|| Error::InternalError("integer overflow in '+'".into()));
         }
-        Self::float_op(&self, &other, "+", |a, b| a + b)
+        Self::float_op(&self, other, "+", |a, b| a + b)
     }
 
     /// Subtracts two numbers.
     #[allow(clippy::should_implement_trait)]
-    pub fn sub(self, other: Value) -> Result<Value> {
-        if let (Value::Int(a), Value::Int(b)) = (&self, &other) {
+    pub fn sub(self, other: &Value) -> Result<Value> {
+        if let (Value::Int(a), Value::Int(b)) = (&self, other) {
             return a
                 .checked_sub(*b)
                 .map(Value::Int)
                 .ok_or_else(|| Error::InternalError("integer overflow in '-'".into()));
         }
-        Self::float_op(&self, &other, "-", |a, b| a - b)
+        Self::float_op(&self, other, "-", |a, b| a - b)
     }
 
     /// Multiplies two numbers.
-    pub fn mul(self, other: Value) -> Result<Value> {
-        if let (Value::Int(a), Value::Int(b)) = (&self, &other) {
+    pub fn mul(self, other: &Value) -> Result<Value> {
+        if let (Value::Int(a), Value::Int(b)) = (&self, other) {
             return a
                 .checked_mul(*b)
                 .map(Value::Int)
                 .ok_or_else(|| Error::InternalError("integer overflow in '*'".into()));
         }
-        Self::float_op(&self, &other, "*", |a, b| a * b)
+        Self::float_op(&self, other, "*", |a, b| a * b)
     }
 
     /// Divides two numbers; errors on division by zero.
-    pub fn div(self, other: Value) -> Result<Value> {
-        if let (Value::Int(a), Value::Int(b)) = (&self, &other) {
+    pub fn div(self, other: &Value) -> Result<Value> {
+        if let (Value::Int(a), Value::Int(b)) = (&self, other) {
             // checked_div is None on a zero divisor and on i64::MIN / -1.
             return a
                 .checked_div(*b)
                 .map(Value::Int)
                 .ok_or_else(|| Error::InternalError("division by zero".into()));
         }
-        Self::float_op_nonzero(&self, &other, "/", |a, b| a / b)
+        Self::float_op_nonzero(&self, other, "/", |a, b| a / b)
     }
 
     /// Remainder of two numbers; errors on division by zero.
-    pub fn rem(self, other: Value) -> Result<Value> {
-        if let (Value::Int(a), Value::Int(b)) = (&self, &other) {
+    pub fn rem(self, other: &Value) -> Result<Value> {
+        if let (Value::Int(a), Value::Int(b)) = (&self, other) {
             return a
                 .checked_rem(*b)
                 .map(Value::Int)
                 .ok_or_else(|| Error::InternalError("division by zero".into()));
         }
-        Self::float_op_nonzero(&self, &other, "%", |a, b| a % b)
+        Self::float_op_nonzero(&self, other, "%", |a, b| a % b)
     }
 
     /// Float arithmetic on two operands, coercing each through [`Value::to_float`]
     /// (a numeric string coerces, `'5' + 1` → `6.0`); a null operand propagates to
     /// null (SQL semantics), and a non-coercible operand is a type error.
+    #[allow(clippy::many_single_char_names)]
     fn float_op(a: &Value, b: &Value, op: &str, f: impl Fn(f64, f64) -> f64) -> Result<Value> {
         if a.is_null() || b.is_null() {
             return Ok(Value::Null);
@@ -800,6 +811,7 @@ impl Value {
 
     /// Like `float_op`, but rejects a zero right operand (no JSON inf/NaN). A null
     /// operand still propagates to null, short-circuiting before the zero check.
+    #[allow(clippy::many_single_char_names)]
     fn float_op_nonzero(
         a: &Value,
         b: &Value,
@@ -1459,14 +1471,14 @@ mod tests {
     #[test]
     fn int_plus_int_is_int() {
         assert!(matches!(
-            Value::int(2).add(Value::int(3)),
+            Value::int(2).add(&Value::int(3)),
             Ok(Value::Int(5))
         ));
     }
 
     #[test]
     fn int_plus_float_is_float() {
-        match Value::int(2).add(Value::float(0.5)) {
+        match Value::int(2).add(&Value::float(0.5)) {
             Ok(Value::Float(f)) => assert_eq!(f, 2.5),
             other => panic!("expected Float(2.5), got {other:?}"),
         }
@@ -1475,30 +1487,30 @@ mod tests {
     #[test]
     fn int_div_truncates_toward_zero() {
         assert!(matches!(
-            Value::int(7).div(Value::int(2)),
+            Value::int(7).div(&Value::int(2)),
             Ok(Value::Int(3))
         ));
     }
 
     #[test]
     fn div_by_zero_is_err() {
-        assert!(Value::int(1).div(Value::int(0)).is_err());
-        assert!(Value::float(1.0).div(Value::float(0.0)).is_err());
+        assert!(Value::int(1).div(&Value::int(0)).is_err());
+        assert!(Value::float(1.0).div(&Value::float(0.0)).is_err());
     }
 
     #[test]
     fn add_non_numbers_is_err() {
-        assert!(Value::string("a".to_string()).add(Value::int(1)).is_err());
+        assert!(Value::string("a".to_string()).add(&Value::int(1)).is_err());
     }
 
     #[test]
     fn arithmetic_propagates_null() {
         // A null operand yields null (SQL semantics), regardless of the other
         // side or the operator — and short-circuits the divide-by-zero check.
-        assert!(matches!(Value::null().add(Value::int(1)), Ok(Value::Null)));
-        assert!(matches!(Value::int(1).add(Value::null()), Ok(Value::Null)));
-        assert!(matches!(Value::null().mul(Value::null()), Ok(Value::Null)));
-        assert!(matches!(Value::null().div(Value::int(0)), Ok(Value::Null)));
+        assert!(matches!(Value::null().add(&Value::int(1)), Ok(Value::Null)));
+        assert!(matches!(Value::int(1).add(&Value::null()), Ok(Value::Null)));
+        assert!(matches!(Value::null().mul(&Value::null()), Ok(Value::Null)));
+        assert!(matches!(Value::null().div(&Value::int(0)), Ok(Value::Null)));
     }
 
     /// `decode` (single-pass `Deserialize`) must round-trip `encode` exactly,

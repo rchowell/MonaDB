@@ -46,7 +46,7 @@ impl MonaDbBench {
             Some(v) if !v.is_empty() => Config::default().nosync(),
             _ => Config::default(),
         };
-        let db = MonaDB::open_with_config(&path, config).expect("open monadb");
+        let db = MonaDB::open_with_config(&path, &config).expect("open monadb");
         Self { db, _dir: dir }
     }
 

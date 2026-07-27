@@ -157,7 +157,7 @@ impl MonaDB {
                 // Commit the dbi opens so the handles survive into later
                 // execution txns (see the doc comment); idempotent for tables
                 // already registered in this env instance.
-                let mut txn = self.storage.write_txn()?;
+                let txn = self.storage.write_txn()?;
                 let tables = oids
                     .iter()
                     .map(|&oid| self.storage.open_btree(&txn, oid))
@@ -187,7 +187,7 @@ impl MonaDB {
                 return Err(Error::BindError(format!("missing parameter {p}")));
             }
         }
-        if self.query_options.debug_enabled() {
+        if self.options.debug_enabled() {
             Self::trace_program(&plan.program);
         }
         let defer_commit = self.in_transaction();

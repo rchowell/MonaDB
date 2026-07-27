@@ -43,7 +43,7 @@ fn open_db(nosync: bool) -> (TempDir, MonaDB) {
     } else {
         Config::default()
     };
-    let db = MonaDB::open_with_config(&path, config).expect("open");
+    let db = MonaDB::open_with_config(&path, &config).expect("open");
     (dir, db)
 }
 

@@ -13,14 +13,14 @@ Both are driven through the `DocStore` trait (`store.rs`); adding an engine mean
 
 All templates below are prepared once and re-run with bound params (`?` / `$1`):
 
-| Pattern | Workload | MonaDB template | SQLite template |
-|---------|----------|-----------------|-----------------|
-| **Key-value get** (single) | `single_key_select_1` | `select docs[?];` | `SELECT doc FROM docs WHERE id = ?` |
-| **Key-value get** (composite) | `composite_key_select_1` | `select docs[?, ?];` | `WHERE tenant = ? AND seq = ?` |
-| **Range read** (integer key span) | `single_key_select_range` | `select [docs[?], …, docs[?]];` (batch get) | `WHERE id >= ? AND id < ? ORDER BY id` |
-| **Prefix / partition read** | `composite_key_select_prefix` | `select docs[?];` (GetRange array) | `WHERE tenant = ? ORDER BY seq` |
-| **Write** (single key) | `single_key_insert` | `insert into docs ($1);` (object param) | `INSERT … VALUES (?, jsonb(?))` |
-| **Write** (composite key) | `composite_key_insert` | `insert into docs ($1);` (object param) | `VALUES (?, ?, jsonb(?))` |
+| Pattern                           | Workload                      | MonaDB template                             | SQLite template                        |
+| --------------------------------- | ----------------------------- | ------------------------------------------- | -------------------------------------- |
+| **Key-value get** (single)        | `single_key_select_1`         | `select docs[?];`                           | `SELECT doc FROM docs WHERE id = ?`    |
+| **Key-value get** (composite)     | `composite_key_select_1`      | `select docs[?, ?];`                        | `WHERE tenant = ? AND seq = ?`         |
+| **Range read** (integer key span) | `single_key_select_range`     | `select [docs[?], …, docs[?]];` (batch get) | `WHERE id >= ? AND id < ? ORDER BY id` |
+| **Prefix / partition read**       | `composite_key_select_prefix` | `select docs[?];` (GetRange array)          | `WHERE tenant = ? ORDER BY seq`        |
+| **Write** (single key)            | `single_key_insert`           | `insert into docs ($1);` (object param)     | `INSERT … VALUES (?, jsonb(?))`        |
+| **Write** (composite key)         | `composite_key_insert`        | `insert into docs ($1);` (object param)     | `VALUES (?, ?, jsonb(?))`              |
 
 Range reads fetch a contiguous span of `MONADB_BENCH_RANGE` documents (default **100**) per query. Prefix reads return all documents for one of **100** tenant partitions (`N / 100` rows at preload cardinality `N`).
 
@@ -28,23 +28,23 @@ MonaDB expresses ranged/prefix reads through its keyed-table index syntax (`docs
 
 ## Workloads
 
-| Workload | Description |
-|----------|-------------|
-| `single_key_select_1` | Point lookup by integer key |
-| `single_key_select_range` | Range read over `[lo, hi)` integer keys |
-| `single_key_insert` | Autocommit insert of M fresh documents |
-| `composite_key_select_1` | Point lookup by `(tenant, seq)` |
-| `composite_key_select_prefix` | Prefix read — all docs for one tenant |
-| `composite_key_insert` | Autocommit composite-key inserts |
+| Workload                      | Description                             |
+| ----------------------------- | --------------------------------------- |
+| `single_key_select_1`         | Point lookup by integer key             |
+| `single_key_select_range`     | Range read over `[lo, hi)` integer keys |
+| `single_key_insert`           | Autocommit insert of M fresh documents  |
+| `composite_key_select_1`      | Point lookup by `(tenant, seq)`         |
+| `composite_key_select_prefix` | Prefix read — all docs for one tenant   |
+| `composite_key_insert`        | Autocommit composite-key inserts        |
 
 Crossed with document profiles:
 
-| Profile | Target JSON size | Shape |
-|---------|------------------|-------|
-| `xs` | ~256 B | Flat scalars |
-| `sm` | ~2 KiB | Metadata + tags |
-| `md` | ~16 KiB | 20 line items |
-| `lg` | ~128 KiB | Padded content + audit log |
+| Profile | Target JSON size | Shape                      |
+| ------- | ---------------- | -------------------------- |
+| `xs`    | ~256 B           | Flat scalars               |
+| `sm`    | ~2 KiB           | Metadata + tags            |
+| `md`    | ~16 KiB          | 20 line items              |
+| `lg`    | ~128 KiB         | Padded content + audit log |
 
 And two engines: `monadb` and `sqlite` (both prepared; SQLite stores JSONB).
 
@@ -68,16 +68,16 @@ MONADB_BENCH_M=1000 \
 
 ### Environment variables
 
-| Variable | Default | Meaning |
-|----------|---------|---------|
-| `MONADB_BENCH_M` | `10000` | Timed operations per Criterion sample |
-| `MONADB_BENCH_N` | `10000` | Preload cardinality for select workloads; insert key offset base |
-| `MONADB_BENCH_PROFILES` | `xs,sm,md,lg` | Comma-separated profile list |
-| `MONADB_BENCH_WORKLOADS` | all six | Comma-separated workload filter |
-| `MONADB_BENCH_ENGINES` | all three | Comma-separated engine filter |
-| `MONADB_BENCH_RANGE` | `100` | Row span for `single_key_select_range` |
-| `MONADB_BENCH_SEED` | `0x0ADB00EC` | RNG seed for lookup key selection |
-| `MONADB_BENCH_CSV` | `target/bench-metrics.csv` | Output path for the `metrics` harness CSV |
+| Variable                 | Default                    | Meaning                                                          |
+| ------------------------ | -------------------------- | ---------------------------------------------------------------- |
+| `MONADB_BENCH_M`         | `10000`                    | Timed operations per Criterion sample                            |
+| `MONADB_BENCH_N`         | `10000`                    | Preload cardinality for select workloads; insert key offset base |
+| `MONADB_BENCH_PROFILES`  | `xs,sm,md,lg`              | Comma-separated profile list                                     |
+| `MONADB_BENCH_WORKLOADS` | all six                    | Comma-separated workload filter                                  |
+| `MONADB_BENCH_ENGINES`   | all three                  | Comma-separated engine filter                                    |
+| `MONADB_BENCH_RANGE`     | `100`                      | Row span for `single_key_select_range`                           |
+| `MONADB_BENCH_SEED`      | `0x0ADB00EC`               | RNG seed for lookup key selection                                |
+| `MONADB_BENCH_CSV`       | `target/bench-metrics.csv` | Output path for the `metrics` harness CSV                        |
 
 ## Fairness controls
 
@@ -100,13 +100,13 @@ cargo bench --bench insert_breakdown
 MONADB_BENCH_M=100 MONADB_BENCH_PROFILE=md cargo bench --bench insert_breakdown
 ```
 
-| Mode | What it measures |
-|------|------------------|
-| `autocommit` | One `execute()` per row (baseline) |
-| `explicit_txn` | `begin;` + N inserts + `commit;` |
-| `multi_value` | One `insert into t ({…}, …, {…});` |
-| `prepared_param` | `insert into t ($1)` with bound params |
-| `relaxed_autocommit` | Autocommit with `Config::nosync()` |
+| Mode                 | What it measures                       |
+| -------------------- | -------------------------------------- |
+| `autocommit`         | One `execute()` per row (baseline)     |
+| `explicit_txn`       | `begin;` + N inserts + `commit;`       |
+| `multi_value`        | One `insert into t ({…}, …, {…});`     |
+| `prepared_param`     | `insert into t ($1)` with bound params |
+| `relaxed_autocommit` | Autocommit with `Config::nosync()`     |
 
 ## Metrics harness (time + memory)
 
@@ -120,13 +120,13 @@ MONADB_BENCH_PROFILES=xs,md MONADB_BENCH_ENGINES=monadb cargo bench --bench metr
 
 Per matrix cell it reports:
 
-| Column | Meaning |
-|--------|---------|
-| `ns_per_op` | Wall-clock nanoseconds per operation |
-| `bytes_alloc_per_op` | Rust heap bytes allocated per operation |
-| `allocs_per_op` | Allocation count per operation |
-| `peak_heap_bytes` | Peak live-heap growth during the timed loop |
-| `peak_rss_bytes` | Process peak resident set size |
+| Column               | Meaning                                     |
+| -------------------- | ------------------------------------------- |
+| `ns_per_op`          | Wall-clock nanoseconds per operation        |
+| `bytes_alloc_per_op` | Rust heap bytes allocated per operation     |
+| `allocs_per_op`      | Allocation count per operation              |
+| `peak_heap_bytes`    | Peak live-heap growth during the timed loop |
+| `peak_rss_bytes`     | Process peak resident set size              |
 
 **Memory caveats:**
 

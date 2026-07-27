@@ -223,7 +223,7 @@ fn run_repl(db: &mut MonaDB) {
             };
             match command {
                 ShellCommand::Debug => {
-                    let enabled = !db.query_options().debug_enabled();
+                    let enabled = !db.options().debug_enabled();
                     db.set_debug(enabled);
                     println!("debug: {enabled}");
                 }
