@@ -5,8 +5,7 @@ template = "docs/page.html"
 weight = 2
 +++
 
-A value must be a mapping — a `dict`, a dataclass instance, or a model. BSON has
-no other top-level form, and neither does MonaDB.
+All documents are mappings such as python dicts, dataclasses, or pyndantic models.
 
 ```python
 c["k"] = {"n": 1}               # fine
@@ -14,63 +13,46 @@ c["k"] = [1, 2, 3]              # TypeError: document must be a mapping
 c["k"] = "not a mapping"        # TypeError
 ```
 
-Lists and scalars are welcome *inside* a document, just not as the whole of one.
-
 ## Types
 
-| Python | BSON | Notes |
-|--------|------|-------|
-| `None` | Null | |
-| `bool` | Boolean | |
-| `int` | Int32 / Int64 | narrowed automatically; beyond Int64 raises `ValueError` |
-| `float` | Double | |
-| `str` | String | |
-| `bytes` | Binary | generic subtype |
-| `datetime` | UTC datetime | millisecond precision — see below |
-| `list` | Array | |
-| `dict` | Document | nests to any depth |
+| Python     | BSON          | Notes                                                    |
+| ---------- | ------------- | -------------------------------------------------------- |
+| `None`     | Null          |                                                          |
+| `bool`     | Boolean       |                                                          |
+| `int`      | Int32 / Int64 | narrowed automatically; beyond Int64 raises `ValueError` |
+| `float`    | Double        |                                                          |
+| `str`      | String        |                                                          |
+| `bytes`    | Binary        | generic subtype                                          |
+| `datetime` | UTC datetime  | millisecond precision (see below)                        |
+| `list`     | Array         |                                                          |
+| `dict`     | Document      | nests to any depth                                       |
 
 Anything else raises `TypeError`, and the message names where in the document
-the offending value sits:
+the offending value sits. This example has a python `set` which is not supported.
 
 ```python
 c["k"] = {"a": {"b": [1, {1, 2}]}}
 # TypeError: unsupported type set at $.a.b[1]
 ```
 
-## Nesting
-
-Documents nest freely, and round-trip exactly:
-
-```python
-c["k"] = {
-    "user": {"name": "alice", "tags": ["a", "b"]},
-    "counts": [1, 2, [3, {"deep": True}]],
-    "blob": b"\x00\xff",
-}
-c["k"] == ...                   # identical structure back
-```
-
 ## Datetimes
-
-Two BSON properties show through, and it is better to know them than to discover
-them:
 
 **Millisecond precision.** Microseconds are truncated.
 
 ```python
 from datetime import datetime, timezone
 
-c["k"] = {"at": datetime(2026, 8, 2, 12, 0, 0, 123456, tzinfo=timezone.utc)}
-c["k"]["at"].microsecond        # 123000, not 123456
-```
+# Insert a time with microsecond precision
+c["times"] = {"at": datetime(2026, 8, 2, 12, 0, 0, 123456, tzinfo=timezone.utc)}
 
-**Naive datetimes are treated as UTC.** Reads always return tz-aware UTC.
+# Returns a time with millisecond precision: 123000, not 123456
+c["times"]["at"].microsecond 
 
-```python
-c["k"] = {"at": datetime(2026, 8, 2, 12, 0, 0)}     # naive
-c["k"]["at"]
-# datetime.datetime(2026, 8, 2, 12, 0, tzinfo=datetime.timezone.utc)
+# Naive datetimes are treated as UTC
+c["naive"] = {"at": datetime(2026, 8, 2, 12, 0, 0)}
+
+# Returns datetime.datetime(2026, 8, 2, 12, 0, tzinfo=datetime.timezone.utc)
+c["naive"]["at"]
 ```
 
 If you care about a local wall-clock time, attach the zone yourself before

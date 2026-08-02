@@ -152,22 +152,28 @@ def test_value_rejections(db):
         c["k"] = {"x": 2**63}              # beyond Int64
 
 
-def test_update_not_atomic_outside_txn(db):
-    """Divergence 4: update() outside a transaction is independent commits."""
+def test_update_is_atomic(db):
+    """update() is one commit: a bad item leaves nothing behind."""
     c = db["upd"]
-    bad = {"a": {"n": 1}, "b": 42, "c": {"n": 3}}    # 42 fails mid-way
+    bad = {"a": {"n": 1}, "b": 42, "c": {"n": 3}}    # 42 is not a mapping
     with pytest.raises(TypeError):
         c.update(bad)
-    assert "a" in c and "c" not in c                  # first write stuck
-    del c["a"]
-    with pytest.raises(TypeError):
-        with db.transaction() as tx:
-            tx["upd"].update(bad)
-    assert "a" not in c                               # atomic inside a txn
+    assert "upd" not in db                            # not even the collection
+    c.update({"a": {"n": 1}, "c": {"n": 3}})
+    assert dict(c.items()) == {"a": {"n": 1}, "c": {"n": 3}}
+
+
+def test_update_forms(db):
+    """update() takes a mapping, an iterable of pairs, or keyword arguments."""
+    c = db["upd2"]
+    c.update([("a", {"n": 1})], b={"n": 2})
+    assert dict(c.items()) == {"a": {"n": 1}, "b": {"n": 2}}
+    db["never"].update({})
+    assert "never" not in db                          # an empty update writes nothing
 
 
 def test_iterators_stream_snapshot(db):
-    """Divergence 5: views are snapshot iterators, not live dict views."""
+    """Divergence 4: views are snapshot iterators, not live dict views."""
     c = db["snap"]
     for i in range(5):
         c[i] = {"i": i}

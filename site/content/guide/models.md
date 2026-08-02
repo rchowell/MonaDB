@@ -60,15 +60,6 @@ db["users"]["bob"]              # {'name': 'bob', 'age': 41} — dict, unbound
 
 Binding is what you need to get instances *back*.
 
-## Inside transactions
-
-`collection()` exists on transactions too, so model writes can be atomic:
-
-```python
-with db.transaction() as tx:
-    tx.collection("users", User)["carol"] = User(name="carol", age=22)
-```
-
 ## Iteration
 
 Bound handles rebuild instances everywhere a document is returned — `values()`,

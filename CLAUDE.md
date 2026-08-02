@@ -1,15 +1,14 @@
 # MonaDB
 
-An embedded document store with Python dict semantics and transactions. Rust
-core behind pyo3, storage on redb, documents as BSON. Ships only to PyPI.
+An embedded document store with Python dict semantics. Rust core behind pyo3,
+storage on redb, documents as BSON. Ships only to PyPI.
 
 ## Architecture
 
 ```
   Python  monadb/
-    open(path=None, *, timeout=5.0, durable=True) -> Database
+    open(path=None, *, durable=True) -> Database
     Database      Mapping[str, Collection]        db["users"]
-    Transaction   Mapping[str, Collection]        with db.transaction() as tx
     Collection    MutableMapping[Key, Doc]        users["alice"]
                           │  delegates every operation
   Rust    src/  (pyo3 extension module `_monadb`)
@@ -17,29 +16,25 @@ core behind pyo3, storage on redb, documents as BSON. Ships only to PyPI.
   redb 4.1   one table per collection, TableDefinition<&[u8], &[u8]>
 ```
 
-Rust owns storage, transactions, key encoding, and BSON. Python owns the
-mapping protocol and the model adapter. There is no catalog — redb's
-`list_tables()` is the catalog.
+Rust owns storage, key encoding, and BSON. Python owns the mapping protocol and
+the model adapter. There is no catalog — redb's `list_tables()` is the catalog.
 
 ## Key Files
 
 | File                 | Role                                                             |
 |----------------------|------------------------------------------------------------------|
-| `src/db.rs`          | `DbInner` shared state, `Db` pyclass, `open()`                   |
-| `src/txn.rs`         | The write `Gate` (timeout + re-entry guard), `Txn` pyclass       |
-| `src/collection.rs`  | `Collection` pyclass, the `Readable` bridge, `DocIter`           |
+| `src/db.rs`          | `Connection` shared state, `Db` pyclass, `open()`                |
+| `src/collection.rs`  | `Collection` pyclass, the one read and write path, `CollectionIter` |
 | `src/keys.rs`        | Order-preserving key codec — the load-bearing property test      |
 | `src/doc.rs`         | `PyObject` -> BSON on writes, `RawDocument` -> `PyDict` on reads |
-| `src/error.rs`       | `Error` / `BusyError` / `TransactionError` and redb mapping      |
-| `monadb/collection.py` | `MutableMapping` glue over the Rust connection                 |
+| `src/error.rs`       | `Error`, and the mapping from redb faults onto it                |
+| `monadb/collection.py` | `MutableMapping` glue, and the dataclass / pydantic adapter    |
 | `monadb/db.py`       | `Database` as `Mapping[str, Collection]`                         |
-| `monadb/txn.py`      | `Transaction` as `Mapping[str, Collection]`                      |
-| `monadb/models.py`   | dataclass / pydantic adapter, by duck-typing                     |
 
 ## Build & Test
 
 ```sh
-cargo test                          # Rust units: key codec, BSON, gate
+cargo test                          # Rust units: key codec, BSON
 maturin develop                     # build the extension into the venv
 python -m pytest tests -q           # the conformance suite
 cargo clippy --all-targets          # pedantic, must stay clean
@@ -48,19 +43,25 @@ cargo clippy --all-targets          # pedantic, must stay clean
 ## Invariants
 
 - `#![forbid(unsafe_code)]`. Exactly three dependencies: redb, bson, pyo3.
-- `src/` is seven files. The crate defines **no cargo features**:
+- `src/` is six files. The crate defines **no cargo features**:
   `pyo3/extension-module` comes from `[tool.maturin]`, and the `auto-initialize`
   dev-dependency is what lets `cargo test` link.
 - The key codec's order-preservation property (`encode(a) < encode(b)` iff
   `a < b`) is what makes iteration order and every range bound correct. Change
   the encoding only with that test in front of you.
-- The write gate must be acquired inside `Python::detach`. Waiting while holding
-  the GIL stalls the threads that would release it.
-- A write transaction cannot outlive the call or `with` block that created it.
-  That is what makes retained-transaction deadlocks unrepresentable.
-- `WriteTransaction::open_table` **creates** a missing table, so
-  transaction-scoped reads must check `list_tables()` first or they silently
-  vivify a collection.
+- There are no transactions in the API. Every operation is its own transaction,
+  and no `WriteTransaction` outlives the call that opened it — which is what
+  makes a retained write lock unrepresentable.
+- `begin_write` and `commit` run inside `Python::detach`. redb serializes writers
+  internally and waits without a deadline; holding the GIL through that wait, or
+  through the fsync a commit does, stalls every other Python thread.
+- `WriteTransaction::open_table` **creates** a missing table, so `delete` has to
+  check that the collection exists before it opens the write, or a failed delete
+  vivifies the collection. Reads open through a `ReadTransaction`, which cannot
+  create one.
+- `ReadOnlyTable` owns an `Arc` of its transaction guard, so a snapshot — and
+  the `CollectionIter` built from it — outlives the `ReadTransaction` that opened it. That
+  is what lets reads stream without borrowing anything.
 
 ## Conventions
 

@@ -42,12 +42,6 @@ def test_model_write_accepted_anywhere(db):
     assert db["users"]["b"] == {"name": "bob", "age": 41}
 
 
-def test_model_in_transaction(db):
-    with db.transaction() as tx:
-        tx.collection("users", DUser)["c"] = DUser(name="cy", age=9)
-    assert db.collection("users", DUser)["c"].name == "cy"
-
-
 def test_model_iteration(db):
     users = db.collection("users", DUser)
     users["a"] = DUser(name="alice", age=30)

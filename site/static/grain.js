@@ -95,11 +95,12 @@
       [['db[', TXT], ['"users"', LIT], ['][', TXT], ['"alice"', LIT], ['] = {', TXT], ['"age"', LIT], [': ', TXT], ['30', LIT], ['}', TXT]],
       [['db[', TXT], ['"users"', LIT], ['][', TXT], ['"alice"', LIT], [']', TXT], ['   # {"age": 30}', COM]]
     ],
-    [ // Transactions
-      [['# one with-block is one commit; an error rolls it back', COM]],
-      [['with', KW], [' db.', TXT], ['transaction', KW], ['() ', TXT], ['as', KW], [' tx:', TXT]],
-      [['    tx[', TXT], ['"users"', LIT], ['][', TXT], ['"bob"', LIT], ['] = {', TXT], ['"age"', LIT], [': ', TXT], ['41', LIT], ['}', TXT]],
-      [['    ', TXT], ['del', KW], [' tx[', TXT], ['"users"', LIT], ['][', TXT], ['"alice"', LIT], [']', TXT]]
+    [ // Batches
+      [['# update() is one commit; a bad item writes nothing', COM]],
+      [['db[', TXT], ['"users"', LIT], ['].', TXT], ['update', KW], ['({', TXT]],
+      [['    ', TXT], ['"bob"', LIT], [': {', TXT], ['"age"', LIT], [': ', TXT], ['41', LIT], ['},', TXT]],
+      [['    ', TXT], ['"cy"', LIT], [': {', TXT], ['"age"', LIT], [': ', TXT], ['9', LIT], ['},', TXT]],
+      [['})', TXT]]
     ],
     [ // Ranges
       [['# keys are ordered, so ranges come free from the b-tree', COM]],

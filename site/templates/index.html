@@ -1,6 +1,6 @@
 {% extends "base.html" %} {% block title %}MonaDB{% endblock title %} {% block
 description %}MonaDB is an embedded document store for Python. Python dict
-semantics and real transactions, in a single file.{% endblock description %} {%
+semantics over ordered keys, in a single file.{% endblock description %} {%
 block content %}
 
 <!-- ── Hero ──────────────────────────────────────────── -->
@@ -55,7 +55,7 @@ block content %}
           </div>
           <div class="console-tabs">
             <button class="console-tab is-active" data-tab>Dict</button>
-            <button class="console-tab" data-tab>Transactions</button>
+            <button class="console-tab" data-tab>Batches</button>
             <button class="console-tab" data-tab>Ranges</button>
             <button class="console-tab" data-tab>Models</button>
           </div>
@@ -201,12 +201,12 @@ block content %}
               04 · Concurrency
             </div>
             <h3 class="font-display text-[18px] font-bold mb-2">
-              Transactions
+              One commit each
             </h3>
             <p class="text-[12.5px] leading-[1.6] text-shadow">
-              A <code>with</code> block is one commit; an exception rolls it
-              back. Readers never block, and contention raises rather than
-              hanging.
+              Every operation is its own commit, and <code>update()</code>
+              commits a whole mapping at once. Readers never block; writers
+              serialize.
             </p>
           </div>
         </div>

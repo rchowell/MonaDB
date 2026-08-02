@@ -1,6 +1,6 @@
 +++
 title = "Tutorial"
-description = "Build a small application with MonaDB, from opening a database to committing a transaction."
+description = "Build a small application with MonaDB, from opening a database to reading it back."
 template = "docs/page.html"
 weight = 2
 +++
@@ -111,35 +111,11 @@ logs["2026-09-01:c"] = {}
 # ['2026-08-01:a', '2026-08-02:b']
 ```
 
-## Transactions
-
-Outside a transaction each operation commits on its own. A `with` block groups
-them into one commit, and an exception rolls the whole block back.
-
-```python
-with db.transaction() as tx:
-    tx["users"]["erin"] = {"age": 28}
-    del tx["users"]["carol"]
-# both changes land together
-```
-
-```python
-try:
-    with db.transaction() as tx:
-        tx["users"]["frank"] = {"age": 33}
-        raise RuntimeError("something went wrong")
-except RuntimeError:
-    pass
-
-"frank" in db["users"]          # False — nothing partial survives
-```
-
-Reads inside the block see your own uncommitted writes.
-
 ## Models
 
-A collection is plain-dict by default. Bind it to a dataclass or pydantic model
-and it will validate on write and rebuild instances on read.
+A collection is plain-dict by default. You can bind a collection to a dataclass
+or pydantic model and the collection will validate on write and rebuild
+instances on read.
 
 ```python
 from dataclasses import dataclass
@@ -149,16 +125,22 @@ class User:
     age: int
     email: str
 
+# Collection is bound to the 'User' dataclass type
 users = db.collection("users", User)
+
+# Insert dataclass instances
 users["gwen"] = User(age=44, email="gwen@example.com")
-users["gwen"]                   # User(age=44, email='gwen@example.com')
+
+# Fetch a document
+users["gwen"]  # User(age=44, email='gwen@example.com')
 ```
 
-The binding lives on the handle, not in the file, so the same data is still
-readable as dicts:
+The binding lives on the collection handle, not in the file, so the same data is
+still readable as dicts. In this example we read user from an anonymous collection
+handle:
 
 ```python
-db["users"]["gwen"]             # {'age': 44, 'email': 'gwen@example.com'}
+db["users"]["gwen"]  # {'age': 44, 'email': 'gwen@example.com'}
 ```
 
 ## Closing
@@ -174,12 +156,10 @@ with monadb.open("app.db") as db:
     db["users"]["alice"] = {"age": 30}
 ```
 
-Closing aborts any transaction still open.
 
 ## Where to go next
 
 - [Keys](@/guide/keys.md) — what can be a key, and how ordering works
 - [Documents](@/guide/documents.md) — what can go in a value
-- [Transactions](@/guide/transactions.md) — contention, timeouts, durability
-- [Models](@/guide/models.md) — dataclasses and pydantic
 - [Reference](@/reference.md) — the complete API
+

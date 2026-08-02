@@ -2,21 +2,19 @@
 
 ## 0.2.0
 
-A rewrite. MonaDB is now an embedded document store with Python dict semantics
-and transactions, and nothing else.
+A rewrite. MonaDB is now an embedded document store with Python dict semantics,
+and nothing else.
 
 ### Added
 
-- `monadb.open(path=None, *, timeout=5.0, durable=True)` — file-backed or
-  in-memory.
-- `Database` and `Transaction` as `Mapping[str, Collection]`; `Collection` as
-  `MutableMapping`.
-- Explicit transactions via `with db.transaction() as tx`, committing on clean
-  exit and rolling back on exception.
+- `monadb.open(path=None, *, durable=True)` — file-backed or in-memory.
+- `Database` as `Mapping[str, Collection]`; `Collection` as `MutableMapping`.
+- Every operation is its own commit, and `update()` is a single commit for the
+  whole mapping — a bad item writes nothing.
 - Ordered operations: `range`, `prefix`, `first`, `last`, `reversed`.
 - Optional per-handle binding to a dataclass or pydantic model.
-- `BusyError` when the write gate times out, and `TransactionError` for a nested
-  or misused transaction — neither of which can hang.
+- `monadb.Error` for storage faults and use of a closed database. Everything
+  else raises a Python builtin.
 
 ### Removed
 

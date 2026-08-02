@@ -1,6 +1,6 @@
 # MonaDB
 
-An embedded document store with Python dict semantics and transactions, built on
+An embedded document store with Python dict semantics, built on
 [redb](https://github.com/cberner/redb). Documents are stored as BSON.
 
 ```sh
@@ -19,17 +19,12 @@ len(db["users"])
 del db["users"]["alice"]
 ```
 
-## Transactions
-
-A `with` block is one commit. An exception rolls the whole block back.
+Every operation is its own commit. `update()` is one commit for the whole
+mapping, so a bad item leaves nothing behind:
 
 ```python
-with db.transaction() as tx:
-    tx["users"]["bob"] = {"age": 41}
-    del tx["users"]["alice"]
+db["users"].update({"bob": {"age": 41}, "cy": {"age": 9}})
 ```
-
-Outside a transaction, every operation commits on its own.
 
 ## Ordered operations
 
@@ -72,22 +67,13 @@ pydantic.
 2. **Keys** are `str | int | bytes | tuple` of those. `float`, `bool`, and
    `None` raise `TypeError`; an `int` outside 64 bits raises `ValueError`.
 3. **Values must be mappings** — a dict, dataclass instance, or model.
-4. **`update()` is atomic only inside a transaction.** Outside one it is a
-   sequence of independent commits.
-5. **`keys()`, `values()`, `items()` are snapshot iterators**, not live views.
-6. **`"a"` and `("a",)` are the same key** — a scalar is a 1-component tuple.
+4. **`keys()`, `values()`, `items()` are snapshot iterators**, not live views.
+5. **`"a"` and `("a",)` are the same key** — a scalar is a 1-component tuple.
 
 ## Concurrency
 
-Readers never block: redb is MVCC. Writers serialize, and a write that cannot
-start within `timeout` raises `BusyError` rather than waiting forever:
-
-```python
-db = monadb.open("app.db", timeout=5.0)
-```
-
-Opening a transaction while one is already open on the same thread raises
-`TransactionError` immediately, instead of deadlocking against itself.
+Readers never block: redb is MVCC, so an open iterator keeps its own snapshot.
+Writers serialize — a second writer waits for the first to commit.
 
 **Only one process may open a database for writing.** redb takes an exclusive
 file lock; several processes may open the same file read-only. This is the one
@@ -103,8 +89,8 @@ db = monadb.open("app.db", durable=False)
 
 ## Exceptions
 
-`monadb.Error` is the base; `BusyError` and `TransactionError` derive from it.
-Everything else is a Python builtin — `KeyError`, `TypeError`, `ValueError`.
+`monadb.Error` covers storage faults and use of a closed database. Everything
+else is a Python builtin — `KeyError`, `TypeError`, `ValueError`.
 
 ## Requirements
 
