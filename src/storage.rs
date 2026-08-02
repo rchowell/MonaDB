@@ -53,16 +53,6 @@ impl Storage {
         Ok(Self { env })
     }
 
-    /// Returns a new read transaction.
-    pub fn read_txn(&self) -> Result<Transaction> {
-        Transaction::read(self)
-    }
-
-    /// Returns a new write transaction.
-    pub fn write_txn(&self) -> Result<Transaction> {
-        Transaction::write(self)
-    }
-
     /// Creates a new b-tree for the given oid and returns a handle.
     pub fn create_btree(&self, txn: &mut Transaction, oid: u32) -> Result<BTree> {
         let wtxn = txn.as_rw()?;

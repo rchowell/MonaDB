@@ -5,15 +5,15 @@
 //! keyed-table subscript (`t[k]`) to an `Expr::Get`. Errors are collected; the
 //! first encountered is returned.
 
-use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::ast::{
     Agg, AggKind, Call, Clear, Constructor, Copy, CopySource, Create, Drop, Expr, From, Get,
     Insert, Select, Source, Statement, TableDefinition,
 };
-use crate::catalog::{CacheLookup, Catalog};
+use crate::catalog::CacheLookup;
 use crate::error::{Error, Result};
+use crate::session::ConnState;
 use crate::storage::Storage;
 use crate::transaction::Transaction;
 use crate::value::Value;
@@ -26,18 +26,13 @@ pub struct Binder {
     /// Storage handle, used to open a read transaction lazily — only when a
     /// catalog lookup misses the in-memory cache and must scan the btree.
     storage: Storage,
-    /// The read transaction backing cold catalog lookups, opened on first miss.
-    /// Stays `None` (no transaction at all) when every lookup hits the cache.
-    /// Unused while an explicit session is open — cold lookups go through
-    /// [`session_txn`] instead, so in-session DDL is visible.
+    /// The read transaction backing cold catalog lookups, opened on first miss
+    /// and reused for the rest of the bind. Stays `None` (no transaction at all)
+    /// when every lookup hits the cache, and while an explicit session is open —
+    /// cold lookups go through the session txn instead, so in-session DDL is visible.
     txn: Option<Transaction>,
-    /// The active explicit-session write txn, if any. When present, cold catalog
-    /// lookups scan through it so a table CREATEd earlier in the session resolves.
-    session_txn: Rc<RefCell<Option<Transaction>>>,
-    /// Catalog for table lookups, gets us the table 'oid'.
-    catalog: Catalog,
-    /// Catalog version captured at bind start; gates the catalog cache.
-    catalog_version: u64,
+    /// Connection state: the catalog, its generation, and the session txn.
+    state: Rc<ConnState>,
     scope: Scope,
     /// The next cursor index
     next_cursor: u32,
@@ -50,21 +45,13 @@ pub struct Binder {
 }
 
 impl Binder {
-    /// Creates a new binder with a catalog reference. The read transaction for
-    /// cold catalog scans is opened lazily against `storage`; `version` gates
-    /// the catalog's in-memory cache.
-    pub fn new(
-        catalog: Catalog,
-        storage: Storage,
-        version: u64,
-        session_txn: Rc<RefCell<Option<Transaction>>>,
-    ) -> Self {
+    /// Creates a binder over the connection's state. The read transaction for
+    /// cold catalog scans is opened lazily against `storage`.
+    pub fn new(state: Rc<ConnState>, storage: Storage) -> Self {
         Binder {
             storage,
             txn: None,
-            session_txn,
-            catalog,
-            catalog_version: version,
+            state,
             scope: Scope::new(),
             next_cursor: 0,
             allow_agg: false,
@@ -96,33 +83,30 @@ impl Binder {
 
     /// Resolves a table name to its definition.
     ///
-    /// Fast path: the catalog's in-memory cache, which needs no transaction and
-    /// serves both present tables and known-absent ones (a cached miss avoids a
-    /// repeat btree scan for a non-table name). On a cold miss, opens the read
-    /// transaction once (lazily) and scans the catalog.
-    ///
-    /// While an explicit session is open, *no* cache entry can be trusted: an
-    /// in-session CREATE or DROP mutates the catalog through the session txn but
-    /// defers the version bump that would flush the cache, so a positive Hit may
-    /// name a since-DROPped table and a NegativeHit may predate an in-session
-    /// CREATE. Scan (without caching) through the session txn, which sees the
-    /// session's own uncommitted DDL. (A held in-flight statement can't leave the
-    /// slot empty here: `guard_statement_in_progress` rejects a second statement
-    /// before bind.)
+    /// In a session, scan through the session txn — no cache entry can be trusted
+    /// there (see [`ConnState::resolve_table`]). Otherwise try the cache first:
+    /// it needs no transaction and serves both present tables and known-absent
+    /// ones, so a warm bind opens nothing at all. Only a cold miss opens the read
+    /// transaction, once, reused for the rest of this bind.
     fn resolve_table(&mut self, name: &str) -> Result<TableDefinition> {
-        if let Some(txn) = self.session_txn.borrow().as_ref() {
-            return self.catalog.scan_table(txn, name);
+        if let Some(res) = self
+            .state
+            .with_txn(|txn| self.state.resolve_table(txn, name))
+        {
+            return res;
         }
-        match self.catalog.cached(name, self.catalog_version) {
+        match self.state.catalog().cached(name, self.state.version()) {
             CacheLookup::Hit(def) => return Ok(def),
             CacheLookup::NegativeHit => return Err(Error::UnboundTable(name.to_string())),
             CacheLookup::Miss => {}
         }
         if self.txn.is_none() {
-            self.txn = Some(self.storage.read_txn()?);
+            self.txn = Some(Transaction::read(&self.storage)?);
         }
         let txn = self.txn.as_ref().expect("read transaction just opened");
-        self.catalog.scan_and_cache(txn, name)
+        // Straight to the scan: the cache was just probed above, and re-entering
+        // `ConnState::resolve_table` would probe it a second time.
+        self.state.catalog().scan_and_cache(txn, name)
     }
 
     /// Resolves a table name, recording a bind error on failure.
@@ -175,9 +159,10 @@ impl VisitMut for Binder {
                 i.oid = self.get_table(name).and_then(|d| d.oid);
                 self.scope.push(var, csr);
             }
-            // Produced later in this pass (a partial-key FROM source), never
-            // parsed, so it is not yet present when this match runs.
-            Source::Range(_) => self.scope.push(var, csr),
+            // Both are produced later in this pass (a partial-key FROM source
+            // and a file read), never parsed, so neither is present when this
+            // match runs.
+            Source::Range(_) | Source::File(_) => self.scope.push(var, csr),
             Source::Value(expr) => {
                 // TODO derived binding names?
                 if var.is_empty() {
@@ -230,6 +215,28 @@ impl VisitMut for Binder {
                 i.oid = Some(g.oid);
                 i.src = Source::Range(g);
             }
+        }
+
+        // A file read whose path and options resolve at compile time streams the
+        // file directly (`Source::File`) rather than materializing every row
+        // into an array and iterating it. Both `from 'f.csv'` and the explicit
+        // `from read_csv('f.csv', {…}) as r` spelling reach here as a `read_*`
+        // call, so one rule serves both. Anything unresolvable — a runtime path,
+        // parameter options — declines and stays on the eager path.
+        if let Source::Value(expr) = &i.src
+            && let Some(spec) = crate::ast::as_file_source(expr)
+        {
+            // The default alias is the file stem, which need not be spellable.
+            // Binding it would introduce a name no query could ever reference.
+            if !is_identifier(&i.var) {
+                self.errors.push(Error::BindError(format!(
+                    "file source alias '{}' is not a valid identifier; \
+                     add an explicit alias, e.g. from '{}' as data",
+                    i.var, spec.path
+                )));
+                return;
+            }
+            i.src = Source::File(Box::new(spec));
         }
     }
 
@@ -287,7 +294,24 @@ impl VisitMut for Binder {
             Create::Table(td) => {
                 self.visit_table_definition_mut(td);
             }
-            Create::TableAs { def, query } => {
+            Create::TableAs { table: def, select: query } => {
+                // The new table's btree is created and opened *before* the
+                // query streams into it, so a source naming the target would
+                // scan a table that is being written underneath it. Reject it
+                // rather than define the behavior.
+                if let Some(name) = query
+                    .from
+                    .iter()
+                    .find_map(|f| match &f.src {
+                        Source::Table(name) if name == &def.name => Some(name.clone()),
+                        _ => None,
+                    })
+                {
+                    self.errors.push(Error::BindError(format!(
+                        "create table as cannot read its own target table '{name}'"
+                    )));
+                    return;
+                }
                 self.visit_table_definition_mut(def);
                 self.visit_select_mut(query);
             }
@@ -560,6 +584,35 @@ struct Binding {
     name: String,
     /// The cursor slot.
     csr: u32,
+}
+
+/// Returns true when `s` is spellable as an identifier in a query.
+///
+/// Kept in lockstep with the lexer's `Token::Identifier` rule,
+/// `[a-zA-Z_][a-zA-Z0-9_]*`. A file source's default alias is the file stem,
+/// which is arbitrary text — binding `my-data` would create a name no query
+/// could ever reference.
+fn is_identifier(s: &str) -> bool {
+    let mut chars = s.chars();
+    matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_identifier;
+
+    /// Table-driven so the helper can be checked against the lexer's rule
+    /// (`[a-zA-Z_][a-zA-Z0-9_]*`) at a glance.
+    #[test]
+    fn is_identifier_matches_lexer_rule() {
+        for ok in ["people", "_x", "a1", "A_9", "_"] {
+            assert!(is_identifier(ok), "{ok} should be an identifier");
+        }
+        for bad in ["", "my-data", "1a", "a b", "a.b", "é", "x!"] {
+            assert!(!is_identifier(bad), "{bad} should not be an identifier");
+        }
+    }
 }
 
 /// Scope maintains the set of active cursor aliases in the current query.

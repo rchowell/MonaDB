@@ -130,7 +130,7 @@ pub mod visit {
     {
         match i {
             Create::Table(td) => v.visit_table_definition(td),
-            Create::TableAs { def, query } => {
+            Create::TableAs { table: def, select: query } => {
                 v.visit_table_definition(def);
                 v.visit_select(query);
             }
@@ -257,7 +257,7 @@ pub mod visit {
         V: Visit<'ast> + ?Sized,
     {
         match i {
-            Source::Table(_) | Source::Range(_) => {}
+            Source::Table(_) | Source::Range(_) | Source::File(_) => {}
             Source::Value(expr) => v.visit_expr(expr),
             Source::Unpivot(u) => v.visit_expr(&u.expr),
         }
@@ -533,7 +533,7 @@ pub mod visit_mut {
     pub fn visit_create_mut<V: VisitMut + ?Sized>(v: &mut V, i: &mut Create) {
         match i {
             Create::Table(td) => v.visit_table_definition_mut(td),
-            Create::TableAs { def, query } => {
+            Create::TableAs { table: def, select: query } => {
                 v.visit_table_definition_mut(def);
                 v.visit_select_mut(query);
             }
@@ -627,7 +627,7 @@ pub mod visit_mut {
 
     pub fn visit_source_mut<V: VisitMut + ?Sized>(v: &mut V, i: &mut Source) {
         match i {
-            Source::Table(_) | Source::Range(_) => {}
+            Source::Table(_) | Source::Range(_) | Source::File(_) => {}
             Source::Value(expr) => v.visit_expr_mut(expr),
             Source::Unpivot(u) => v.visit_expr_mut(&mut u.expr),
         }
@@ -851,9 +851,9 @@ pub mod fold {
     pub fn fold_create<F: Fold + ?Sized>(f: &mut F, i: Create) -> Create {
         match i {
             Create::Table(td) => Create::Table(f.fold_table_definition(td)),
-            Create::TableAs { def, query } => Create::TableAs {
-                def: f.fold_table_definition(def),
-                query: f.fold_select(query),
+            Create::TableAs { table: def, select: query } => Create::TableAs {
+                table: f.fold_table_definition(def),
+                select: f.fold_select(query),
             },
         }
     }
@@ -949,6 +949,7 @@ pub mod fold {
         match i {
             Source::Table(name) => Source::Table(name),
             Source::Range(g) => Source::Range(g),
+            Source::File(f) => Source::File(f),
             Source::Value(expr) => Source::Value(Box::new(f.fold_expr(*expr))),
             Source::Unpivot(u) => Source::Unpivot(Unpivot {
                 expr: Box::new(f.fold_expr(*u.expr)),

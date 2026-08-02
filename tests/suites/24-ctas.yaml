@@ -7,3 +7,66 @@ tests:
         result:
           - {name: alice, age: 30}
           - {name: bob, age: 25}
+
+  - id: create-table-as-keyed-target
+    description: rows are keyed on the way in, so the target's key applies
+    steps:
+      - sql: "create table keyed (name string) as select * from 'tests/fixtures/people.csv';"
+      - sql: "select k.age as age from keyed as k where k.name = 'alice';"
+        result:
+          - {age: 30}
+
+  - id: create-table-as-from-table
+    description: the source may be an existing table
+    setup:
+      - create table src2;
+      - "insert into src2 ({\"x\": 1}, {\"x\": 2});"
+    teardown:
+      - drop table src2;
+    steps:
+      - sql: "create table copied as select s.x as x from src2 as s;"
+      - sql: "select c.x as x from copied as c order by c.x;"
+        result:
+          - {x: 1}
+          - {x: 2}
+
+  - id: create-table-as-with-order-and-limit
+    description: |
+      a non-streaming plan (order by materializes a sort payload) still routes
+      its rows through the same insert sink.
+    setup:
+      - create table src3;
+      - "insert into src3 ({\"x\": 3}, {\"x\": 1}, {\"x\": 2});"
+    teardown:
+      - drop table src3;
+    steps:
+      - sql: "create table top2 as select s.x as x from src3 as s order by s.x limit 2;"
+      - sql: "select t.x as x from top2 as t order by t.x;"
+        result:
+          - {x: 1}
+          - {x: 2}
+
+  - id: create-table-as-aggregate
+    setup:
+      - create table src4;
+      - "insert into src4 ({\"x\": 1}, {\"x\": 2});"
+    teardown:
+      - drop table src4;
+    steps:
+      - sql: "create table agg as select count(*) as n from src4 as s;"
+      - sql: "select a.n as n from agg as a;"
+        result:
+          - {n: 2}
+
+  - id: create-table-as-rejects-self-reference
+    description: |
+      The target's btree is created and opened before the query streams into
+      it, so reading the target from its own defining query is rejected rather
+      than left undefined.
+    setup:
+      - create table self_src;
+    teardown:
+      - drop table self_src;
+    steps:
+      - sql: "create table self_src as select s.x as x from self_src as s;"
+        error: static

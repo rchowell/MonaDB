@@ -51,3 +51,6 @@ suites:
   - file: suites/21-subquery.yaml
     title: subquery
     spec_ref: "4.10"
+  - file: suites/25-transaction.yaml
+    title: transaction
+    spec_ref: "7"

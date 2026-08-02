@@ -4,18 +4,19 @@
 //! stream, operating on a value stack plus fixed banks of cursors and counters.
 //! Each `Yield` pauses the loop with one result row; `Halt` commits and stops.
 
-use std::cell::{Cell, RefCell};
 use std::cmp::Ordering;
-use std::mem::take;
+use std::mem::{replace, take};
 use std::rc::Rc;
 use std::vec;
 
 use crate::Result;
 use crate::ast::{AggKind, CmpOp, Key, Param};
+use crate::read::FileSource;
 use crate::cursor::Cursor;
 use crate::error::Error;
 use crate::functions;
 use crate::schema;
+use crate::session::ConnState;
 use crate::storage::{BTree, Storage};
 use crate::transaction::{Transaction, TransactionMode};
 use crate::params::Params;
@@ -44,6 +45,11 @@ pub struct Program {
     /// rebuilds this table. Empty until prepare resolves it — a program is never
     /// executed before then.
     pub tables: Vec<BTree>,
+    /// Resolved file sources, indexed by [`Vop::ScanFile`]'s `fil` slot. Unlike
+    /// [`Program::tables`], these are known statically and are filled in by the
+    /// compiler — opening a file needs no transaction, so there is nothing for
+    /// prepare to resolve.
+    pub files: Vec<FileSource>,
 }
 
 /// A virtual machine instruction.
@@ -52,6 +58,7 @@ pub struct Program {
 ///
 ///   csr  cursor slot
 ///   tbl  a btree table oid
+///   fil  index into program.files
 ///   cst  index into vm constants (does not exist yet)
 ///   jmp  jump target (absolute PC)
 ///   cnt  count (arity, column count, …)
@@ -289,6 +296,14 @@ pub enum Vop {
     },
     /// Pops a value off the stack and iterates its array elements on cursors[csr], jumping to jmp if empty.
     Iter { csr: usize, jmp: usize },
+    /// Opens `program.files[fil]` on cursors[csr] and positions on its first
+    /// row, jumping to `jmp` if the file yields none.
+    ///
+    /// The file-source counterpart of [`Vop::Scan`], with the same restart
+    /// contract: re-executing reopens the file from the top, so a file nested
+    /// inside a join is re-read once per outer row. Rows are pulled one at a
+    /// time, so `Next`/`LoadVal`/`Close` need no file-specific handling.
+    ScanFile { csr: usize, jmp: usize, fil: usize },
     /// Open a transaction with the given mode
     Transaction { txm: TransactionMode },
     /// Halt the virtual machine.
@@ -320,45 +335,78 @@ pub struct VM {
     /// Rows changed by mutations (inserts, updates, deletes). Reported by
     /// `Rows::finish`, so `execute` returns a real affected-row count.
     affected: u64,
-    /// Shared catalog version counter; bumped at `Halt` by a non-deferred
-    /// `mutates_catalog` statement. A deferred (in-session) statement sets
-    /// [`session_catalog_dirty`] instead, and the bump happens at `commit;`.
-    catalog_version: Rc<Cell<u64>>,
-    /// Shared "this session mutated the catalog" flag. A deferred `mutates_catalog`
-    /// statement sets it at `Halt` instead of bumping [`catalog_version`], so a
-    /// rolled-back DDL never advances the version (and never bricks an earlier
-    /// prepared statement). `commit;` consumes it to bump once; `rollback;` clears it.
-    session_catalog_dirty: Rc<Cell<bool>>,
     /// Whether this program changes catalog membership on success.
     mutates_catalog: bool,
     /// Bound query parameters, resolved by `Vop::LoadParam` at run time.
     params: Params,
-    /// When true, this statement runs inside an explicit session: it borrows the
-    /// session txn for *both* reads and writes and, at `Halt`, leaves it in
-    /// [`txn`] for [`Drop for VM`] to return to [`session_txn`] — never committing.
-    defer_commit: bool,
-    /// Shared session slot the deferred txn is borrowed from and restored to.
-    session_txn: Rc<RefCell<Option<Transaction>>>,
+    /// Connection state: the session transaction and the catalog generation
+    /// counters this statement may read or bump.
+    state: Rc<ConnState>,
     /// The open transaction handle; dropped last (after cursors).
-    txn: Option<Transaction>,
+    txn: VmTxn,
+}
+
+/// The transaction a statement is running under, and who owns it.
+///
+/// Autocommit statements own theirs and commit at `Halt`; in-session statements
+/// borrow the connection's and must hand it back untouched.
+enum VmTxn {
+    /// Not yet opened — before `Vop::Transaction`, or for a statement (like
+    /// transaction control) that needs no statement transaction at all.
+    None,
+    /// Opened by this statement: commit at `Halt`, abort if dropped first.
+    Owned(Transaction),
+    /// Borrowed from the session: never commit, always return it.
+    Lent(Transaction),
+}
+
+impl VmTxn {
+    /// Takes the transaction only if this statement owns it, leaving a borrowed
+    /// one in place for `Drop for VM` to hand back.
+    fn take_owned(&mut self) -> Option<Transaction> {
+        if !matches!(self, VmTxn::Owned(_)) {
+            return None;
+        }
+        match replace(self, VmTxn::None) {
+            VmTxn::Owned(txn) => Some(txn),
+            // Unreachable: the guard above already matched `Owned`.
+            _ => None,
+        }
+    }
+
+    /// Borrows the transaction, if one is open.
+    fn get(&self) -> Option<&Transaction> {
+        match self {
+            VmTxn::None => None,
+            VmTxn::Owned(t) | VmTxn::Lent(t) => Some(t),
+        }
+    }
+
+    /// Mutably borrows the transaction, if one is open.
+    fn get_mut(&mut self) -> Option<&mut Transaction> {
+        match self {
+            VmTxn::None => None,
+            VmTxn::Owned(t) | VmTxn::Lent(t) => Some(t),
+        }
+    }
 }
 
 impl Drop for VM {
-    /// Returns a borrowed session txn to its slot on every exit.
+    /// Returns a borrowed session txn to the connection on every exit.
     ///
-    /// A deferred statement takes the session write txn into [`VM::txn`] for its
-    /// duration. This guard moves it back to [`VM::session_txn`] on *every* drop —
-    /// normal completion, a mid-statement `?`-error, or an abandoned [`Rows`] — so
-    /// the session is never silently left without its transaction. It **always
-    /// restores, never commits or aborts**: `commit;`/`rollback;` are the sole
-    /// resolvers. Cursors are cleared first so their scan iterators (lifetime-erased
-    /// to `'static`, backed by the txn) drop before the txn is moved.
+    /// An in-session statement holds the session transaction as [`VmTxn::Lent`]
+    /// for its duration. This guard hands it back on *every* drop — normal
+    /// completion, a mid-statement `?`-error, or an abandoned [`Rows`] — so the
+    /// session is never silently left without its transaction. It **always
+    /// restores, never commits or aborts**: `commit`/`rollback` are the sole
+    /// resolvers. An `Owned` txn is simply dropped, which aborts it.
+    ///
+    /// Cursors are cleared first so their scan iterators (lifetime-erased to
+    /// `'static`, backed by the txn) drop before the txn is moved.
     fn drop(&mut self) {
-        if self.defer_commit {
-            self.cursors.clear();
-            if let Some(txn) = take(&mut self.txn) {
-                *self.session_txn.borrow_mut() = Some(txn);
-            }
+        self.cursors.clear();
+        if let VmTxn::Lent(txn) = replace(&mut self.txn, VmTxn::None) {
+            self.state.restore(txn);
         }
     }
 }
@@ -366,27 +414,18 @@ impl Drop for VM {
 impl VM {
     /// Builds a VM primed to run `program` against `storage` with bound `params`.
     ///
-    /// When `defer_commit` is true the statement runs inside an explicit session:
-    /// it borrows the one session txn for reads *and* writes, and returns it to the
-    /// slot on exit without committing. The slot ↔ VM handoff over a session:
+    /// Inside an explicit session the statement borrows the one session txn for
+    /// reads *and* writes and returns it on exit without committing. The handoff:
     ///
     /// ```text
-    ///   session_txn: Some(W) ──Vop::Transaction──▶ VM.txn: Some(W)   (slot now None)
-    ///        ▲                                          │
-    ///        └──────────── Drop for VM ◀────────────────┘   (Halt leaves txn in place;
-    ///                   always restores, never commits)      Drop returns it to the slot)
+    ///   Session::Open(W) ──Vop::Transaction──▶ VmTxn::Lent(W)   (session now Lent)
+    ///        ▲                                       │
+    ///        └────────── Drop for VM ◀───────────────┘   (Halt leaves it in place;
+    ///                 always restores, never commits)     Drop hands it back)
     ///
-    ///   commit; / rollback;  ── take() ──▶  commit()/abort()   (the only resolvers)
+    ///   commit / rollback  ──▶  ConnState::end   (the only resolvers)
     /// ```
-    pub fn init(
-        storage: Storage,
-        catalog_version: Rc<Cell<u64>>,
-        session_catalog_dirty: Rc<Cell<bool>>,
-        program: Rc<Program>,
-        params: Params,
-        session_txn: Rc<RefCell<Option<Transaction>>>,
-        defer_commit: bool,
-    ) -> VM {
+    pub fn init(storage: Storage, state: Rc<ConnState>, program: Rc<Program>, params: Params) -> VM {
         // Allocate an unopened cursor for each slot
         let mut cursors = Vec::with_capacity(program.cursors);
         cursors.resize_with(program.cursors, Cursor::new);
@@ -395,15 +434,12 @@ impl VM {
             storage,
             pc: 0,
             stack: vec![],
-            txn: None,
-            session_txn,
-            defer_commit,
+            txn: VmTxn::None,
+            state,
             cursors,
             counters: vec![0; program.counters],
             aggs: vec![Value::Null; program.aggs],
             affected: 0,
-            catalog_version,
-            session_catalog_dirty,
             mutates_catalog,
             params,
             program,
@@ -461,14 +497,14 @@ impl VM {
                     ensure_object(&val)?;
                     let val = val.encode()?;
                     let cursor = &self.cursors[*csr];
-                    let txn = self.txn.as_mut().expect("Insert before Transaction");
+                    let txn = self.txn.get_mut().expect("Insert before Transaction");
                     cursor.insert(txn, &key, &val)?;
                     self.affected += 1;
                 }
                 Vop::Delete { csr } => {
                     let key = pop_key(self.pop())?;
                     let cursor = &self.cursors[*csr];
-                    let txn = self.txn.as_mut().expect("Delete before Transaction");
+                    let txn = self.txn.get_mut().expect("Delete before Transaction");
                     cursor.delete(txn, &key)?;
                     self.affected += 1;
                 }
@@ -476,7 +512,7 @@ impl VM {
                     self.cursors[*csr].close();
                 }
                 Vop::Clear { tbl } => {
-                    let txn = self.txn.as_mut().expect("Clear before Transaction");
+                    let txn = self.txn.get_mut().expect("Clear before Transaction");
                     self.storage.clear_btree(txn, *tbl)?;
                 }
                 Vop::Jpe => {
@@ -496,7 +532,7 @@ impl VM {
                     self.push(v);
                 }
                 Vop::NewOid { csr } => {
-                    let txn = self.txn.as_ref().unwrap();
+                    let txn = self.txn.get().expect("NewOid before Transaction");
                     let csr = &self.cursors[*csr];
                     let oid = match csr.last(txn)? {
                         Some((key, _)) => BigEndian::read_u32(&key) + 1,
@@ -531,7 +567,7 @@ impl VM {
                 }
                 Vop::NewBtree => {
                     let tbl = self.peek().as_oid();
-                    let txn = self.txn.as_mut().unwrap();
+                    let txn = self.txn.get_mut().expect("NewBtree before Transaction");
                     self.storage.create_btree(txn, tbl)?;
                 }
                 Vop::Obj => {
@@ -641,42 +677,31 @@ impl VM {
                     self.pc = *jmp;
                 }
                 Vop::Transaction { txm } => {
-                    if self.txn.is_none() {
+                    if matches!(self.txn, VmTxn::None) {
                         // In a session, borrow the one session txn for *every*
                         // statement regardless of `txm`: a RW txn reads fine via
                         // `as_ro()`, so a SELECT sees the session's own uncommitted
                         // writes. Outside a session, open a fresh txn of the mode.
-                        let txn = if self.defer_commit {
-                            self.session_txn
-                                .borrow_mut()
-                                .take()
-                                .ok_or_else(|| {
-                                    Error::Transaction("no active session transaction".into())
-                                })?
-                        } else {
-                            Transaction::new(&self.storage, *txm)?
+                        // Errors if a sibling result still holds the session's.
+                        self.txn = match self.state.lend()? {
+                            Some(txn) => VmTxn::Lent(txn),
+                            None => VmTxn::Owned(Transaction::new(&self.storage, *txm)?),
                         };
-                        self.txn = Some(txn);
                     }
                 }
                 Vop::Halt => {
                     self.cursors.clear();
-                    if self.defer_commit {
-                        // Leave the borrowed session txn in `self.txn`; `Drop for VM`
-                        // returns it to the session slot. Don't commit, and defer the
-                        // version bump: a session's DDL becomes visible to other
-                        // readers only at `commit;`, recorded here as a dirty flag.
+                    if let Some(txn) = self.txn.take_owned() {
+                        // Ours: commit, and publish any DDL immediately.
+                        txn.commit()?;
                         if self.mutates_catalog {
-                            self.session_catalog_dirty.set(true);
+                            self.state.bump_version();
                         }
-                    } else {
-                        if let Some(txn) = take(&mut self.txn) {
-                            txn.commit()?;
-                        }
-                        if self.mutates_catalog {
-                            let version = self.catalog_version.get();
-                            self.catalog_version.set(version + 1);
-                        }
+                    } else if self.mutates_catalog && matches!(self.txn, VmTxn::Lent(_)) {
+                        // The session's: left in place for `Drop for VM` to hand
+                        // back, and the version bump deferred — in-session DDL
+                        // becomes visible to other readers only at `commit`.
+                        self.state.mark_dirty();
                     }
                     return Ok(None);
                 }
@@ -883,7 +908,7 @@ impl VM {
                 Vop::OpenOid { csr } => {
                     let oid = self.pop().as_oid();
                     if !self.cursors[*csr].is_open() {
-                        let txn = self.txn.as_ref().expect("Open before Transaction");
+                        let txn = self.txn.get().expect("Open before Transaction");
                         let btree = self.storage.open_btree(txn, oid)?;
                         self.cursors[*csr].open(btree);
                     }
@@ -894,13 +919,13 @@ impl VM {
                 }
                 Vop::Get { csr } => {
                     let key = pop_key(self.pop())?;
-                    let txn = self.txn.as_ref().expect("Get before Transaction");
+                    let txn = self.txn.get().expect("Get before Transaction");
                     let val = self.cursors[*csr].get(txn, &key)?;
                     self.push(val);
                 }
                 Vop::GetRange { csr } => {
                     let prefix = pop_key(self.pop())?;
-                    let txn = self.txn.as_ref().expect("GetRange before Transaction");
+                    let txn = self.txn.get().expect("GetRange before Transaction");
                     let cursor = &mut self.cursors[*csr];
                     let mut arr = Value::array();
                     let mut more = cursor.scan(txn, Some(&prefix))?;
@@ -917,7 +942,7 @@ impl VM {
                         ScanPrefix::Stack => Some(pop_key(self.pop())?),
                         ScanPrefix::None => None,
                     };
-                    let txn = self.txn.as_ref().expect("Scan before Transaction");
+                    let txn = self.txn.get().expect("Scan before Transaction");
                     if !self.cursors[*csr].scan(txn, stack_prefix.as_deref())? {
                         self.pc = *jmp;
                     }
@@ -925,6 +950,14 @@ impl VM {
                 Vop::Iter { csr, jmp } => {
                     let val = self.pop();
                     if !self.cursors[*csr].iter(val)? {
+                        self.pc = *jmp;
+                    }
+                }
+                Vop::ScanFile { csr, jmp, fil } => {
+                    // No transaction needed — a file source is orthogonal to
+                    // storage. The reader is built fresh on every execution, so
+                    // a cached prepared statement holds no reader state.
+                    if !self.cursors[*csr].open_file(&program.files[*fil])? {
                         self.pc = *jmp;
                     }
                 }
@@ -1216,42 +1249,57 @@ fn quantify(op: CmpOp, all: bool, lhs: &Value, arr: &Value) -> Value {
 
 /// Pull-based iterator over a statement's results.
 ///
-/// `Active` wraps a running VM; `Done` is an already-finished result with no VM
-/// and no transaction — used for transaction-control statements (`begin;` /
-/// `commit;` / `rollback;`), which resolve before compilation and yield zero rows.
-pub enum Rows {
-    /// A finished statement that yields no rows and touches no transaction.
-    Done,
-    /// A pull-based iterator over a running VM.
-    Active(VM),
+/// Wraps the running VM, which holds the statement's transaction — so an
+/// unconsumed `Rows` keeps that transaction open until it is exhausted or dropped.
+pub struct Rows {
+    /// The running VM, or `None` for a statement that produced no program —
+    /// transaction control, which resolves eagerly before compilation.
+    vm: Option<VM>,
+    /// Set once the program halts, so exhaustion is idempotent.
+    ///
+    /// Without it a second `next()` past the end resumes at the `Halt`'s
+    /// successor: for an ordinary statement that is the transaction block, which
+    /// would reopen a transaction and re-run the whole program.
+    done: bool,
 }
 
 impl Rows {
     /// Wraps a primed VM as a pull-based row iterator.
     pub(crate) fn new(vm: VM) -> Self {
-        Rows::Active(vm)
+        Rows {
+            vm: Some(vm),
+            done: false,
+        }
     }
 
-    /// Builds an already-finished, zero-row result (no VM, no transaction).
+    /// Builds an already-finished, zero-row result that owns no transaction.
     pub(crate) fn empty() -> Self {
-        Rows::Done
+        Rows {
+            vm: None,
+            done: true,
+        }
     }
 
     /// Returns the next 'row' i.e. a JSON value.
     pub fn next(&mut self) -> Result<Option<Value>> {
-        match self {
-            Rows::Done => Ok(None),
-            Rows::Active(vm) => vm.next(),
+        if self.done {
+            return Ok(None);
         }
+        let Some(vm) = self.vm.as_mut() else {
+            self.done = true;
+            return Ok(None);
+        };
+        let row = vm.next()?;
+        if row.is_none() {
+            self.done = true;
+        }
+        Ok(row)
     }
 
     /// Rows changed by INSERT/UPDATE/DELETE. Meaningful after [`Self::next`]
     /// returns `None`.
     pub fn mutations(&self) -> u64 {
-        match self {
-            Rows::Done => 0,
-            Rows::Active(vm) => vm.affected,
-        }
+        self.vm.as_ref().map_or(0, |vm| vm.affected)
     }
 
     /// Completes the statement, returning the row count: rows yielded for a

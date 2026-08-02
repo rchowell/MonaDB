@@ -344,6 +344,35 @@ select t.x from T as t order by t.x desc;
 
 <div class="example">
 
+#### Mixed Types
+
+Mixed types sort by the same total order as the comparison operators (bool < number < string < null).
+
+<p class="example-label">SQL</p>
+
+```sql
+create table T;
+
+insert into T ({"x": "s"}, {"x": null}, {"x": 1}, {"x": true});
+
+select t.x from T as t order by t.x;
+```
+
+<p class="example-label">Result</p>
+
+```json
+[
+  true,
+  1,
+  "s",
+  null
+]
+```
+
+</div>
+
+<div class="example">
+
 #### Order By
 
 Order by sorts the cross product of two sources.

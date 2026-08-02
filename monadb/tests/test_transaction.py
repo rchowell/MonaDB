@@ -1,6 +1,6 @@
-"""Explicit transactions over the Python API — begin/commit/rollback (#5).
+"""Explicit transactions over the Python API — begin/commit/rollback.
 
-Regression coverage for docs/plans/10-transactions.md: transaction-control
+Regression coverage for docs/sql/language.md § 7 (Transactions): transaction-control
 statements must be intercepted on the `query_with` path that `Connection.run`
 uses, and a session must read its own uncommitted writes.
 """

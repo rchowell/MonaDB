@@ -162,17 +162,21 @@ impl From<String> for Block {
 }
 
 impl ToSql for Statement {
+    /// Only `create table` is rendered — the catalog stores each table's DDL as
+    /// text (see [`crate::catalog`]) and nothing else round-trips through here.
+    /// The arms stay exhaustive so a new [`Statement`] variant is a compile
+    /// error rather than a runtime panic.
     fn block(&self) -> Block {
         match self {
-            Statement::Begin => Block::new(Token::Text("begin".into())),
-            Statement::Commit => Block::new(Token::Text("commit".into())),
-            Statement::Rollback => Block::new(Token::Text("rollback".into())),
-            Statement::Clear(_) => unimplemented!("CLEAR formatting"),
-            Statement::Copy(_) => unimplemented!("COPY formatting"),
             Statement::Create(c) => c.block(),
+            Statement::Begin => Block::new(Token::Text("begin".into())),
+            Statement::Clear(_) => unimplemented!("CLEAR formatting"),
+            Statement::Commit => Block::new(Token::Text("commit".into())),
+            Statement::Copy(_) => unimplemented!("COPY formatting"),
             Statement::Delete(_) => unimplemented!("DELETE formatting"),
             Statement::Drop(_) => unimplemented!("DROP formatting"),
             Statement::Insert(_) => unimplemented!("INSERT formatting"),
+            Statement::Rollback => Block::new(Token::Text("rollback".into())),
             Statement::Select(_) => unimplemented!("SELECT formatting"),
         }
     }
@@ -185,7 +189,7 @@ impl ToSql for Create {
             Create::Table(td) => {
                 t = t + td.block();
             }
-            Create::TableAs { def, .. } => {
+            Create::TableAs { table: def, .. } => {
                 t = t + def.block();
                 t = t + text(" as select ...");
             }

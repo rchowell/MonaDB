@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use serde_json::json;
 
 use crate::Result;
@@ -10,7 +12,7 @@ use crate::catalog::CATALOG_OID;
 use crate::error::Error;
 use crate::unsupported;
 use crate::functions;
-use crate::read::{self, FileFormat};
+use crate::read::{self, FileFormat, FileSource, ReadOptions};
 use crate::schema;
 use crate::transaction::TransactionMode;
 use crate::value::Value;
@@ -33,6 +35,13 @@ struct LoopFrame {
     begin: Vec<usize>,         // exhaust-edge patch site per source
     body: usize,               // first instruction of the per-iteration body
     where_fail: Option<usize>, // IfNot patch site of the WHERE guard, if any
+}
+
+/// Const-folds a COPY option object to [`ReadOptions`], or `None` when any
+/// member is non-literal — in which case the caller keeps the eager path.
+fn const_read_options(options: &Obj) -> Option<ReadOptions> {
+    let value = crate::ast::const_expr(&Expr::Obj(options.clone()))?;
+    ReadOptions::from_value(&value).ok()
 }
 
 /// Returns the cursor slot count that covers every binder-assigned index in
@@ -100,13 +109,19 @@ struct FromPlan {
 }
 
 /// Where a SELECT plan sends each output row: `Yield`ed to the caller (a
-/// top-level statement) or `Collect`ed onto a collector array (a subquery
-/// materializing its bag of rows on the stack).
-#[derive(Default, Clone, Copy, PartialEq)]
+/// top-level statement), `Collect`ed onto a collector array (a subquery
+/// materializing its bag of rows on the stack), or `Insert`ed straight into a
+/// table (`CREATE TABLE AS`, which therefore never materializes its result).
+#[derive(Default, Clone, PartialEq)]
 enum Sink {
     #[default]
     Yield,
     Collect,
+    /// Each row is keyed and written into the table open on `data_csr`.
+    Insert {
+        csr: usize,
+        keys: Rc<[Key]>,
+    },
 }
 
 /// Translates a bound SQL statement into a `Program` of `Vop` bytecode.
@@ -126,6 +141,8 @@ pub struct Compiler {
     txm: Option<TransactionMode>,
     /// Set when the statement changes catalog membership (CREATE/DROP).
     mutates_catalog: bool,
+    /// File sources referenced by [`Vop::ScanFile`], addressed by index.
+    files: Vec<FileSource>,
 }
 
 impl Compiler {
@@ -153,8 +170,11 @@ impl Compiler {
 
         // Setup Block
         //
-        // addr 0: Init          -> jumps to addr N
-        self.emit_init(0);
+        // addr 0: Init          -> jumps to addr N (patched below), or falls
+        //                          straight into the body at addr 1 when the
+        //                          statement needs no transaction of its own
+        //                          (transaction control).
+        self.emit_init(1);
 
         // Body Block
         //
@@ -176,8 +196,12 @@ impl Compiler {
             Statement::Clear(clear) => self.cc_clear(clear),
             Statement::Insert(insert) => self.cc_insert(insert)?,
             Statement::Select(select) => self.cc_select(select)?,
+            // Transaction control acts on the *connection's* transaction, and
+            // resolves eagerly in `MonaDB::run` before compilation is reached —
+            // a compiled program would only take effect once the caller stepped
+            // its `Rows`, so `db.query("commit;")?` would silently not commit.
             Statement::Begin | Statement::Commit | Statement::Rollback => {
-                crate::error!("transaction control is handled before compilation");
+                crate::unsupported!("transaction control cannot be prepared");
             }
         };
         self.emit_halt();
@@ -200,6 +224,8 @@ impl Compiler {
             instructions: self.code,
             // Resolved at prepare time; `compile` has no transaction to open them.
             tables: Vec::new(),
+            // Known statically — opening a file needs no transaction.
+            files: self.files,
         })
     }
 
@@ -207,7 +233,7 @@ impl Compiler {
     fn cc_create(&mut self, create: Create) -> Result<()> {
         match create {
             Create::Table(def) => self.cc_create_table(def),
-            Create::TableAs { def, query } => self.cc_create_table_as(def, query),
+            Create::TableAs { table: def, select: query } => self.cc_create_table_as(def, query),
         }
     }
 
@@ -247,13 +273,8 @@ impl Compiler {
             }
         }
 
-        let arr_csr = self.alloc_cursor();
         let oid_csr = self.alloc_cursor();
         let data_csr = self.alloc_cursor();
-        let row_csr = self.alloc_cursor();
-
-        self.cc_subquery_array(query)?;
-        self.emit_set_val(arr_csr);
 
         let csr = self.alloc_cursor();
         let catalog_sql = Create::Table(def.clone()).sql();
@@ -272,10 +293,26 @@ impl Compiler {
 
         self.emit_load(oid_csr);
         self.emit_open_oid(data_csr);
-        self.emit_load(arr_csr);
-        self.cc_insert_from_cursor(data_csr, row_csr, &def.keys)?;
 
-        Ok(())
+        // Stream the query's rows straight into the new table instead of
+        // collecting them into an array first, so `create table t as select *
+        // from 'big.csv'` is bounded by one row, not by the file.
+        //
+        // This is why the catalog row and the btree are emitted *first*: the
+        // insert cursor has to be open before the first row arrives. A failure
+        // part-way through is still atomic — the whole statement runs in one
+        // write transaction that only commits at `Halt`, so a partial import
+        // and the catalog row roll back together.
+        let saved = std::mem::replace(
+            &mut self.sink,
+            Sink::Insert {
+                csr: data_csr,
+                keys: Rc::from(def.keys.as_slice()),
+            },
+        );
+        let result = self.cc_select(query);
+        self.sink = saved;
+        result
     }
 
     /// Compiles COPY import or export.
@@ -295,6 +332,15 @@ impl Compiler {
     }
 
     /// Compiles `COPY <table> FROM <file>`.
+    ///
+    /// Streams the file straight into the target when its options resolve at
+    /// compile time — the import never holds more than one row in memory:
+    ///
+    ///   Open(tbl) ─▶ ScanFile ─▶ [Load, key, Insert] ─▶ Next ─▶ Close
+    ///
+    /// Note this holds the single write transaction open for the whole file
+    /// read, as the eager form did; a multi-GB import blocks other writers for
+    /// its duration.
     fn cc_copy_from(
         &mut self,
         target: TableDefinition,
@@ -309,8 +355,30 @@ impl Compiler {
 
         let format = read::infer_format(&path)
             .ok_or_else(|| Error::Unsupported(format!("unsupported file format: {path}")))?;
-        self.emit_read_call(path, format, options)?;
 
+        if let Some(opts) = const_read_options(&options) {
+            let tbl_csr = self.alloc_cursor();
+            let src_csr = self.alloc_cursor();
+            self.emit_open(tbl_csr, tbl);
+            let spec = FileSource {
+                path,
+                format,
+                options: opts,
+            };
+            self.emit_scan_file(src_csr, spec, 0);
+            let scan = self.pc();
+            let loop_top = self.code.len();
+            self.emit_load(src_csr);
+            self.emit_insert_row(tbl_csr, &keys);
+            self.emit_next(src_csr, loop_top);
+            let exit = self.pc() + 1;
+            self.patch(scan, exit)?;
+            self.emit_close(src_csr);
+            return Ok(());
+        }
+
+        // Non-literal options: fall back to materializing through the builtin.
+        self.emit_read_call(path, format, options)?;
         let data_csr = self.alloc_cursor();
         let row_csr = self.alloc_cursor();
         self.emit_open(data_csr, tbl);
@@ -351,7 +419,7 @@ impl Compiler {
         }
 
         self.emit_set_val(hold_csr);
-        self.emit_push(Value::String(std::rc::Rc::from(path.as_str())));
+        self.emit_push(Value::String(Rc::from(path.as_str())));
         self.emit_load(hold_csr);
         self.cc_obj(options)?;
         self.emit_write_call(format)?;
@@ -363,7 +431,7 @@ impl Compiler {
         let builtin = read::read_builtin(format);
         let fun =
             functions::lookup(builtin).ok_or_else(|| Error::UnknownFunction(builtin.into()))?;
-        self.emit_push(Value::String(std::rc::Rc::from(path)));
+        self.emit_push(Value::String(Rc::from(path)));
         self.cc_obj(options)?;
         self.code.push(Vop::Call { fun, cnt: 2 });
         Ok(())
@@ -383,6 +451,19 @@ impl Compiler {
         self.cc_expr(Expr::Obj(obj))
     }
 
+    /// Emits the per-row insert body: the row is already on the stack, so derive
+    /// its key — a surrogate row id when the table is keyless — and store it.
+    ///
+    ///   stack:  … row  ─▶  …
+    fn emit_insert_row(&mut self, data_csr: usize, keys: &[Key]) {
+        if keys.is_empty() {
+            self.emit_new_oid(data_csr);
+        } else {
+            self.emit_encode_key(keys.to_vec());
+        }
+        self.emit_insert(data_csr);
+    }
+
     /// Inserts each row from `row_csr`'s array iteration into `data_csr`'s table.
     fn cc_insert_from_cursor(
         &mut self,
@@ -394,12 +475,7 @@ impl Compiler {
         let iter = self.pc();
         let loop_top = self.code.len();
         self.emit_load(row_csr);
-        if keys.is_empty() {
-            self.emit_new_oid(data_csr);
-        } else {
-            self.emit_encode_key(keys.to_vec());
-        }
-        self.emit_insert(data_csr);
+        self.emit_insert_row(data_csr, keys);
         self.emit_next(row_csr, loop_top);
         let exit = self.pc() + 1;
         self.patch(iter, exit)?;
@@ -728,6 +804,15 @@ impl Compiler {
                 let Get { keys, args, .. } = g;
                 self.emit_key_tuple(keys, args)?;
                 self.emit_scan_from_stack(csr, 0);
+                self.pc()
+            }
+            Source::File(spec) => {
+                // Streams the file's rows, like a table scan — no row array.
+                // The entry is the scan itself (the table convention), so an
+                // enclosing `Next` re-executes it and the reader reopens from
+                // the top: an inner file source is re-read per outer row, the
+                // same shape the eager path had, minus the materialization.
+                self.emit_scan_file(csr, *spec, 0);
                 self.pc()
             }
             Source::Value(expr) => {
@@ -1321,6 +1406,7 @@ impl Compiler {
             | Vop::Next { csr: _, jmp }
             | Vop::Scan { csr: _, jmp, .. }
             | Vop::Iter { csr: _, jmp }
+            | Vop::ScanFile { csr: _, jmp, .. }
             | Vop::If(jmp)
             | Vop::IfNot(jmp)
             | Vop::CntIfPos(_, jmp)
@@ -1409,7 +1495,7 @@ impl Compiler {
     /// when the loop exhausts. Correlation is automatic — the subquery compiles
     /// inline in the enclosing loop body and reads the live outer cursors.
     fn cc_subquery_array(&mut self, select: Select) -> Result<()> {
-        let saved = self.sink;
+        let saved = self.sink.clone();
         self.emit_arr();
         self.sink = Sink::Collect;
         let result = self.cc_select(select);
@@ -1831,6 +1917,23 @@ impl Compiler {
         self.code.push(Vop::Iter { csr, jmp });
     }
 
+    /// Interns `spec` in the program's file table and emits a scan over it.
+    ///
+    /// Identical sources share a slot, so `from 'f.csv' as a, 'f.csv' as b`
+    /// carries one entry — the same dedup `resolve_tables` does for oids.
+    fn emit_scan_file(&mut self, csr: usize, spec: FileSource, jmp: usize) {
+        self.use_cursor(csr);
+        let fil = self
+            .files
+            .iter()
+            .position(|f| *f == spec)
+            .unwrap_or_else(|| {
+                self.files.push(spec);
+                self.files.len() - 1
+            });
+        self.code.push(Vop::ScanFile { csr, jmp, fil });
+    }
+
     fn emit_push<V: Into<Value>>(&mut self, val: V) {
         self.code.push(Vop::Push { val: val.into() });
     }
@@ -1839,19 +1942,27 @@ impl Compiler {
         self.code.push(Vop::Yield);
     }
 
-    /// Emits a plan's terminal output of one row: `Yield` it to the caller, or —
-    /// inside a subquery — `ArrPush` it onto the collector array that
-    /// [`Self::cc_subquery_array`] left at the bottom of the stack frame.
+    /// Emits a plan's terminal output of one row: `Yield` it to the caller;
+    /// inside a subquery, `ArrPush` it onto the collector array that
+    /// [`Self::cc_subquery_array`] left at the bottom of the stack frame; under
+    /// `CREATE TABLE AS`, write it straight into the new table.
+    ///
+    /// Every plan shape — stream, order, group, aggregate, pivot — routes its
+    /// terminal row through here, so a new sink composes with all of them.
     fn emit_row(&mut self) {
-        match self.sink {
+        // Cloning is an `Rc` bump; it releases the borrow on `self.sink` so the
+        // arms can take `&mut self`.
+        match self.sink.clone() {
             Sink::Yield => self.emit_yield(),
             Sink::Collect => self.emit_arr_push(),
+            Sink::Insert { csr: data_csr, keys } => self.emit_insert_row(data_csr, &keys),
         }
     }
 
     fn emit_transaction(&mut self, txn: TransactionMode) {
         self.code.push(Vop::Transaction { txm: txn });
     }
+
 }
 
 /// One aggregate term collected from a projection: its accumulator slot, kind,
@@ -2084,10 +2195,8 @@ mod tests {
             .parse(&std::cell::Cell::new(0), SqlLexer::new(sql))
             .unwrap();
         let mut binder = Binder::new(
-            catalog.clone(),
+            std::rc::Rc::new(crate::session::ConnState::new(catalog.clone())),
             storage.clone(),
-            0,
-            std::rc::Rc::new(std::cell::RefCell::new(None)),
         );
         binder
             .bind(&mut stmt)
@@ -2105,6 +2214,54 @@ mod tests {
     /// Returns the count of instructions satisfying `pred`.
     fn count(code: &[Vop], pred: impl Fn(&Vop) -> bool) -> usize {
         code.iter().filter(|op| pred(op)).count()
+    }
+
+    // -------------------------------------------------------------------------
+    // transaction control
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn transaction_control_is_not_compilable() {
+        // begin/commit/rollback act on the connection's transaction and resolve
+        // eagerly in `MonaDB::run`; a compiled program would only take effect
+        // once the caller stepped its `Rows`. Reaching the compiler at all (via
+        // `prepare`) must be a clean `Unsupported`, not a program.
+        let (_dir, storage, catalog) = fixture();
+        for sql in ["begin;", "commit;", "rollback;"] {
+            let mut stmt = SqlParser::new()
+                .parse(&std::cell::Cell::new(0), SqlLexer::new(sql))
+                .unwrap();
+            Binder::new(
+                std::rc::Rc::new(crate::session::ConnState::new(catalog.clone())),
+                storage.clone(),
+            )
+            .bind(&mut stmt)
+            .unwrap();
+            assert!(
+                matches!(Compiler::new().compile(stmt), Err(Error::Unsupported(_))),
+                "{sql}: must be rejected as unsupported, not compiled"
+            );
+        }
+    }
+
+    #[test]
+    fn ordinary_statement_still_gets_a_transaction_block() {
+        // The counterpart: anything touching storage keeps the three-block
+        // layout, with Init patched past the body to the transaction block.
+        let (_dir, storage, catalog) = fixture();
+        let program = compile_sql(&storage, &catalog, "select * from catalog;");
+        let code = &program.instructions;
+
+        let txn = find(code, |op| matches!(op, Vop::Transaction { .. }));
+        assert!(
+            matches!(code[0], Vop::Init { jmp } if jmp == txn),
+            "Init must jump to the transaction block at {txn}, got {:?}",
+            code[0]
+        );
+        assert!(
+            matches!(code[txn + 1], Vop::Jump { jmp: 1 }),
+            "the block must jump back to the body start"
+        );
     }
 
     // -------------------------------------------------------------------------
@@ -2745,10 +2902,8 @@ mod tests {
             .parse(&std::cell::Cell::new(0), SqlLexer::new(sql))
             .unwrap();
         let mut binder = Binder::new(
-            catalog.clone(),
+            std::rc::Rc::new(crate::session::ConnState::new(catalog.clone())),
             storage.clone(),
-            0,
-            std::rc::Rc::new(std::cell::RefCell::new(None)),
         );
         binder
             .bind(&mut stmt)
@@ -2824,4 +2979,165 @@ mod tests {
             .expect("ctas should complete");
     }
 
+    // -------------------------------------------------------------------------
+    // file sources
+    // -------------------------------------------------------------------------
+
+    fn is_scan_file(op: &Vop) -> bool {
+        matches!(op, Vop::ScanFile { .. })
+    }
+
+    fn is_call(op: &Vop) -> bool {
+        matches!(op, Vop::Call { .. })
+    }
+
+    /// A file path in FROM position compiles to a streaming scan, not to a
+    /// `read_csv` call whose array is then iterated.
+    #[test]
+    fn select_from_file_emits_scan_file() {
+        let (_dir, storage, catalog) = fixture();
+        let program = compile_sql(
+            &storage,
+            &catalog,
+            "select p.name as name from 'tests/fixtures/people.csv' as p;",
+        );
+        let code = &program.instructions;
+
+        assert_eq!(count(code, is_scan_file), 1);
+        assert_eq!(count(code, is_call), 0, "the eager read builtin is gone");
+        assert_eq!(count(code, |op| matches!(op, Vop::Iter { .. })), 0);
+        assert_eq!(program.files.len(), 1);
+        assert_eq!(program.files[0].path, "tests/fixtures/people.csv");
+        assert_eq!(program.files[0].format, FileFormat::Csv);
+
+        // An exhausted file exits the loop.
+        let scan = find(code, is_scan_file);
+        let Vop::ScanFile { jmp, .. } = code[scan] else {
+            unreachable!()
+        };
+        assert!(matches!(code[jmp], Vop::Halt));
+    }
+
+    /// The bare-literal and explicit-call spellings lower identically.
+    #[test]
+    fn select_from_read_csv_call_emits_scan_file() {
+        let (_dir, storage, catalog) = fixture();
+        let program = compile_sql(
+            &storage,
+            &catalog,
+            "select r.name as name from read_csv('tests/fixtures/people.csv') as r;",
+        );
+        assert_eq!(count(&program.instructions, is_scan_file), 1);
+        assert_eq!(count(&program.instructions, is_call), 0);
+    }
+
+    /// Options survive the lowering into the compile-time file source.
+    #[test]
+    fn read_csv_options_lower_into_file_source() {
+        let (_dir, storage, catalog) = fixture();
+        let program = compile_sql(
+            &storage,
+            &catalog,
+            "select * from read_csv('tests/fixtures/people.csv', {\"header\": false}) as r;",
+        );
+        assert_eq!(program.files.len(), 1);
+        assert!(!program.files[0].options.header);
+    }
+
+    /// The extension decides the format, so a `.tsv` read is tab-separated even
+    /// when spelled `read_csv` — matching the eager builtins, which re-infer.
+    #[test]
+    fn file_source_format_follows_extension() {
+        let (_dir, storage, catalog) = fixture();
+        let program = compile_sql(&storage, &catalog, "select * from 'data/x.tsv' as x;");
+        assert_eq!(program.files[0].format, FileFormat::Tsv);
+    }
+
+    /// Identical sources share one file slot.
+    #[test]
+    fn file_source_dedups_identical_specs() {
+        let (_dir, storage, catalog) = fixture();
+        let program = compile_sql(
+            &storage,
+            &catalog,
+            "select a.name as x from 'data/f.csv' as a, 'data/f.csv' as b;",
+        );
+        assert_eq!(count(&program.instructions, is_scan_file), 2);
+        assert_eq!(program.files.len(), 1, "identical specs share a slot");
+    }
+
+    /// A path the compiler cannot resolve stays on the eager builtin path
+    /// rather than erroring — `Source::File` is an optimization, not a gate.
+    #[test]
+    fn unresolvable_file_read_falls_back_to_iter() {
+        let (_dir, storage, catalog) = fixture();
+        let program = compile_sql(
+            &storage,
+            &catalog,
+            "select r.name as name from read_csv('data/people.dat') as r;",
+        );
+        let code = &program.instructions;
+        assert_eq!(count(code, is_scan_file), 0);
+        assert_eq!(count(code, is_call), 1, "still calls the read builtin");
+        assert_eq!(count(code, |op| matches!(op, Vop::Iter { .. })), 1);
+        assert!(program.files.is_empty());
+    }
+
+    /// A bulk import streams the file into the target rather than buffering
+    /// every row into an array first. The bytecode shape is covered by
+    /// [`select_from_file_emits_scan_file`] (both go through `emit_scan_file`);
+    /// this pins the end-to-end behavior, including a keyed target.
+    #[test]
+    fn copy_from_streams_into_target() {
+        let mut db = crate::MonaDB::memory().unwrap();
+        db.execute("create table dst;").unwrap();
+        db.execute("copy dst from 'tests/fixtures/people.csv';")
+            .expect("streaming copy should import");
+        let mut rows = db
+            .query("select d.name as name from dst as d order by d.name;")
+            .unwrap();
+        let mut names = Vec::new();
+        while let Some(row) = rows.next().unwrap() {
+            names.push(row.jpk("name").unwrap().as_string().unwrap().to_string());
+        }
+        assert_eq!(names, vec!["alice", "bob"]);
+    }
+
+    /// Options on a COPY reach the streaming reader.
+    #[test]
+    fn copy_from_streams_with_options() {
+        let mut db = crate::MonaDB::memory().unwrap();
+        db.execute("create table dst;").unwrap();
+        db.execute("copy dst from 'tests/fixtures/people.csv' {\"header\": false};")
+            .expect("streaming copy should import");
+        let mut rows = db.query("select * from dst as d;").unwrap();
+        let mut count = 0;
+        while rows.next().unwrap().is_some() {
+            count += 1;
+        }
+        // header:false means the header line becomes a row too.
+        assert_eq!(count, 3);
+    }
+
+    /// A file stem that cannot be tokenized as an identifier would bind a name
+    /// no query could reference, so it demands an explicit alias.
+    #[test]
+    fn file_source_rejects_unspellable_default_alias() {
+        let (_dir, storage, catalog) = fixture();
+        let mut stmt = SqlParser::new()
+            .parse(
+                &std::cell::Cell::new(0),
+                SqlLexer::new("select * from 'data/my-data.jsonl';"),
+            )
+            .unwrap();
+        let mut binder = Binder::new(
+            std::rc::Rc::new(crate::session::ConnState::new(catalog.clone())),
+            storage.clone(),
+        );
+        let err = binder.bind(&mut stmt).unwrap_err();
+        assert!(
+            matches!(&err, crate::error::Error::BindError(m) if m.contains("my-data")),
+            "unexpected error: {err:?}"
+        );
+    }
 }

@@ -1,28 +1,3 @@
-#![allow(
-    clippy::doc_markdown,
-    clippy::needless_pass_by_value,
-    clippy::implicit_hasher,
-    clippy::single_match_else,
-    clippy::collapsible_if,
-    clippy::manual_let_else,
-    clippy::should_implement_trait,
-    clippy::large_enum_variant,
-    clippy::field_reassign_with_default,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    clippy::cast_precision_loss,
-    clippy::redundant_closure_for_method_calls,
-    clippy::return_self_not_must_use,
-    clippy::match_same_arms,
-    clippy::redundant_guards,
-    clippy::too_many_lines,
-    clippy::elidable_lifetimes,
-    clippy::uninlined_format_args,
-    clippy::cloned_instead_of_copied,
-    clippy::trivially_copy_pass_by_ref,
-    clippy::unnecessary_wraps
-)]
-
 pub mod ast;
 pub mod error;
 pub mod schema;
@@ -38,6 +13,7 @@ pub mod highlight;
 pub mod lexer;
 mod config;
 mod params;
+mod session;
 mod statement;
 mod options;
 mod read;
@@ -73,6 +49,7 @@ use crate::{
     binder::Binder,
     catalog::Catalog,
     parser::SqlParser,
+    session::{ConnState, End},
     statement::Plan,
     transaction::Transaction,
     vm::Program,
@@ -92,32 +69,14 @@ pub use crate::vm::Rows;
 pub struct MonaDB {
     /// The storage engine over LMDB.
     storage: Storage,
-    /// The catalog reference for semantic analysis.
-    catalog: Catalog,
-    /// Incremented when CREATE/DROP changes catalog membership; compiled prepares
-    /// snapshot this to detect staleness.
-    catalog_version: Rc<Cell<u64>>,
+    /// Per-connection state a running statement may read or mutate: the
+    /// explicit-session transaction and the catalog generation counters. Behind
+    /// an `Rc` because a lazy [`Rows`] outlives the `&mut self` that produced it.
+    state: Rc<ConnState>,
     /// Cache of compiled plans, keyed by the raw SQL text → its compiled
     /// statement. A lookup hashes the bytes (no lex, no parse), so re-issuing the
     /// same statement reuses its plan and skips compilation.
     cache: Rc<RefCell<Cache<Plan>>>,
-    /// An explicit write transaction opened by `begin;`, held across statements
-    /// until `commit;` or `rollback;`. The slot goes *temporarily* empty while a
-    /// lazy [`Rows`] borrows the txn for an in-flight statement, so it is not a
-    /// reliable indicator of whether a session is open — [`session_active`] is.
-    session_txn: Rc<RefCell<Option<Transaction>>>,
-    /// Whether an explicit session is open, tracked independently of
-    /// [`session_txn`] occupancy (which dips to `None` while a lazy result borrows
-    /// the txn mid-statement). Drives `in_transaction`, the double-`begin` guard,
-    /// and the "statement in progress" guard so a held result can't be mistaken
-    /// for a closed session.
-    session_active: Cell<bool>,
-    /// Set when an in-session statement mutates the catalog (a deferred CREATE/
-    /// DROP records its change here instead of bumping `catalog_version`).
-    /// `commit_transaction` consumes it to bump the generation exactly once;
-    /// `rollback_transaction` clears it without bumping, so a rolled-back DDL
-    /// leaves earlier prepared statements valid.
-    session_catalog_dirty: Rc<Cell<bool>>,
     /// Runtime options applied to every query until changed.
     options: Options,
 }
@@ -136,12 +95,8 @@ impl MonaDB {
         let catalog = Catalog::load(&storage)?;
         Ok(MonaDB {
             storage,
-            catalog,
-            catalog_version: Rc::new(Cell::new(0)),
+            state: Rc::new(ConnState::new(catalog)),
             cache: Rc::new(RefCell::new(Cache::<Plan>::new(256))),
-            session_txn: Rc::new(RefCell::new(None)),
-            session_active: Cell::new(false),
-            session_catalog_dirty: Rc::new(Cell::new(false)),
             options: Options::default(),
         })
     }
@@ -187,10 +142,7 @@ impl MonaDB {
     /// compiled in as written; for a hot loop over varying keys, prepare once and
     /// bind (`?`). Keying is byte-exact, so whitespace variants don't share a plan.
     pub fn query(&mut self, sql: &str) -> Result<Rows> {
-        if let Some(res) = self.route_session(sql, &Params::none()) {
-            return res;
-        }
-        self.run_cached(sql, &Params::none())
+        self.run(sql, &Params::none())
     }
 
     /// Executes through the plan cache: reuse the plan for `sql`, else compile
@@ -236,11 +188,7 @@ impl MonaDB {
         sql: &str,
         params: impl IntoParams,
     ) -> Result<Rows> {
-        let params = params.into_params();
-        if let Some(res) = self.route_session(sql, &params) {
-            return res;
-        }
-        self.run_cached(sql, &params)
+        self.run(sql, &params.into_params())
     }
 
     /// Run a statement to completion, committing it, and return the number of
@@ -255,36 +203,38 @@ impl MonaDB {
     }
 
     /// Returns the surrogate row id the next keyless insert would allocate.
+    ///
+    /// Reads through the session transaction when one is open, so an id peeked
+    /// between two in-session inserts reflects the uncommitted rows — and the
+    /// catalog lookup and the max-key probe share one snapshot.
     pub fn peek_keyless_row_id(&mut self, table: &str) -> Result<u32> {
+        self.state.guard_idle()?;
+        if let Some(res) = self.state.with_txn(|txn| self.peek_in(txn, table)) {
+            return res;
+        }
+        let txn = Transaction::read(&self.storage)?;
+        self.peek_in(&txn, table)
+    }
+
+    /// The body of [`Self::peek_keyless_row_id`], against one transaction.
+    fn peek_in(&self, txn: &Transaction, table: &str) -> Result<u32> {
         use heed::byteorder::{BigEndian, ByteOrder};
 
-        use crate::catalog::CacheLookup;
         use crate::cursor::Cursor;
 
-        let def = {
-            let txn = self.storage.read_txn()?;
-            let generation = self.catalog_version.get();
-            match self.catalog.cached(table, generation) {
-                CacheLookup::Hit(def) => def,
-                CacheLookup::NegativeHit => {
-                    return Err(Error::UnboundTable(table.to_string()));
-                }
-                CacheLookup::Miss => self.catalog.scan_and_cache(&txn, table)?,
-            }
-        };
+        let def = self.state.resolve_table(txn, table)?;
         if !def.keys.is_empty() {
             return Err(Error::InternalError(format!(
                 "table '{table}' has key columns"
             )));
         }
-        let oid = def.oid.ok_or_else(|| {
-            Error::InternalError(format!("table '{table}' has no oid"))
-        })?;
-        let txn = self.storage.read_txn()?;
-        let btree = self.storage.open_btree(&txn, oid)?;
+        let oid = def
+            .oid
+            .ok_or_else(|| Error::InternalError(format!("table '{table}' has no oid")))?;
+        let btree = self.storage.open_btree(txn, oid)?;
         let mut cursor = Cursor::new();
         cursor.open(btree);
-        match cursor.last(&txn)? {
+        match cursor.last(txn)? {
             Some((key, _)) => {
                 if key.len() < 4 {
                     return Err(Error::InternalError("invalid keyless row key".into()));
@@ -295,157 +245,81 @@ impl MonaDB {
         }
     }
 
-    /// Intercepts an explicit transaction-control statement (`begin;`/`commit;`/
-    /// `rollback;`) before the plan cache, running it and returning an empty
-    /// [`Rows`]. Returns `None` for any other statement so the caller compiles
-    /// and runs it normally.
+    /// Resolves `begin;`/`commit;`/`rollback;` before compilation, returning an
+    /// empty [`Rows`]; returns `None` for any other statement.
     ///
-    /// Detection peeks the leading token: `begin`/`commit`/`rollback` are reserved
-    /// keyword tokens that only ever start a control statement, so the common
-    /// (non-control) case returns after a single token and stays off the
-    /// parser/plan-cache hot path that [`MonaDB::query`] relies on. Only once a
-    /// control keyword is seen does it scan the rest of the stream — and a control
-    /// statement with a *trailing* statement (e.g. `commit; insert …`) falls
-    /// through to the normal path (which rejects multi-statement input) rather than
-    /// silently running the control and discarding the rest. These statements carry
-    /// no literals, so they are never normalized, templated, or cached. Every entry
-    /// path — `execute`, `execute_with`, `query`, `query_with`, and so the Python
-    /// `Connection::run` — routes here.
+    /// These *must* run eagerly. Every other statement compiles to a program the
+    /// VM runs lazily on the first `Rows::next()`, but a caller who writes
+    /// `db.query("commit;")?` and drops the result never steps it — so a
+    /// compiled `commit` would silently not commit. Running here also keeps the
+    /// session state correct for the very next statement, which the binder and
+    /// `resolve_tables` both consult.
+    ///
+    /// Detection peeks the leading token: `begin`/`commit`/`rollback` are
+    /// reserved keywords that only ever start a control statement, so the common
+    /// case returns after one token and stays off the plan-cache hot path. A
+    /// control keyword followed by anything but `;` falls through to the normal
+    /// path, which rejects multi-statement input rather than silently running
+    /// the control and discarding the rest.
     fn try_txn_control(&mut self, sql: &str) -> Option<Result<Rows>> {
-        use crate::lexer::{SqlLexer, Token};
         let mut lexer = SqlLexer::new(sql);
         let first = lexer.next()?.ok()?.1;
         if !matches!(first, Token::Begin | Token::Commit | Token::Rollback) {
             return None;
         }
-        // A bare control statement is only `<keyword> ;?` — anything else after it
-        // is a second statement we must not silently drop.
         for item in lexer {
-            match item {
-                Ok((_, Token::SemiColon, _)) => continue,
-                _ => return None,
+            if !matches!(item, Ok((_, Token::SemiColon, _))) {
+                return None;
             }
         }
         let res = match first {
-            Token::Begin => self.begin_transaction(),
-            Token::Commit => self.commit_transaction(),
-            Token::Rollback => self.rollback_transaction(),
-            _ => unreachable!("first token matched a control keyword above"),
+            Token::Begin => self.state.begin(&self.storage),
+            Token::Commit => self.state.end(End::Commit),
+            _ => self.state.end(End::Rollback),
         };
         Some(res.map(|()| Rows::empty()))
     }
 
-    /// Handles the statement routing shared by `query` and `query_with`, before
-    /// the plan cache: intercept transaction control, reject a statement issued
-    /// while another is still in progress, and — inside a session — bypass the
-    /// plan cache (an in-session CREATE/DROP mutates the catalog without bumping
-    /// the generation the cache keys staleness on, so a cached plan can't be
-    /// trusted; re-bind every statement against the session). Returns `Some` when
-    /// the statement is fully handled here, or `None` to continue on the cached path.
-    fn route_session(&mut self, sql: &str, params: &Params) -> Option<Result<Rows>> {
+    /// Compiles and runs one statement, choosing whether the plan cache applies.
+    ///
+    /// An in-session CREATE/DROP mutates the catalog without bumping the
+    /// generation a cached plan keys its staleness on, so no cached plan can be
+    /// trusted mid-session — re-bind every statement against the session txn
+    /// instead.
+    fn run(&mut self, sql: &str, params: &Params) -> Result<Rows> {
         if let Some(res) = self.try_txn_control(sql) {
-            return Some(res);
-        }
-        if let Err(e) = self.guard_statement_in_progress() {
-            return Some(Err(e));
+            return res;
         }
         if self.in_transaction() {
-            return Some(self.run_uncached(sql, params));
+            self.run_uncached(sql, params)
+        } else {
+            self.run_cached(sql, params)
         }
-        None
-    }
-
-    /// Errors if an in-flight statement still holds the session txn out of its
-    /// slot — issuing another statement (or `commit;`/`rollback;`) before the prior
-    /// result is consumed or dropped would otherwise mis-bind against a fresh
-    /// non-session txn or strand the session. Safe no-op outside a session and
-    /// while the txn sits in its slot.
-    fn guard_statement_in_progress(&self) -> Result<()> {
-        if self.session_active.get() && self.session_txn.borrow().is_none() {
-            return Err(Error::Transaction(
-                "a previous statement is still in progress; consume or drop its result \
-                 before continuing the transaction"
-                    .into(),
-            ));
-        }
-        Ok(())
     }
 
     /// Opens an explicit write transaction (`begin;`).
     pub fn begin_transaction(&mut self) -> Result<()> {
-        // Guard on the session flag, not slot occupancy: a held lazy result can
-        // leave the slot momentarily empty even though a session is open, and
-        // opening a second LMDB write txn there would block the writer.
-        if self.session_active.get() {
-            return Err(Error::Transaction("transaction already active".into()));
-        }
-        *self.session_txn.borrow_mut() = Some(Transaction::write(&self.storage)?);
-        self.session_active.set(true);
-        Ok(())
+        self.state.begin(&self.storage)
     }
 
     /// Commits the active explicit transaction (`commit;`).
-    ///
-    /// If the session mutated the catalog, the generation is bumped exactly once
-    /// here — committed DDL becomes visible just as a non-session CREATE does,
-    /// and only on success.
     pub fn commit_transaction(&mut self) -> Result<()> {
-        if !self.session_active.get() {
-            return Err(Error::Transaction("no active transaction".into()));
-        }
-        let Some(txn) = self.session_txn.borrow_mut().take() else {
-            return Err(Error::Transaction(
-                "cannot commit while a statement is in progress".into(),
-            ));
-        };
-        txn.commit()?;
-        self.session_active.set(false);
-        if self.session_catalog_dirty.replace(false) {
-            let version = self.catalog_version.get();
-            self.catalog_version.set(version + 1);
-        }
-        Ok(())
+        self.state.end(End::Commit)
     }
 
     /// Aborts the active explicit transaction (`rollback;`).
-    ///
-    /// The generation is *not* bumped (so previously prepared statements stay
-    /// valid), but the catalog cache is flushed: any entry learned through the
-    /// now-aborted txn — e.g. a table created and rolled back mid-session — must
-    /// not linger.
     pub fn rollback_transaction(&mut self) -> Result<()> {
-        if !self.session_active.get() {
-            return Err(Error::Transaction("no active transaction".into()));
-        }
-        let Some(txn) = self.session_txn.borrow_mut().take() else {
-            return Err(Error::Transaction(
-                "cannot roll back while a statement is in progress".into(),
-            ));
-        };
-        txn.abort();
-        self.session_active.set(false);
-        self.session_catalog_dirty.set(false);
-        self.catalog.flush();
-        Ok(())
+        self.state.end(End::Rollback)
     }
 
     /// Returns whether an explicit transaction is active.
     pub fn in_transaction(&self) -> bool {
-        self.session_active.get()
-    }
-
-    /// Aborts any open explicit session on drop so uncommitted writes are not flushed.
-    fn abort_session_if_open(&mut self) {
-        if let Some(txn) = self.session_txn.borrow_mut().take() {
-            txn.abort();
-        }
-        self.session_active.set(false);
-        self.session_catalog_dirty.set(false);
+        self.state.in_transaction()
     }
 
     /// Returns the current catalog version for stale-prepare detection.
     pub(crate) fn catalog_version(&self) -> u64 {
-        self.catalog_version.get()
+        self.state.version()
     }
 
     /// Phase 1: Parse input string into our AST (no binding or compilation).
@@ -467,12 +341,7 @@ impl MonaDB {
     /// txn, so a table CREATE'd earlier in the session is visible to a later
     /// statement that references it.
     fn bind(&self, statement: &mut ast::Statement) -> Result<()> {
-        let mut binder = Binder::new(
-            self.catalog.clone(),
-            self.storage.clone(),
-            self.catalog_version(),
-            self.session_txn.clone(),
-        );
+        let mut binder = Binder::new(self.state.clone(), self.storage.clone());
         binder.bind(statement)
     }
 
@@ -496,8 +365,9 @@ impl MonaDB {
 }
 
 impl Drop for MonaDB {
+    /// Discards any open explicit session so uncommitted writes are never flushed.
     fn drop(&mut self) {
-        self.abort_session_if_open();
+        self.state.abort_if_open();
     }
 }
 
@@ -713,7 +583,7 @@ mod tests {
     }
 
     fn keyed_row_exists(db: &MonaDB, txn: &Transaction, id: i64) -> bool {
-        let def = db.catalog.scan_and_cache(txn, "t").unwrap();
+        let def = db.state.catalog().scan_and_cache(txn, "t").unwrap();
         let oid = def.oid.unwrap();
         let btree = db.storage.open_btree(txn, oid).unwrap();
         let key = schema::encode_key(&Value::from_json(serde_json::json!({"id": id})), &def.keys)
@@ -727,14 +597,11 @@ mod tests {
         db.execute("create table t (id int);").unwrap();
         db.begin_transaction().unwrap();
         assert_eq!(db.execute(r#"insert into t ({"id": 1});"#).unwrap(), 1);
-        {
-            let mut session = db.session_txn.borrow_mut();
-            let txn = session.as_mut().unwrap();
-            assert!(
-                keyed_row_exists(&db, txn, 1),
-                "row should be visible in the session write txn"
-            );
-        }
+        assert_eq!(
+            db.state.with_txn(|txn| keyed_row_exists(&db, txn, 1)),
+            Some(true),
+            "row should be visible in the session write txn"
+        );
         db.rollback_transaction().unwrap();
         let ro = Transaction::read(&db.storage).unwrap();
         assert!(
@@ -804,7 +671,7 @@ mod tests {
         assert!(rows.next().unwrap().is_none());
     }
 
-    // ---- Explicit-transaction correctness (docs/plans/10-transactions.md) ----
+    // ---- Explicit-transaction correctness (docs/sql/language.md § 7) ----
 
     #[test]
     fn session_read_sees_own_writes() {
@@ -838,8 +705,8 @@ mod tests {
     }
 
     #[test]
-    fn deferred_error_restores_session_txn() {
-        // #2 (focused): a deferred write returning Err leaves session_txn populated.
+    fn in_session_error_hands_back_the_txn() {
+        // #2 (focused): an in-session write returning Err hands the txn back.
         let mut db = MonaDB::memory().unwrap();
         db.execute("create table t (x int);").unwrap();
         db.begin_transaction().unwrap();
@@ -847,8 +714,8 @@ mod tests {
         let res = stmt.query(()).and_then(|rows| rows.finish());
         assert!(res.is_err());
         assert!(
-            db.session_txn.borrow().is_some(),
-            "deferred txn must be restored to the session slot after an error"
+            db.state.guard_idle().is_ok(),
+            "the session txn must be handed back after an error, not left lent"
         );
         db.rollback_transaction().unwrap();
     }
@@ -956,6 +823,139 @@ mod tests {
             "the rejected multi-statement must not have committed the session"
         );
         db.rollback_transaction().unwrap();
+    }
+
+    #[test]
+    fn transaction_control_cannot_be_prepared() {
+        // A prepared plan only takes effect when its `Rows` is stepped, so a
+        // prepared `commit;` could silently not commit. Reject it with a clear
+        // `Unsupported` rather than the old InternalError leak — `query`/
+        // `execute` resolve control eagerly and are the supported path.
+        let mut db = MonaDB::memory().unwrap();
+        for sql in ["begin;", "commit;", "rollback;"] {
+            assert!(
+                matches!(db.prepare(sql), Err(Error::Unsupported(_))),
+                "{sql}: prepare must be refused, not silently deferred"
+            );
+        }
+        assert!(!db.in_transaction(), "a refused prepare changes nothing");
+    }
+
+    #[test]
+    fn unconsumed_transaction_control_still_takes_effect() {
+        // Regression: control statements once compiled to bytecode that only ran
+        // on the first `next()`, so dropping the result meant the commit never
+        // happened and the writes were lost at teardown.
+        let mut db = MonaDB::memory().unwrap();
+        db.execute("create table t (id int);").unwrap();
+
+        drop(db.query("begin;").unwrap());
+        assert!(db.in_transaction(), "an unconsumed `begin;` still opens");
+
+        db.execute(r#"insert into t ({"id": 1});"#).unwrap();
+        drop(db.query("commit;").unwrap());
+        assert!(!db.in_transaction(), "an unconsumed `commit;` still commits");
+
+        assert_eq!(
+            db.query("select * from t;").unwrap().finish().unwrap(),
+            1,
+            "the committed row must survive"
+        );
+    }
+
+    #[test]
+    fn second_statement_cannot_steal_a_lent_session_txn() {
+        // Regression: both `Rows` are built (passing the compile/execute guard)
+        // before either is stepped, so the guard cannot see the conflict. The
+        // second must error at `Vop::Transaction` rather than quietly opening
+        // its own transaction and reading a stale snapshot.
+        let mut db = MonaDB::memory().unwrap();
+        db.execute("create table t (id int);").unwrap();
+        db.begin_transaction().unwrap();
+        db.execute(r#"insert into t ({"id": 1});"#).unwrap();
+
+        let mut first = db.query("select * from t;").unwrap();
+        let second = db.query("select * from t;").unwrap();
+        first.next().unwrap().expect("session's uncommitted row");
+
+        assert!(
+            second.finish().is_err(),
+            "a second result must not open its own txn behind the session's back"
+        );
+
+        // The write variant is the dangerous one: opening a second *write* txn
+        // on the same thread blocks forever on LMDB's single-writer lock. Here
+        // `guard_idle` catches it at build time — the later `lend()` check above
+        // covers the window this guard cannot see.
+        assert!(
+            db.query(r#"insert into t ({"id": 2});"#).is_err(),
+            "a second write must error, not block on the writer lock"
+        );
+
+        drop(first);
+        db.rollback_transaction().unwrap();
+    }
+
+    #[test]
+    fn exhausted_rows_stay_exhausted() {
+        // Regression: `next()` past the end used to resume at the `Halt`'s
+        // successor — the transaction block — re-running the whole program.
+        let mut db = MonaDB::memory().unwrap();
+        db.execute("create table t (id int);").unwrap();
+        db.execute(r#"insert into t ({"id": 1});"#).unwrap();
+
+        let mut rows = db.query("select * from t;").unwrap();
+        assert!(rows.next().unwrap().is_some());
+        assert!(rows.next().unwrap().is_none());
+        assert!(rows.next().unwrap().is_none(), "exhaustion is idempotent");
+
+        let mut ctl = db.query("begin;").unwrap();
+        assert!(ctl.next().unwrap().is_none());
+        assert!(ctl.next().unwrap().is_none());
+        drop(ctl);
+        db.rollback_transaction().unwrap();
+    }
+
+    #[test]
+    fn keyless_row_id_sees_uncommitted_session_inserts() {
+        // Regression (docs/ideas/10 §3): the peek read through its own fresh txn,
+        // so two keyless inserts inside one session both reported the same id.
+        let mut db = MonaDB::memory().unwrap();
+        db.execute("create table t;").unwrap();
+        db.begin_transaction().unwrap();
+
+        let first = db.peek_keyless_row_id("t").unwrap();
+        db.execute(r#"insert into t ({"a": 1});"#).unwrap();
+        let second = db.peek_keyless_row_id("t").unwrap();
+
+        assert_ne!(
+            first, second,
+            "the peek must observe the session's uncommitted insert"
+        );
+        db.rollback_transaction().unwrap();
+    }
+
+    #[test]
+    fn statement_in_progress_is_refused_on_every_entry_path() {
+        // The guard lives at compile/execute, so `prepare` and `Statement::query`
+        // are covered too — not just `query`/`query_with`.
+        let mut db = MonaDB::memory().unwrap();
+        db.execute("create table t (id int);").unwrap();
+        db.execute(r#"insert into t ({"id": 1});"#).unwrap();
+        db.begin_transaction().unwrap();
+
+        let mut rows = db.query("select * from t;").unwrap();
+        rows.next().unwrap().unwrap(); // the session txn is now lent out
+
+        assert!(db.query("select * from t;").is_err());
+        assert!(
+            db.prepare("select * from t;").is_err(),
+            "prepare must be refused too — it resolves handles through the session"
+        );
+        assert!(db.commit_transaction().is_err());
+
+        drop(rows);
+        db.commit_transaction().unwrap();
     }
 
     #[test]

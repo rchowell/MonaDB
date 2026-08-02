@@ -62,32 +62,30 @@ impl Transaction {
 
     /// Creates a new read transaction.
     pub fn read(storage: &Storage) -> Result<Self> {
-        // SAFETY: The transaction's lifetime is bound by the storage
-        // which is dropped AFTER the transaction. This is required
-        // because the VM requires self-references where transactions
-        // point to storage.
+        // SAFETY: The transaction's lifetime is bound by the storage, which is
+        // dropped AFTER the transaction (field order above). Required because the
+        // VM needs self-references where transactions point to storage.
         let txn = storage.env.read_txn()?;
         let txn: RoTxn<'static, WithoutTls> = unsafe { std::mem::transmute(txn) };
-        let txn = TransactionInner::Read(txn);
-        Ok(Self {
-            inner: txn,
-            _storage: storage.clone(),
-        })
+        Ok(Self::wrap(TransactionInner::Read(txn), storage))
     }
 
     /// Creates a new write transaction.
     pub fn write(storage: &Storage) -> Result<Self> {
-        // SAFETY: The transaction's lifetime is bound by the storage
-        // which is dropped AFTER the transaction. This is required
-        // because the VM requires self-references where transactions
-        // point to storage.
+        // SAFETY: as in [`Transaction::read`] — the `_storage` keep-alive below
+        // outlives the lifetime-erased handle.
         let txn = storage.env.write_txn()?;
         let txn: RwTxn<'static> = unsafe { std::mem::transmute(txn) };
-        let txn = TransactionInner::Write(txn);
-        Ok(Self {
-            inner: txn,
+        Ok(Self::wrap(TransactionInner::Write(txn), storage))
+    }
+
+    /// Pairs a lifetime-erased handle with the `Storage` clone that keeps its
+    /// environment alive.
+    fn wrap(inner: TransactionInner, storage: &Storage) -> Self {
+        Self {
+            inner,
             _storage: storage.clone(),
-        })
+        }
     }
 
     /// Borrows as a read txn; a write transaction derefs as read-only.
@@ -99,7 +97,9 @@ impl Transaction {
     }
 
     /// Borrows mutably as a write txn; errors if this is read-only.
-    #[allow(clippy::unnecessary_wraps)]
+    ///
+    /// The compiler picks each statement's mode, so a write op only ever runs
+    /// under a write txn — this is a defensive check, not a live error path.
     pub fn as_rw(&mut self) -> Result<&mut RwTxn<'static>> {
         match &mut self.inner {
             TransactionInner::Read(_) => {

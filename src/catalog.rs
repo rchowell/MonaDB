@@ -25,7 +25,7 @@ pub const CATALOG_OID: u32 = 0;
 /// Parses a catalog row's stored `sql` back into its table definition.
 fn parse_table_definition(sql: &str, name: &str) -> Result<TableDefinition> {
     match MonaDB::parse(sql)? {
-        Statement::Create(Create::Table(def) | Create::TableAs { def, .. }) => Ok(def),
+        Statement::Create(Create::Table(def) | Create::TableAs { table: def, .. }) => Ok(def),
         _ => Err(Error::InternalError(format!(
             "catalog row for table '{name}' is not a create table"
         ))),
@@ -70,7 +70,7 @@ impl Catalog {
     /// Loads the catalog from the storage environment.
     pub fn load(storage: &Storage) -> Result<Self> {
         // Bootstrap the catalog table if it doesn't exist
-        let mut txn = storage.write_txn()?;
+        let mut txn = Transaction::write(storage)?;
         let key = CATALOG_OID.to_be_bytes();
         let btree: BTree = storage.create_btree(&mut txn, CATALOG_OID)?;
         if btree.get(txn.as_ro(), &key)?.is_none() {
@@ -89,6 +89,35 @@ impl Catalog {
                 tables: HashMap::new(),
             })),
         })
+    }
+
+    /// Resolves `name` through `txn`, returning its definition.
+    ///
+    /// Outside a session this is the generation-gated cache path: a hit or a
+    /// cached absence answers without touching storage, and only a miss scans.
+    /// Inside one (`session`), *no* cache entry can be trusted — an in-session
+    /// CREATE or DROP mutates the catalog but defers the version bump that would
+    /// flush the cache — so it scans through the session txn without caching.
+    ///
+    /// Requires a transaction up front, so it suits callers that already hold
+    /// one. The binder instead probes [`Self::cached`] first and calls
+    /// [`Self::scan_and_cache`] on a miss, so a warm bind opens no transaction
+    /// at all; the branch below mirrors that sequence.
+    pub fn resolve(
+        &self,
+        txn: &Transaction,
+        name: &str,
+        generation: u64,
+        session: bool,
+    ) -> Result<TableDefinition> {
+        if session {
+            return self.scan_table(txn, name);
+        }
+        match self.cached(name, generation) {
+            CacheLookup::Hit(def) => Ok(def),
+            CacheLookup::NegativeHit => Err(Error::UnboundTable(name.to_string())),
+            CacheLookup::Miss => self.scan_and_cache(txn, name),
+        }
     }
 
     /// Returns a cached lookup, flushing the whole cache first if `generation`

@@ -70,10 +70,12 @@ The following words are reserved and may not appear as bare identifiers:
 | `as` | Source alias in `from` |
 | `asc` | Ascending sort order |
 | `at` | Attribute name in `pivot` / `unpivot` |
+| `begin` | `begin` transaction statement |
 | `between` | Range predicate |
 | `bool` | Type name |
 | `by` | `order by` / `group by` clause |
 | `clear` | `clear` statement |
+| `commit` | `commit` transaction statement |
 | `copy` | `copy` statement |
 | `create` | `create table` statement |
 | `delete` | `delete` statement |
@@ -98,6 +100,7 @@ The following words are reserved and may not appear as bare identifiers:
 | `or` | Logical disjunction |
 | `order` | `order by` clause |
 | `pivot` | `pivot` clause |
+| `rollback` | `rollback` transaction statement |
 | `select` | `select` clause |
 | `string` | String key-column type |
 | `table` | `create table` / `drop table` / `clear table` |

@@ -737,6 +737,7 @@ impl Value {
     //------------------------------
 
     /// Adds two numbers.
+    #[allow(clippy::should_implement_trait)]
     pub fn add(self, other: &Value) -> Result<Value> {
         if let (Value::Int(a), Value::Int(b)) = (&self, other) {
             return a
@@ -760,6 +761,7 @@ impl Value {
     }
 
     /// Multiplies two numbers.
+    #[allow(clippy::should_implement_trait)]
     pub fn mul(self, other: &Value) -> Result<Value> {
         if let (Value::Int(a), Value::Int(b)) = (&self, other) {
             return a
@@ -771,6 +773,7 @@ impl Value {
     }
 
     /// Divides two numbers; errors on division by zero.
+    #[allow(clippy::should_implement_trait)]
     pub fn div(self, other: &Value) -> Result<Value> {
         if let (Value::Int(a), Value::Int(b)) = (&self, other) {
             // checked_div is None on a zero divisor and on i64::MIN / -1.
@@ -783,6 +786,7 @@ impl Value {
     }
 
     /// Remainder of two numbers; errors on division by zero.
+    #[allow(clippy::should_implement_trait)]
     pub fn rem(self, other: &Value) -> Result<Value> {
         if let (Value::Int(a), Value::Int(b)) = (&self, other) {
             return a

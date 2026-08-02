@@ -10,6 +10,7 @@ use crate::MonaDB;
 use crate::ast::Param;
 use crate::error::{Error, Result};
 use crate::params::{IntoParams, Params};
+use crate::transaction::Transaction;
 use crate::vm::{Program, Rows, VM, Vop};
 
 /// A compiled, cacheable statement plan: program bytecode plus staleness metadata.
@@ -95,6 +96,10 @@ impl MonaDB {
     /// Parses, binds, compiles, and resolves `sql` into a shareable plan (no
     /// execution).
     pub(crate) fn compile_plan(&self, sql: &str) -> Result<Plan> {
+        // Binding and handle resolution both read the session txn; refuse while a
+        // prior result still holds it, rather than mis-binding against a fresh
+        // transaction (or blocking forever on LMDB's writer lock).
+        self.state.guard_idle()?;
         let mut bound = Self::parse(sql)?;
         self.bind(&mut bound)?;
         let mut program = self.compile(bound)?;
@@ -147,24 +152,27 @@ impl MonaDB {
                 *tbl = u32::try_from(slot).expect("table slot fits in u32");
             }
         }
-        let session = self.session_txn.borrow();
-        program.tables = match session.as_ref() {
-            Some(txn) => oids
-                .iter()
+        // Nothing to resolve — don't take the writer lock. A statement with no
+        // table `Open` (`select 1;`, `begin;`, a pure file scan) would otherwise
+        // open and commit a write txn on every compile.
+        if oids.is_empty() {
+            return Ok(());
+        }
+        let open_all = |txn: &Transaction| {
+            oids.iter()
                 .map(|&oid| self.storage.open_btree(txn, oid))
-                .collect::<Result<_>>()?,
-            None => {
-                // Commit the dbi opens so the handles survive into later
-                // execution txns (see the doc comment); idempotent for tables
-                // already registered in this env instance.
-                let txn = self.storage.write_txn()?;
-                let tables = oids
-                    .iter()
-                    .map(|&oid| self.storage.open_btree(&txn, oid))
-                    .collect::<Result<_>>()?;
-                txn.commit()?;
-                tables
-            }
+                .collect::<Result<Vec<_>>>()
+        };
+        program.tables = if let Some(tables) = self.state.with_txn(open_all) {
+            tables?
+        } else {
+            // Commit the dbi opens so the handles survive into later execution
+            // txns (see the doc comment); idempotent for tables already
+            // registered in this env instance.
+            let txn = Transaction::write(&self.storage)?;
+            let tables = open_all(&txn)?;
+            txn.commit()?;
+            tables
         };
         Ok(())
     }
@@ -190,15 +198,15 @@ impl MonaDB {
         if self.options.debug_enabled() {
             Self::trace_program(&plan.program);
         }
-        let defer_commit = self.in_transaction();
+        // A prior result still holding the session txn would leave this statement
+        // to open a second one; refuse instead. Covers every entry path, including
+        // `Statement::query` and the Python binding, which skip `route_session`.
+        self.state.guard_idle()?;
         Ok(Rows::new(VM::init(
             self.storage.clone(),
-            self.catalog_version.clone(),
-            self.session_catalog_dirty.clone(),
+            self.state.clone(),
             plan.program.clone(),
             params.clone(),
-            self.session_txn.clone(),
-            defer_commit,
         )))
     }
 }

@@ -1,5 +1,5 @@
 suite: transaction
-spec_ref: "10"
+spec_ref: "7"
 description: >
   Explicit transactions: begin/commit/rollback. A session opened with `begin`
   holds one write transaction across statements until `commit` or `rollback`.

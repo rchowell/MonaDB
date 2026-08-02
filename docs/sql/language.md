@@ -477,8 +477,35 @@ Rules:
 
 ---
 
-## 7. Scope and limits
+## 7. Transactions
 
-- **Recursive descent** (`..` in paths), **filter selectors** (`?<expr>`), **multi-selectors** (`[a, b]` on values), **window functions**, **CTEs**, **runtime-expression keys**, **user-defined functions**, **transactions** are out of scope.
+`begin` opens an explicit transaction; `commit` makes its changes durable and `rollback` discards them. Outside an explicit transaction every statement runs in its own implicit transaction, committed when the statement finishes.
+
+```sql
+begin;
+insert into points ({"x": 1, "y": 2});
+select * from points;                      -- sees the uncommitted insert
+commit;
+
+begin;
+create table temp;
+rollback;                                  -- table never existed
+```
+
+Rules:
+- There is one flavor of `begin`. It opens a write transaction immediately; there is no deferred, read-only, or exclusive variant.
+- A transaction is per-connection. Statements inside one read their own uncommitted writes, including tables created earlier in the same transaction.
+- `begin` while a transaction is active is a `transaction` error, as is `commit` or `rollback` with none active. Transactions do not nest and there are no savepoints.
+- Inside a transaction, a statement issued while a previous statement's results are still being consumed is a `transaction` error; finish or discard the prior result first. `commit` and `rollback` are refused the same way.
+- `rollback` discards both writes and DDL. Statements prepared before the rolled-back DDL stay valid.
+- Closing a connection with a transaction open discards it.
+- A statement that fails part-way inside an explicit transaction does **not** undo the rows it already wrote; the transaction stays open and a later `commit` persists them. Only `rollback` discards them. (An implicit single-statement transaction is unaffected — it is discarded whole.)
+- Transaction control may not be combined with another statement in one submission: `commit; insert ...` is an error rather than a partial run.
+
+---
+
+## 8. Scope and limits
+
+- **Recursive descent** (`..` in paths), **filter selectors** (`?<expr>`), **multi-selectors** (`[a, b]` on values), **window functions**, **CTEs**, **runtime-expression keys**, **user-defined functions** are out of scope.
 - **Integer vs float distinction** at runtime is out of scope; `int()` and `float()` are casts only.
 - **Storage limits** (key length, value length, transaction concurrency) are properties of the storage layer; queries exceeding them produce runtime `storage` errors.

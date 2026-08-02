@@ -622,4 +622,52 @@ clear-stmt ::= "clear" "table" identifier ";"
       { title: "Drop Table", href: "@/language/statements/drop-table.md" },
     ],
   },
+  {
+    slug: "transaction",
+    title: "Transaction",
+    weight: 13,
+    file: "25-transaction.yaml",
+    description:
+      "Begin opens an explicit transaction that spans statements until commit makes its changes durable or rollback discards them. Outside an explicit transaction every statement runs in its own implicit transaction, committed when the statement finishes.",
+    railroad: [
+      {
+        or: [[{ t: "begin" }], [{ t: "commit" }], [{ t: "rollback" }]],
+      },
+      { t: ";" },
+    ],
+    bnf: `
+transaction-stmt ::= ( "begin" | "commit" | "rollback" ) ";"
+`.trim(),
+    rules: [
+      {
+        text: "Transaction control is a complete statement on its own; combining it with another statement in one submission, as in `commit; insert ...`, is an error rather than a partial run.",
+        phase: "parse",
+      },
+      {
+        text: "There is one flavor of begin. It opens a write transaction immediately; there is no deferred, read-only, or exclusive variant, and transactions do not nest.",
+        phase: "execute",
+      },
+      {
+        text: "Statements inside a transaction read their own uncommitted writes.",
+        phase: "execute",
+      },
+      {
+        text: "A table created inside a transaction is visible to later statements in it. Rollback discards the table without invalidating statements prepared before it.",
+        phase: "catalog",
+      },
+      {
+        text: "Begin while a transaction is active, or commit or rollback with none active, is a transaction error.",
+        phase: "execute",
+      },
+      {
+        text: "A statement that fails part-way inside a transaction does not undo the rows it already wrote; the transaction stays open and a later commit persists them. Only rollback discards them.",
+        phase: "execute",
+      },
+    ],
+    seeAlso: [
+      { title: "Insert", href: "@/language/statements/insert.md" },
+      { title: "Delete", href: "@/language/statements/delete.md" },
+      { title: "Create Table", href: "@/language/statements/create-table.md" },
+    ],
+  },
 ];

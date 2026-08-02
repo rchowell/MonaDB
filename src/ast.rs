@@ -6,6 +6,7 @@
 
 use std::vec;
 
+use crate::read::FileSource;
 use crate::value::Value;
 
 pub use crate::display::ToSql;
@@ -33,8 +34,8 @@ pub enum Create {
     Table(TableDefinition),
     /// `CREATE TABLE … AS SELECT`.
     TableAs {
-        def: TableDefinition,
-        query: Select,
+        table: TableDefinition,
+        select: Select,
     },
 }
 
@@ -181,6 +182,14 @@ pub enum Source {
     /// position to this; the compiler encodes its `args`/`keys` into the
     /// leading-key prefix and emits a prefix [`Scan`](crate::vm::Vop::Scan).
     Range(Get),
+    /// A file, streamed row by row (no array materialization). The binder
+    /// lowers a `read_csv`/`read_jsonl`/… call with a literal path to this, and
+    /// the compiler emits a [`ScanFile`](crate::vm::Vop::ScanFile).
+    ///
+    /// This is a pure optimization of `Value(read_*(…))`: anything that cannot
+    /// be resolved at compile time — a runtime path, parameter options, an
+    /// unknown extension — stays a [`Source::Value`] and still runs eagerly.
+    File(Box<FileSource>),
 }
 
 /// An `unpivot expr as value at name` source. It ranges over the attribute-value
@@ -495,7 +504,7 @@ pub fn create_table(table: TableDefinition) -> Create {
 /// Builds a CREATE TABLE AS SELECT.
 #[inline]
 pub fn create_table_as(def: TableDefinition, query: Select) -> Create {
-    Create::TableAs { def, query }
+    Create::TableAs { table: def, select: query }
 }
 
 /// Builds a table definition from a name and its key columns.
@@ -685,6 +694,12 @@ pub fn select_item(expr: Expr, name: String) -> Member {
 /// Builds a from-item: a bare variable becomes a table reference, a file-path
 /// string literal desugars to `read_csv`/`read_jsonl`, any other expression a
 /// value source.
+///
+/// The file case deliberately round-trips through a `read_*` call rather than
+/// building a [`Source::File`] here: the binder owns the lowering, so the bare
+/// literal and the explicit `read_csv('f.csv', {…})` spelling share one rule
+/// and one alias check. Don't "simplify" this into emitting `Source::File`
+/// directly — it would duplicate both.
 #[inline]
 pub fn from_item(src: Expr, alias: Option<String>) -> From {
     match src {
@@ -724,14 +739,77 @@ pub fn desugar_file_from(path: &str) -> Expr {
     )
 }
 
-/// Returns true when `expr` is a `read_csv` / `read_jsonl` call.
-#[inline]
-pub fn is_file_read_call(expr: &Expr) -> bool {
-    matches!(
-        expr,
-        Expr::Call(Call { name, .. })
-            if name == "read_csv" || name == "read_jsonl" || name == "read_ndjson"
-    )
+/// The builtins that name a readable file source.
+const READ_BUILTINS: [&str; 5] = [
+    "read_csv",
+    "read_tsv",
+    "read_jsonl",
+    "read_ndjson",
+    "read_json",
+];
+
+/// Folds a literal expression to a runtime [`Value`], or `None` when any part
+/// of it is non-literal (a parameter, a binding reference, a call).
+///
+/// This is the compile-time counterpart of the runtime `Value` that
+/// [`ReadOptions::from_value`](crate::read::ReadOptions::from_value) expects,
+/// and it is intentionally conservative — anything it declines stays on the
+/// eager path.
+pub fn const_expr(expr: &Expr) -> Option<Value> {
+    match expr {
+        Expr::Lit(value) => Some(value.clone()),
+        Expr::Array(items) => {
+            let mut out = Value::array();
+            for item in items {
+                out.push(const_expr(item)?);
+            }
+            Some(out)
+        }
+        Expr::Obj(members) => {
+            let mut out = Value::object();
+            for member in members {
+                let Member::Assign(name, value) = member else {
+                    return None;
+                };
+                out.set(name.as_str(), const_expr(value)?);
+            }
+            Some(out)
+        }
+        _ => None,
+    }
+}
+
+/// Extracts a compile-time-resolvable [`FileSource`] from a `read_*` call.
+///
+/// Returns `None` — meaning "leave it eager" — unless *all* of these hold: the
+/// callee is a read builtin, its arity is 1 or 2, its path argument is a string
+/// literal with a recognized extension, and its options argument (when present)
+/// folds to a value that [`ReadOptions`](crate::read::ReadOptions) accepts.
+///
+/// Declining is never an error: the caller keeps the original
+/// [`Source::Value`], which still evaluates correctly through the builtin.
+pub fn as_file_source(expr: &Expr) -> Option<FileSource> {
+    let Expr::Call(Call { name, args }) = expr else {
+        return None;
+    };
+    if !READ_BUILTINS.contains(&name.as_str()) || args.is_empty() || args.len() > 2 {
+        return None;
+    }
+    let Expr::Lit(Value::String(path)) = &args[0] else {
+        return None;
+    };
+    // The extension is the source of truth for the format, so `read_csv('f.tsv')`
+    // still reads tab-separated — matching the eager builtins, which re-infer.
+    let format = crate::read::infer_format(path)?;
+    let options = match args.get(1) {
+        None => crate::read::ReadOptions::default(),
+        Some(expr) => crate::read::ReadOptions::from_value(&const_expr(expr)?).ok()?,
+    };
+    Some(FileSource {
+        path: path.to_string(),
+        format,
+        options,
+    })
 }
 
 /// Builds an `unpivot expr [as value] [at name]` from-item. The `as` alias

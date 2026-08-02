@@ -267,9 +267,9 @@ select * from T as t where t.x > 0;
 
 <div class="example">
 
-#### Null Member
+#### Under 3VL,
 
-Null member compares equal to null.
+Under 3VL, x = null is unknown so the row is excluded (use IS NULL).
 
 <p class="example-label">SQL</p>
 
@@ -284,9 +284,7 @@ select * from T where T.x = null;
 <p class="example-label">Result</p>
 
 ```json
-[
-  { "x": null }
-]
+[]
 ```
 
 </div>
@@ -319,7 +317,7 @@ select * from T where T.x != 1;
 
 #### Absent Field
 
-Absent field reads as null and matches null.
+Absent field reads as null, so x = null is unknown and excluded.
 
 <p class="example-label">SQL</p>
 
@@ -334,9 +332,7 @@ select * from T where T.x = null;
 <p class="example-label">Result</p>
 
 ```json
-[
-  {}
-]
+[]
 ```
 
 </div>

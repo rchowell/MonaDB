@@ -121,8 +121,10 @@ static BUILTINS: &[Builtin] = &[
     e("read_csv",          Arity::Range(1, 2),true,   read_csv),
     e("read_jsonl",        Arity::Range(1, 2),true,   read_jsonl),
     e("read_ndjson",       Arity::Range(1, 2),true,   read_jsonl),
+    e("read_json",         Arity::Range(1, 2),true,   read_json),
     e("write_csv",         Arity::Exact(3),   true,   write_csv),
     e("write_jsonl",       Arity::Exact(3),   true,   write_jsonl),
+    e("write_json",        Arity::Exact(3),   true,   write_json),
 ];
 
 /// Builds a registry entry (keeps the `BUILTINS` table aligned and terse).
@@ -806,11 +808,7 @@ fn read_csv(args: &[Value]) -> Result<Value> {
     let path = want_str("read_csv", &args[0])?;
     let opts = read_opts(args)?;
     let format = read::infer_format(path).unwrap_or(FileFormat::Csv);
-    let opts = if format == FileFormat::Tsv {
-        opts.for_tsv()
-    } else {
-        opts
-    };
+    // `open_rows` already applies the TSV delimiter for `FileFormat::Tsv`.
     let rows = read::read_rows(path, format, opts)?;
     Ok(Value::Array(Rc::new(rows)))
 }
@@ -821,6 +819,23 @@ fn read_jsonl(args: &[Value]) -> Result<Value> {
     let opts = read_opts(args)?;
     let rows = read::read_rows(path, FileFormat::Jsonl, opts)?;
     Ok(Value::Array(Rc::new(rows)))
+}
+
+/// Reads a JSON document into an array of rows.
+fn read_json(args: &[Value]) -> Result<Value> {
+    let path = want_str("read_json", &args[0])?;
+    let opts = read_opts(args)?;
+    let rows = read::read_rows(path, FileFormat::Json, opts)?;
+    Ok(Value::Array(Rc::new(rows)))
+}
+
+/// Writes rows to a JSON file as a single top-level array; returns null.
+fn write_json(args: &[Value]) -> Result<Value> {
+    let path = want_str("write_json", &args[0])?;
+    let rows = want_arr("write_json", &args[1])?;
+    let opts = write_opts(args)?;
+    read::write_rows(path, FileFormat::Json, opts, rows)?;
+    Ok(Value::Null)
 }
 
 /// Writes row objects to a CSV/TSV file; returns null.

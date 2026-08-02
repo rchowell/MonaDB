@@ -1,13 +1,15 @@
-//! Row traversal over a btree table or an in-memory value.
+//! Row traversal over a btree table, a file, or an in-memory value.
 //!
 //! A [`Cursor`] is the VM's iteration register: scans, point/range gets,
-//! inserts, and deletes all run through one. It unifies a persistent btree scan
-//! and an in-memory array behind the same `scan`/`next`/`load` interface.
+//! inserts, and deletes all run through one. It unifies a persistent btree scan,
+//! a streaming file reader, and an in-memory array behind the same
+//! `scan`/`next`/`load` interface.
 
 use heed::types::Bytes;
 use heed::{RoIter, RoPrefix, RoRevIter, RoRevPrefix};
 
 use crate::error::{Error, Result};
+use crate::read::{self, FileSource, RowReader};
 use crate::value::Value;
 use crate::{storage::BTree, transaction::Transaction};
 
@@ -81,6 +83,22 @@ impl Cursor {
         Ok(available)
     }
 
+    /// Opens `spec`'s file and positions on its first row; returns true if
+    /// there's an available row.
+    ///
+    /// Restartable exactly like [`Cursor::scan`]: each call builds a fresh
+    /// reader and replaces the bound source, so a file source re-entered by a
+    /// nested loop reopens the file from the top. The reader owns its `File`,
+    /// so — unlike a btree scan, whose heed iterator borrows the storage env —
+    /// no lifetime erasure is involved here.
+    pub fn open_file(&mut self, spec: &FileSource) -> Result<bool> {
+        let reader = read::open_rows(&spec.path, spec.format, &spec.options)?;
+        let mut scan = FileScan { reader, curr: None };
+        let available = scan.next()?;
+        self.source = Some(Source::File(scan));
+        Ok(available)
+    }
+
     /// Binds this cursor to a single in-memory value, so `load` returns it.
     /// Used to re-seed a from-binding from a materialized payload after a sort
     /// (ORDER BY), keeping projection compilation identical to a live scan.
@@ -104,6 +122,7 @@ impl Cursor {
                 scan: Some(scan), ..
             }) => scan.next(),
             Some(Source::Value(value)) => Ok(value.next()),
+            Some(Source::File(scan)) => scan.next(),
             // Unreachable unless there's a compiler bug.
             _ => Err(Error::InternalError(
                 "next called on a cursor with no scan state".to_string(),
@@ -129,6 +148,7 @@ impl Cursor {
                 scan: Some(scan), ..
             }) => scan.load(),
             Some(Source::Value(value)) => value.load(),
+            Some(Source::File(scan)) => scan.load(),
             Some(Source::Single(value)) => Ok(value.clone()),
             _ => Err(unpositioned_cursor()),
         }
@@ -163,9 +183,15 @@ impl Cursor {
     }
 
     /// Ends an active scan and releases the read iterator.
+    ///
+    /// A btree keeps its handle so the cursor can still be written through; a
+    /// file has no such handle, so the whole source is dropped and the file
+    /// descriptor released.
     pub fn close(&mut self) {
-        if let Some(Source::Btree { scan, .. }) = &mut self.source {
-            *scan = None;
+        match &mut self.source {
+            Some(Source::Btree { scan, .. }) => *scan = None,
+            Some(Source::File(_)) => self.source = None,
+            _ => {}
         }
     }
 
@@ -177,7 +203,11 @@ impl Cursor {
     }
 }
 
-/// A cursor's bound source: a persistent btree table or an in-memory value.
+/// A cursor's bound source: a persistent btree table, a file, or an in-memory
+/// value.
+///
+/// Not to be confused with [`crate::ast::Source`], the from-clause AST node —
+/// this one is the runtime binding, that one is the compile-time description.
 enum Source {
     /// The btree handle persists across the open → (scan | insert/last)
     /// lifecycle; `scan` becomes `Some` only once a forward scan has begun.
@@ -187,8 +217,33 @@ enum Source {
     },
     /// Element-wise iteration over an in-memory array value.
     Value(ValueIter),
+    /// Row-at-a-time iteration over an open file reader.
+    File(FileScan),
     /// A single in-memory value (re-seeded via `set`); `load` returns it.
     Single(Value),
+}
+
+/// File-backed scan state.
+///
+/// The parallel of [`TableScan`]: it owns the open reader and caches the row it
+/// is positioned on, so `load` never re-reads.
+struct FileScan {
+    /// The open reader; dropped when the cursor is closed or rebound.
+    reader: RowReader,
+    /// The row the cursor is positioned on, or none once exhausted.
+    curr: Option<Value>,
+}
+
+impl FileScan {
+    /// Advances to the next row, caching it; true if one exists.
+    fn next(&mut self) -> Result<bool> {
+        self.curr = self.reader.next_row()?;
+        Ok(self.curr.is_some())
+    }
+
+    fn load(&self) -> Result<Value> {
+        self.curr.clone().ok_or_else(unpositioned_cursor)
+    }
 }
 
 /// Value-backed iteration over a collection's elements.
@@ -283,8 +338,104 @@ impl TableIter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::read::{FileFormat, ReadOptions};
     use crate::storage::Storage;
-    use tempfile::TempDir;
+    use std::io::Write;
+    use tempfile::{NamedTempFile, TempDir};
+
+    /// Writes `text` to a temp file and returns it with a `FileSource` over it.
+    /// The returned handle must outlive the scope — dropping it unlinks the file.
+    fn file_fixture(text: &str, format: FileFormat) -> (NamedTempFile, FileSource) {
+        let mut f = NamedTempFile::new().unwrap();
+        write!(f, "{text}").unwrap();
+        f.flush().unwrap();
+        let spec = FileSource {
+            path: f.path().to_str().unwrap().to_string(),
+            format,
+            options: ReadOptions::default(),
+        };
+        (f, spec)
+    }
+
+    #[test]
+    fn file_scan_positions_on_first_row() {
+        let (_f, spec) = file_fixture("{\"x\":1}\n{\"x\":2}\n", FileFormat::Jsonl);
+        let mut cursor = Cursor::new();
+        assert!(cursor.open_file(&spec).unwrap());
+        assert_eq!(cursor.load().unwrap().jpk("x"), Some(Value::Int(1)));
+        assert!(cursor.next().unwrap());
+        assert_eq!(cursor.load().unwrap().jpk("x"), Some(Value::Int(2)));
+        assert!(!cursor.next().unwrap());
+    }
+
+    #[test]
+    fn file_scan_empty_file_returns_false() {
+        let (_f, spec) = file_fixture("", FileFormat::Jsonl);
+        let mut cursor = Cursor::new();
+        assert!(!cursor.open_file(&spec).unwrap());
+        assert!(cursor.load().is_err());
+    }
+
+    /// The mirror of [`scan_restart_repositions_on_first_row`]. A file source
+    /// nested inside a join is re-entered once per outer row, so `open_file`
+    /// must reopen from the top rather than continue where it left off.
+    #[test]
+    fn file_scan_restart_repositions_on_first_row() {
+        let (_f, spec) = file_fixture("{\"x\":1}\n{\"x\":2}\n", FileFormat::Jsonl);
+        let mut cursor = Cursor::new();
+        assert!(cursor.open_file(&spec).unwrap());
+        assert!(cursor.next().unwrap());
+        assert_eq!(cursor.load().unwrap().jpk("x"), Some(Value::Int(2)));
+
+        assert!(cursor.open_file(&spec).unwrap());
+        assert_eq!(cursor.load().unwrap().jpk("x"), Some(Value::Int(1)));
+    }
+
+    /// A file has no raw key/val bytes, so it never reports a current entry —
+    /// the same contract as a value-backed cursor.
+    #[test]
+    fn file_scan_current_is_none() {
+        let (_f, spec) = file_fixture("{\"x\":1}\n", FileFormat::Jsonl);
+        let mut cursor = Cursor::new();
+        assert!(cursor.open_file(&spec).unwrap());
+        assert!(cursor.current().is_none());
+    }
+
+    /// Unlike a btree, a file keeps no handle worth preserving, so `close`
+    /// unbinds the source entirely and releases the descriptor.
+    #[test]
+    fn file_close_releases_reader() {
+        let (_f, spec) = file_fixture("{\"x\":1}\n", FileFormat::Jsonl);
+        let mut cursor = Cursor::new();
+        assert!(cursor.open_file(&spec).unwrap());
+        cursor.close();
+        assert!(cursor.load().is_err());
+        assert!(cursor.next().is_err());
+        // Still reusable.
+        assert!(cursor.open_file(&spec).unwrap());
+    }
+
+    #[test]
+    fn file_scan_reads_csv_rows() {
+        let (_f, spec) = file_fixture("a,b\n1,2\n3,4\n", FileFormat::Csv);
+        let mut cursor = Cursor::new();
+        assert!(cursor.open_file(&spec).unwrap());
+        assert_eq!(cursor.load().unwrap().jpk("a"), Some(Value::Int(1)));
+        assert!(cursor.next().unwrap());
+        assert_eq!(cursor.load().unwrap().jpk("b"), Some(Value::Int(4)));
+        assert!(!cursor.next().unwrap());
+    }
+
+    /// A malformed row surfaces as an error only when the cursor advances onto
+    /// it — the cursor-level statement of streaming.
+    #[test]
+    fn file_scan_defers_parse_error_until_reached() {
+        let (_f, spec) = file_fixture("{\"x\":1}\n{\"x\":2\n", FileFormat::Jsonl);
+        let mut cursor = Cursor::new();
+        assert!(cursor.open_file(&spec).unwrap());
+        assert_eq!(cursor.load().unwrap().jpk("x"), Some(Value::Int(1)));
+        assert!(cursor.next().is_err());
+    }
 
     /// Builds a fresh on-disk env containing a btree named "test" populated
     /// with the given rows. The returned tempdir must outlive the test scope.

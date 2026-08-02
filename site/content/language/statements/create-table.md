@@ -229,6 +229,32 @@ select * from t;
 
 <div class="example">
 
+#### Int Key
+
+A float subscript coerces like cast(<float> as int) to find the int key.
+
+<p class="example-label">SQL</p>
+
+```sql
+create table t (x int);
+
+insert into t ({"x": 1, "z": 9});
+
+select t[1.5];
+```
+
+<p class="example-label">Result</p>
+
+```json
+[
+  { "x": 1, "z": 9 }
+]
+```
+
+</div>
+
+<div class="example">
+
 #### String Key
 
 String key with payload round-trips whole object.
@@ -556,24 +582,6 @@ A string where an int key is declared is a schema error.
 create table t (x int);
 
 insert into t ({"x": "a"});
-```
-
-Expected error: `schema`
-
-</div>
-
-<div class="example">
-
-#### Non Integral
-
-A non-integral number for an int key is a schema error.
-
-<p class="example-label">SQL</p>
-
-```sql
-create table t (x int);
-
-insert into t ({"x": 1.5});
 ```
 
 Expected error: `schema`
