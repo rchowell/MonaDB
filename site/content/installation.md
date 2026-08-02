@@ -20,7 +20,7 @@ covers every supported Python.
 
 ## Requirements
 
-Python 3.9 or newer. Nothing else — the Rust core is compiled into the wheel.
+Python 3.9 or newer.
 
 ## Verifying
 
@@ -28,31 +28,13 @@ Python 3.9 or newer. Nothing else — the Rust core is compiled into the wheel.
 import monadb
 
 db = monadb.open()          # in-memory
-db["t"]["k"] = {"ok": True}
-assert db["t"]["k"] == {"ok": True}
+
+# Create a collection
+collection = db["t"]
+
+# Insert a document
+collection["k"] = {"ok": True}
+
+# Fetch a document
+assert collection["k"] == {"ok": True}
 ```
-
-## From source
-
-Building from source needs Rust 1.85 or newer, for edition 2024.
-
-```sh
-git clone https://github.com/rchowell/MonaDB
-cd MonaDB
-pip install maturin
-maturin develop
-python -m pytest tests -q
-```
-
-## Earlier versions
-
-MonaDB 0.1 was a different program: an embedded database with a SQL dialect,
-built on LMDB. It is preserved under the `v0.1.0-sql` git tag and remains
-installable:
-
-```sh
-pip install "monadb<0.2"
-```
-
-Databases written by 0.1 cannot be read by 0.2 — both the storage engine and the
-document format changed.

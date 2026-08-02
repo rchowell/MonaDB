@@ -31,8 +31,9 @@ mapping protocol and the model adapter. There is no catalog — redb's
 | `src/keys.rs`        | Order-preserving key codec — the load-bearing property test      |
 | `src/doc.rs`         | `PyObject` -> BSON on writes, `RawDocument` -> `PyDict` on reads |
 | `src/error.rs`       | `Error` / `BusyError` / `TransactionError` and redb mapping      |
-| `monadb/collection.py` | `MutableMapping` glue over the Rust handle                     |
-| `monadb/db.py`       | `Database` / `Transaction` as `Mapping[str, Collection]`         |
+| `monadb/collection.py` | `MutableMapping` glue over the Rust connection                 |
+| `monadb/db.py`       | `Database` as `Mapping[str, Collection]`                         |
+| `monadb/txn.py`      | `Transaction` as `Mapping[str, Collection]`                      |
 | `monadb/models.py`   | dataclass / pydantic adapter, by duck-typing                     |
 
 ## Build & Test

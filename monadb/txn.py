@@ -1,14 +1,13 @@
 from collections.abc import Mapping
 
 from .collection import Collection
-from .txn import Transaction
 
 
-class Database(Mapping):
-    """An open database mapping collection names to collections."""
+class Transaction(Mapping):
+    """An open write transaction and a mapping of collection names."""
 
     def __init__(self, connection):
-        """Initialize with a Rust database connection."""
+        """Initialize with a Rust transaction connection."""
         self._conn = connection
 
     def __getitem__(self, name):
@@ -16,11 +15,11 @@ class Database(Mapping):
         return Collection(self._conn.collection(name))
 
     def __iter__(self):
-        """Iterate over collection names in the database."""
+        """Iterate over collection names in the transaction."""
         return iter(self._conn.names())
 
     def __len__(self):
-        """Return the number of collections in the database."""
+        """Return the number of collections in the transaction."""
         return len(self._conn.names())
 
     def __contains__(self, name):
@@ -35,20 +34,22 @@ class Database(Mapping):
         """Return a Collection handle, optionally bound to a dataclass or pydantic model."""
         return Collection(self._conn.collection(name), model)
 
-    def transaction(self):
-        """Begin a new write transaction, acquiring the write gate now."""
-        return Transaction(self._conn.begin())
+    def commit(self):
+        """Commit the transaction."""
+        self._conn.commit()
 
-    def close(self):
-        """Close the database and abort any open transaction."""
-        self._conn.close()
+    def abort(self):
+        """Abort (roll back) the transaction."""
+        self._conn.abort()
 
     def __enter__(self):
         """Enter context manager, returning self."""
         return self
 
     def __exit__(self, exc_type, exc, tb):
-        """Exit context manager, closing the database connection."""
-        self.close()
+        """Exit context manager. Commit if no exception, else abort."""
+        if exc_type is None:
+            self._conn.commit()
+        else:
+            self._conn.abort()
         return False
-   

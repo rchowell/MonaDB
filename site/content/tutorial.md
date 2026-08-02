@@ -5,10 +5,9 @@ template = "docs/page.html"
 weight = 2
 +++
 
-This walks through the whole API in one sitting. Everything here runs against an
-in-memory database, so you can follow along in a shell.
+This tutorial walks through the entire MonaDB python API.
 
-## Opening
+## Open Databasae
 
 ```python
 import monadb
@@ -18,42 +17,54 @@ db = monadb.open("app.db")      # file-backed
 ```
 
 A `Database` is a mapping of collection names to collections, and a collection is
-a mapping of keys to documents. So the whole store is a dict of dicts.
+a mapping of keys to documents. You can think of collections as persistant
+python dicts.
 
 ## Writing and reading
 
 ```python
-db["users"]["alice"] = {"age": 30, "email": "alice@example.com"}
-db["users"]["alice"]
-# {'age': 30, 'email': 'alice@example.com'}
+# Creates a 'users' collection
+users = db["users"]
+
+# Insert a document into the 'users' collection
+users["alice"] = {"age": 30, "email": "alice@example.com"}
+
+# Fetch a document by its key
+users["alice"]
+# out:{'age': 30, 'email': 'alice@example.com'}
 ```
 
-You never create a collection. `db["users"]` hands back a handle immediately; the
-underlying table appears on the first write. Until then the collection reads as
-empty and does not show up in `list(db)`.
-
-```python
-db2 = monadb.open()
-db2["users"]                    # fine — a handle
-list(db2)                       # []
-len(db2["users"])               # 0
-```
+Collections are automatically created on the first write.
 
 ## The dict protocol
 
-A collection is a `MutableMapping`, so everything you expect is present:
+Each collection is a `MutableMapping` and behaves like a Python dict.
 
 ```python
+# Returns the 'users' collection
 users = db["users"]
 
-"alice" in users                # True
-len(users)                      # 1
-users.get("bob", {})            # {}
+# Checks if a document at the given key exists
+"alice" in users
+
+# Returns the length of the collection
+len(users)
+
+# Returns the document or default value
+users.get("bob", {})
+
+# Returns document for "bob" if it exists, otherwise sets it.
 users.setdefault("bob", {"age": 41})
+
+# 
 users.update({"carol": {"age": 22}, "dan": {"age": 51}})
+
 users.pop("dan")                # {'age': 51}
+
+# Deletes the document at key "bob"
 del users["bob"]
 
+# Iterate of key, document pairs
 for key, doc in users.items():
     print(key, doc)
 ```
@@ -62,34 +73,36 @@ Missing keys raise `KeyError`, exactly as a dict does.
 
 ## Ordering
 
-Iteration is in **key order**, not insertion order. That is the one difference
-you will notice immediately, and it is the point: keys are stored in an
-order-preserving encoding, so the b-tree's ordering is yours to use.
+Iteration is in **key order**, not insertion order.
 
 ```python
 events = db["events"]
-for ts in [1699000300, 1699000100, 1699000200]:
+
+for ts in [3, 1, 2]:
     events[ts] = {"at": ts}
 
-list(events)                    # [1699000100, 1699000200, 1699000300]
-list(reversed(events))          # [1699000300, 1699000200, 1699000100]
+list(events)                    # [1, 2, 3]
+list(reversed(events))          # [3, 2, 1]
 
-events.first()                  # (1699000100, {'at': 1699000100})
-events.last()                   # (1699000300, {'at': 1699000300})
+events.first()                  # (1, {'at': 1})
+events.last()                   # (3, {'at': 3})
 ```
 
 Ranges are half-open, and either bound may be `None`:
 
 ```python
-list(events.range(1699000100, 1699000300))   # the first two
-list(events.range(None, 1699000200))         # everything below
-list(events.range(1699000200, None))         # everything from there up
+list(events.range(1, 3))        # the first two: [(1, {'at': 1}), (2, {'at': 2})]
+list(events.range(None, 2))     # everything below: [(1, {'at': 1})]
+list(events.range(2, None))     # everything from there up: [(2, {'at': 2}), (3, {'at': 3})]
 ```
 
 Prefix scans work on strings, bytes, and tuple keys:
 
 ```python
+# Create a "logs" collection
 logs = db["logs"]
+
+# Insert documents
 logs["2026-08-01:a"] = {}
 logs["2026-08-02:b"] = {}
 logs["2026-09-01:c"] = {}

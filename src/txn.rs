@@ -1,14 +1,3 @@
-//! Write serialization: a deadline-bounded, re-entry-guarded gate in front of
-//! redb's `begin_write()`, which blocks with no timeout of its own.
-//!
-//!   write op    gate.acquire(timeout) ──ok──▶ `begin_write` … commit ──▶ release
-//!                        │
-//!                        ├─ owner == this thread ──▶ `GateError::Reentrant` (`TransactionError`)
-//!                        └─ deadline expired      ──▶ `GateError::Busy`     (`BusyError`)
-//!
-//! An in-process gate is sufficient because redb takes an exclusive file lock:
-//! only one process can ever hold a writable database open.
-
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, ThreadId};
 use std::time::{Duration, Instant};
