@@ -1,102 +1,82 @@
 # MonaDB
 
-Embedded database with a custom SQL query language compiled to stack-based bytecode.
+An embedded document store with Python dict semantics and transactions. Rust
+core behind pyo3, storage on redb, documents as BSON. Ships only to PyPI.
 
 ## Architecture
 
 ```
-SQL text → Lexer (logos) → Parser (lalrpop) → AST → Compiler → Vop bytecode → VM → LMDB
+  Python  monadb/
+    open(path=None, *, timeout=5.0, durable=True) -> Database
+    Database      Mapping[str, Collection]        db["users"]
+    Transaction   Mapping[str, Collection]        with db.transaction() as tx
+    Collection    MutableMapping[Key, Doc]        users["alice"]
+                          │  delegates every operation
+  Rust    src/  (pyo3 extension module `_monadb`)
+                          │
+  redb 4.1   one table per collection, TableDefinition<&[u8], &[u8]>
 ```
+
+Rust owns storage, transactions, key encoding, and BSON. Python owns the
+mapping protocol and the model adapter. There is no catalog — redb's
+`list_tables()` is the catalog.
 
 ## Key Files
 
-| File                 | Role                                                               |
-|----------------------|--------------------------------------------------------------------|
-| `src/lexer.rs`       | Token definitions — logos DFA lexer, produces spanned token stream |
-| `src/parser.lalrpop` | Grammar — LALRPOP LR(1) parser, calls action functions in `ast.rs` |
-| `src/ast.rs`         | AST types + parser action functions (called from grammar rules)    |
-| `src/compiler.rs`    | AST → Vop bytecode (`cc_*` methods, `emit_*` helpers)              |
-| `src/vm.rs`          | Stack-based bytecode interpreter — `next()` loop over `Vop`        |
-| `src/functions.rs`   | Builtin scalar standard library — flat `fn(&[Value])` registry      |
-| `src/error.rs`       | Error enum + `error!` / `unsupported!` macros                      |
+| File                 | Role                                                             |
+|----------------------|------------------------------------------------------------------|
+| `src/db.rs`          | `DbInner` shared state, `Db` pyclass, `open()`                   |
+| `src/txn.rs`         | The write `Gate` (timeout + re-entry guard), `Txn` pyclass       |
+| `src/collection.rs`  | `Collection` pyclass, the `Readable` bridge, `DocIter`           |
+| `src/keys.rs`        | Order-preserving key codec — the load-bearing property test      |
+| `src/doc.rs`         | `PyObject` -> BSON on writes, `RawDocument` -> `PyDict` on reads |
+| `src/error.rs`       | `Error` / `BusyError` / `TransactionError` and redb mapping      |
+| `monadb/collection.py` | `MutableMapping` glue over the Rust handle                     |
+| `monadb/db.py`       | `Database` / `Transaction` as `Mapping[str, Collection]`         |
+| `monadb/models.py`   | dataclass / pydantic adapter, by duck-typing                     |
 
 ## Build & Test
 
 ```sh
-cargo build   # regenerates src/parser.rs from src/parser.lalrpop via build.rs
-cargo test
-cargo run --features cli --bin monadb   # starts the REPL
+cargo test                          # Rust units: key codec, BSON, gate
+maturin develop                     # build the extension into the venv
+python -m pytest tests -q           # the conformance suite
+cargo clippy --all-targets          # pedantic, must stay clean
 ```
 
-## Release
+## Invariants
 
-See [RELEASING.md](RELEASING.md). Summary:
-
-- Version lives in `Cargo.toml`; PyPI reads it via maturin `dynamic = ["version"]`.
-- Tag `vX.Y.Z` triggers `.github/workflows/release.yml` (crates.io, PyPI, GitHub CLI assets).
-- Homebrew: bump [`Formula/monadb.rb`](https://github.com/rchowell/homebrew-tap/blob/main/Formula/monadb.rb) in `rchowell/homebrew-tap`.
-
-```sh
-cargo publish --dry-run --no-default-features
-maturin build --release --features python
-```
-
-## Rules
-
-- Do NOT edit `docs/ideas/README.md` but you can add a new `<DD>-<IDEA>.md` file upon request.
+- `#![forbid(unsafe_code)]`. Exactly three dependencies: redb, bson, pyo3.
+- `src/` is seven files. The crate defines **no cargo features**:
+  `pyo3/extension-module` comes from `[tool.maturin]`, and the `auto-initialize`
+  dev-dependency is what lets `cargo test` link.
+- The key codec's order-preservation property (`encode(a) < encode(b)` iff
+  `a < b`) is what makes iteration order and every range bound correct. Change
+  the encoding only with that test in front of you.
+- The write gate must be acquired inside `Python::detach`. Waiting while holding
+  the GIL stalls the threads that would release it.
+- A write transaction cannot outlive the call or `with` block that created it.
+  That is what makes retained-transaction deadlocks unrepresentable.
+- `WriteTransaction::open_table` **creates** a missing table, so
+  transaction-scoped reads must check `list_tables()` first or they silently
+  vivify a collection.
 
 ## Conventions
 
 ### Comment Style
 
-- Every public item (and non-obvious private one) opens with a one-line `///` summary: imperative, present tense, ends with a period — `/// Opens a btree with the given transaction mode.`
-- When one line isn't enough: the summary, a blank `///` line, then prose and/or an indented ASCII illustration. Use backticks for identifiers and byte literals, and intra-doc links (`` [`encode_key`] ``) to related items.
-- Illustrate layouts, stack effects, and bytecode addresses with ASCII diagrams *inside* the doc comment — byte layouts (`schema.rs`), `stack: … a b → … (a+b)` effects (`vm.rs`), address maps (`compiler.rs`), lifecycles (`cursor.rs`). Aesthetics matter: align the art.
-- Keep `//` for in-body step narration, `// SAFETY:` blocks, and field annotations; keep `//-----` section dividers. Don't promote these to `///`.
-- Each file opens with a concise `//!` module header stating its role in the pipeline.
-- Mechanical/forwarding items stay bare — the `visitor.rs` `visit_*`/`fold_*` forwarders, raw token variants, and one-to-one `emit_*` wrappers. Uniformity shouldn't add noise.
-
-```rust
-/// Returns the cursor's current key, or null if unpositioned.
-pub fn current_key(&self) -> Value { ... }
-
-/// Adds the top two stack values.
-///
-///   stack:  … a b  ─▶  … (a + b)
-Add,
-```
+- Every public item opens with a one-line `///` summary: imperative, present
+  tense, ending with a period.
+- When one line isn't enough: summary, blank `///` line, then prose or an
+  indented ASCII diagram. Align the art.
+- Each file opens with a `//!` module header stating its role.
+- Explain *why*, not *what* — especially where a redb or pyo3 constraint forced
+  the shape of the code.
+- `//` stays for in-body step narration.
 
 ### Naming
-- Compiler dispatch methods: `cc_` prefix — `cc_select`, `cc_expr`, `cc_expr_op`, ...
-- Compiler emit helpers: `emit_` prefix — `emit_push`, `emit_jpk`, `emit_rewind`, ...
-- Type aliases: `ExprRef = Box<Expr>`, `TypeRef = Box<Type>`, `Program = Vec<Vop>`, `Patch = (usize, usize)`, `Obj = Vec<Member>`
-- Reserved-word struct fields: trailing underscore — `where_`, `typ_`
 
-### Error Handling
-- `error!(...)` — returns `Err(Error::InternalError(...))` early from the current function
-- `unsupported!(...)` — returns `Err(Error::Unsupported(...))` for unimplemented features
-- Implement `From<T> for Error` for each external error type (see `error.rs`)
-- Never use `unwrap()` on user-controlled paths; reserve it for invariants that must hold
-
-### AST Shape
-- **Enum** for sum types (alternatives): `Statement`, `Expr`, `Type`, `Fetch`, `Constructor`, `Member`, `Source`, `Selector`, `Segment`
-- **Struct** for product types (grouped fields): `Select`, `Insert`, `Create`, `Op`, `Jpk`, `Jpi`, `Jpe`, `Iter`, `Table`
-- Recursive types always boxed through a type alias — `ExprRef`, `TypeRef` — never `Box<Expr>` inline
-- Parser action functions live in `ast.rs` and are `#[inline]` public functions (not methods)
-
-### Grammar
-- External lexer declared in the `extern` block at the top of `parser.lalrpop`
-- Grammar rule actions stay thin — construct an AST value via an `ast.rs` function, nothing else
-- Operator precedence: `#[precedence(level="N")]` and `#[assoc(side="left")]` annotations on `Expr` alternatives
-- Comma-separated repetition: use the `List<T>` macro (defined at the bottom of the grammar file)
-
-### Compiler
-- `Compiler` holds `code: Program`, `vars: Vec<Var>`, `counters: usize`
-- `cc_*` methods take ownership of their AST node and call `emit_*` helpers to append `Vop` instructions
-- Control-flow instructions (`Rewind`, `IfNot`, `Next`, `CntIfPos`, `CntIfZero`) are emitted with placeholder `0` jump targets and back-patched via `patch(pc, dst)` after the loop body is known
-- `define(name)` appends a `Var` and its stack depth is its index — `Load(idx)` addresses by index
-- `define_counter(n)` allocates a counter slot and emits `CntSet`
-
-## Grammar Extension
-
-Use the `/grammar` skill for a step-by-step guide to adding new grammar constructs.
+- Rust methods exposed to Python that collide with Rust keywords or traits take
+  a trailing underscore plus `#[pyo3(name = "...")]` — `drop_` is exposed as
+  `drop`.
+- Iteration modes are `0 = keys`, `1 = values`, `2 = items`.

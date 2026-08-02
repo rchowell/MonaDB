@@ -5,12 +5,12 @@ build-backend = "maturin"
 [project]
 name = "monadb"
 dynamic = ["version"]
-description = "MonaDB — an embedded, dict-like SQL engine with a Python API."
+description = "MonaDB — an embedded document store with Python dict semantics and transactions."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "Apache-2.0" }
 authors = [{ name = "R. Conner Howell", email = "rchowell19@gmail.com" }]
-keywords = ["database", "sql", "embedded", "document-store"]
+keywords = ["database", "embedded", "document-store", "redb"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -30,12 +30,12 @@ Repository = "https://github.com/rchowell/MonaDB"
 Documentation = "https://github.com/rchowell/MonaDB#readme"
 
 [tool.maturin]
-features = ["python"]
+features = ["pyo3/extension-module"]
 module-name = "monadb._monadb"
 python-source = "."
 
 [tool.pytest.ini_options]
-testpaths = ["monadb/tests"]
+testpaths = ["tests"]
 
 [dependency-groups]
-dev = ["pytest>=8", "maturin>=1.7,<2"]
+dev = ["pytest>=8", "maturin>=1.7,<2", "pydantic>=2"]

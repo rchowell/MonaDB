@@ -19,25 +19,27 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "stable"
+          components: clippy
 
       - uses: Swatinem/rust-cache@v2
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Unit tests
-        run: cargo test --lib
+        run: cargo test
 
-      - name: Conformance tests
-        run: cargo test --test conformance
-        continue-on-error: true
-
-      - name: Build CLI
-        run: cargo build --features cli --bin monadb
-
-      - name: CLI version
-        run: ./target/debug/monadb --version
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
 
   python:
-    name: Python
+    name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
 
@@ -49,15 +51,15 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
 
-      - name: Install maturin
-        run: pip install "maturin>=1.7,<2" pytest
+      - name: Install tooling
+        run: pip install "maturin>=1.7,<2" pytest "pydantic>=2"
 
-      - name: Build extension
-        run: maturin build --release --features python
-
-      - name: Install wheel and test
+      - name: Build and install
         run: |
+          maturin build --release
           pip install target/wheels/*.whl
-          pytest monadb/tests
+
+      - name: Conformance suite
+        run: pytest tests -q

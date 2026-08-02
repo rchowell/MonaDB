@@ -4,9 +4,6 @@
 # rust
 target/
 
-# docs (old asciidoc)
-docs/build/
-
 # other
 .DS_Store
 
@@ -20,18 +17,10 @@ dist/
 wheels/
 .pytest_cache/
 
-# monadb
-*.monadb
-.monadb_history
-
-# zola
-site/public/
-
-# node
-site/node_modules/
-
-# rust
-target/
+# databases
+*.redb
+todos.db
+todos.db-lock
 
 # agents et al
 .agents/

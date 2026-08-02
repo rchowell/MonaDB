@@ -1,9 +1,0 @@
-base_url = "https://monadb.org"
-title = "MonaDB"
-compile_sass = false
-generate_feeds = false
-minify_html = false
-
-
-[extra]
-github = "https://github.com/rchowell/MonaDB"

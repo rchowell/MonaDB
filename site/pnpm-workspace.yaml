@@ -1,7 +1,0 @@
-overrides:
-  enhanced-resolve: 5.23.0
-
-minimumReleaseAge: 0
-
-allowBuilds:
-  '@parcel/watcher': true

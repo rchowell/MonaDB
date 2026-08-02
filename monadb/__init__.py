@@ -1,79 +1,42 @@
-"""MonaDB — an embedded, dict-like SQL engine with a Python API.
+"""MonaDB: an embedded document store with Python dict semantics.
 
-Open a database with :func:`connect` (``None`` / ``":memory:"`` for in-memory,
-or a filesystem path). Each connection exposes:
+    import monadb
 
-* A SQL surface (``execute`` / ``sql`` / ``prepare``) where reads return plain
-  Python lists.
-* Dict-like :class:`~monadb.table.Table` handles with a complementary SQL-like
-  surface.
+    db = monadb.open("app.db")
+    db["users"]["alice"] = {"age": 30}
 
-The compiled extension (``monadb._monadb``) is the in-process engine; the
-high-level façade is pure Python layered over it.
+    with db.transaction() as tx:
+        tx["users"]["bob"] = {"age": 41}
+        del tx["users"]["alice"]
+
+Only one process may open a database for writing: redb takes an exclusive file
+lock.
 """
 
-from typing import Any, List, Optional
+import os
 
-from ._monadb import DuplicateKeyError, Error
-from .types import Config
-from .statement import Statement
-from .table import Table
-from .connection import Connection
+from ._monadb import BusyError, Error, TransactionError
+from ._monadb import open as _open_raw
+from .collection import Collection
+from .db import Database, Transaction
 
 __all__ = [
-    "connect",
-    "Connection",
-    "Statement",
-    "Table",
-    "Config",
+    "open",
+    "Database",
+    "Transaction",
+    "Collection",
     "Error",
-    "DuplicateKeyError",
-    "execute",
-    "sql",
+    "BusyError",
+    "TransactionError",
 ]
 
 
-def connect(
-    path: "str | None" = None,
-    *,
-    config: Config | None = None,
-) -> Connection:
-    """Opens a connection to a MonaDB database at the given path.
+def open(path=None, *, timeout=5.0, durable=True):
+    """Open a database: in-memory when ``path`` is ``None``, else file-backed.
 
-    Args:
-        path: Filesystem path, or ``None`` / ``":memory:"`` for in-memory.
-        config: Open-time settings (see :class:`~monadb.types.Config`).
-
-    Returns:
-        A :class:`~monadb.connection.Connection` handle.
+    ``timeout`` bounds the wait for the write gate, in seconds; exceeding it
+    raises :class:`BusyError`. ``durable=False`` trades commit durability for
+    speed, which suits bulk loads.
     """
-    return Connection(path, config=config)
-
-
-_conn: "Connection | None" = None
-
-
-def _connection() -> Connection:
-    """Return the shared default in-memory connection, created on first use."""
-    global _conn
-    if _conn is None:
-        _conn = connect()
-    return _conn
-
-
-def execute(query: str, parameters: Any = None) -> List[Any]:
-    """Run ``query`` on the default connection and return its rows as a list.
-
-    Args:
-        query: SQL statement text.
-        parameters: Optional parameter bindings.
-
-    Returns:
-        The result rows as a list.
-    """
-    return _connection().execute(query, parameters)
-
-
-def sql(query: str, parameters: Any = None) -> List[Any]:
-    """Alias of :func:`execute` on the default connection."""
-    return _connection().sql(query, parameters)
+    p = os.fspath(path) if path is not None else None
+    return Database(_open_raw(p, timeout=timeout, durable=durable))
