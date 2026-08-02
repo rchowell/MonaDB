@@ -22,6 +22,10 @@ wheels/
 todos.db
 todos.db-lock
 
+# site
+site/public/
+site/node_modules/
+
 # agents et al
 .agents/
 .claude/

@@ -1,0 +1,84 @@
+{% macro sidebar_link(page) %}
+<li data-docs-sidebar-item data-title="{{ page.title | lower }}">
+  <a
+    href="{{ page.permalink }}"
+    {% if page.permalink == current_url %}class="active"{% endif %}
+  >
+    {{ page.title }}
+  </a>
+</li>
+{% endmacro %}
+
+{% macro sidebar_group(title, section_path) %}
+{% set section = get_section(path=section_path) %}
+{% set_global group_active = false %}
+{% for page in section.pages %}
+  {% if page.permalink == current_url %}
+    {% set_global group_active = true %}
+  {% endif %}
+{% endfor %}
+<li
+  class="docs-sidebar-group"
+  data-docs-sidebar-group
+  data-title="{{ title | lower }}"
+  {% if group_active %}data-open{% endif %}
+>
+  <button
+    type="button"
+    class="docs-sidebar-group-toggle"
+    aria-expanded="{% if group_active %}true{% else %}false{% endif %}"
+  >
+    <span class="docs-sidebar-group-label">{{ title }}</span>
+    <span class="docs-sidebar-group-chevron" aria-hidden="true">›</span>
+  </button>
+  <ul class="docs-sidebar-list docs-sidebar-list--nested" data-docs-sidebar-list>
+    {% for page in section.pages %}
+      {{ docs_sidebar::sidebar_link(page=page) }}
+    {% endfor %}
+  </ul>
+</li>
+{% endmacro %}
+
+{% macro render_docs_sidebar() %}
+<aside class="docs-sidebar" id="mobile-sidebar-nav" aria-label="Documentation" data-docs-sidebar data-mobile-sidebar-panel="nav">
+  <div class="docs-sidebar-search-wrap">
+    <label class="docs-sidebar-search" for="docs-sidebar-search">
+      <span class="docs-sidebar-search-icon" aria-hidden="true">⌕</span>
+      <input
+        id="docs-sidebar-search"
+        type="search"
+        placeholder="search"
+        autocomplete="off"
+        spellcheck="false"
+        data-docs-sidebar-search
+      />
+      <kbd class="docs-sidebar-search-kbd" aria-hidden="true">⌘K</kbd>
+    </label>
+  </div>
+
+  <nav class="docs-sidebar-nav">
+    <ul class="docs-sidebar-list docs-sidebar-list--top" data-docs-sidebar-list>
+      {{ docs_sidebar::sidebar_link(page=get_page(path="installation.md")) }}
+      {{ docs_sidebar::sidebar_link(page=get_page(path="tutorial.md")) }}
+    </ul>
+
+    <div class="docs-sidebar-section">
+      <p class="docs-sidebar-section-title">Guide</p>
+      <ul class="docs-sidebar-list" data-docs-sidebar-list>
+        {{ docs_sidebar::sidebar_link(page=get_page(path="guide/keys.md")) }}
+        {{ docs_sidebar::sidebar_link(page=get_page(path="guide/documents.md")) }}
+        {{ docs_sidebar::sidebar_link(page=get_page(path="guide/transactions.md")) }}
+        {{ docs_sidebar::sidebar_link(page=get_page(path="guide/models.md")) }}
+      </ul>
+    </div>
+
+    <div class="docs-sidebar-section">
+      <p class="docs-sidebar-section-title">Reference</p>
+      <ul class="docs-sidebar-list" data-docs-sidebar-list>
+        {{ docs_sidebar::sidebar_link(page=get_page(path="reference.md")) }}
+        {{ docs_sidebar::sidebar_link(page=get_page(path="design.md")) }}
+      </ul>
+    </div>
+  </nav>
+</aside>
+{% endmacro %}

@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% import "macros/content_nav.html" as content_nav %}
+{% import "macros/docs_sidebar.html" as docs_sidebar %}
+
+{% block title %}{{ page.title }} — MonaDB{% endblock title %}
+{% block description %}{{ page.description }}{% endblock description %}
+
+{% block content %}
+{% set is_guide = current_path is containing('/guide/') %}
+{% set show_page_title = is_guide or page.slug in ["installation", "tutorial", "reference", "design"] %}
+<div class="docs-shell">
+  <div class="mobile-sidebar-host">
+    {{ docs_sidebar::render_docs_sidebar() }}
+  </div>
+  <div class="docs-main">
+    <div class="docs-page{% if page.toc %} has-content-nav{% endif %}">
+      {% if page.toc %}
+      <div class="docs-mobile-toc-bar">
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm mobile-sidebar-trigger mobile-sidebar-trigger--labeled"
+          data-mobile-sidebar-trigger="toc"
+          aria-expanded="false"
+          aria-controls="mobile-sidebar-toc"
+        >
+          <span data-icon aria-hidden="true">≡</span>
+          On this page
+        </button>
+      </div>
+      {% endif %}
+      <main class="lang-content{% if is_guide %} lang-content--{{ page.slug }}{% endif %}{% if page.slug == "reference" %} lang-reference{% endif %}">
+        <article class="content-body">
+          {% if show_page_title %}
+          <h1>{{ page.title }}</h1>
+          {% endif %}
+          {{ page.content | safe }}
+        </article>
+      </main>
+      {% if page.toc %}
+      <nav
+        class="content-nav"
+        id="mobile-sidebar-toc"
+        aria-label="On this page"
+        data-mobile-sidebar-panel="toc"
+      >
+        <div class="content-nav-panel">
+          <div class="content-nav-title">On this page</div>
+          {{ content_nav::render_nav_toc(headers=page.toc) }}
+        </div>
+      </nav>
+      {% endif %}
+    </div>
+  </div>
+</div>
+<div class="mobile-sidebar-backdrop" data-mobile-sidebar-backdrop hidden></div>
+{% endblock content %}
