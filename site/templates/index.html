@@ -164,25 +164,17 @@ users.<span class="tok-kw">update</span>({<span class="tok-lit">"bob"</span>: {<
   <div class="max-w-wrap mx-auto px-8 pt-14 pb-[70px]">
     <div class="flex items-baseline gap-3.5 mb-[38px] pb-3.5 border-b-rule">
       <span class="font-label text-[11px] tracking-[0.1em] text-mist">02</span>
-      <h2 class="font-display text-[26px] font-bold">Ordered</h2>
+      <h2 class="font-display text-[26px] font-bold">Keys</h2>
       <span
         class="font-label text-[10px] tracking-[0.1em] uppercase text-mist ml-auto max-sm:hidden"
-        >Keys</span
+        >tuples</span
       >
     </div>
 
     <div
       class="grid grid-cols-[repeat(auto-fit,minmax(330px,1fr))] gap-[52px] items-start"
     >
-      <p class="text-[13px] leading-[1.7] text-shadow max-w-[52ch]">
-        Keys are <code>str</code>, <code>int</code>, <code>bytes</code>, or a
-        flat tuple of those, held in an order-preserving encoding:
-        <code>encode(a) &lt; encode(b)</code> exactly when <code>a &lt; b</code>.
-        Iteration is key order, not insertion order, so range and prefix scans
-        are b-tree seeks rather than filters. Across types the order is
-        <code>int &lt; str &lt; bytes</code>.
-      </p>
-      <pre class="snippet min-w-0">
+      <pre class="snippet min-w-0 order-1">
 events = db[<span class="tok-lit">"events"</span>]
 <span class="tok-kw">for</span> ts <span class="tok-kw">in</span> [<span class="tok-lit">3</span>, <span class="tok-lit">1</span>, <span class="tok-lit">2</span>]:
     events[ts] = {<span class="tok-lit">"at"</span>: ts}
@@ -194,6 +186,14 @@ events.<span class="tok-kw">first</span>()                   <span class="tok-co
 <span class="tok-kw">list</span>(events.<span class="tok-kw">range</span>(<span class="tok-lit">1</span>, <span class="tok-lit">3</span>))         <span class="tok-com"># half-open; None is unbounded</span>
 [k <span class="tok-kw">for</span> k, _ <span class="tok-kw">in</span> db[<span class="tok-lit">"logs"</span>].<span class="tok-kw">prefix</span>(<span class="tok-lit">"2026-08"</span>)]
 </pre>
+      <p class="text-[13px] leading-[1.7] text-shadow max-w-[52ch] order-2">
+        Keys are <code>str</code>, <code>int</code>, <code>bytes</code>, or a
+        flat tuple of those, held in an order-preserving encoding:
+        <code>encode(a) &lt; encode(b)</code> exactly when <code>a &lt; b</code>.
+        Iteration is key order, not insertion order, so range and prefix scans
+        are b-tree seeks rather than filters. Across types the order is
+        <code>int &lt; str &lt; bytes</code>.
+      </p>
     </div>
   </div>
 </section>
