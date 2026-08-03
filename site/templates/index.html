@@ -1,6 +1,6 @@
 {% extends "base.html" %} {% block title %}MonaDB{% endblock title %} {% block
-description %}MonaDB is an embedded document store for Python. Python dict
-semantics over ordered keys, in a single file.{% endblock description %} {%
+description %}An embedded document store for Python. Ordered collections with
+dict semantics, in a single file.{% endblock description %} {%
 block content %}
 
 <!-- ── Hero ──────────────────────────────────────────── -->
@@ -13,7 +13,7 @@ block content %}
         <p
           class="font-label text-[11px] tracking-[0.16em] uppercase text-mist mb-5"
         >
-          Preview · Embedded Document Store
+          Embedded Document Store
         </p>
         <h1
           class="font-display font-black tracking-[-0.01em] text-[clamp(38px,5.4vw,62px)] leading-[1.04] mb-5 inline-block text-accent"
@@ -21,14 +21,13 @@ block content %}
           MonaDB
         </h1>
         <p class="text-[15px] leading-[1.7] text-shadow max-w-[48ch] mb-7">
-          MonaDB is an embedded document store for Python. It behaves like a
-          dict of dicts and commits like a database. No schema, no server, no
-          query language to learn. A Rust core on redb, documents as BSON.
+          An embedded document store for Python. Collections are ordered
+          <code>MutableMapping</code>s of keys to documents; documents are
+          dicts, dataclasses, or pydantic models. A Rust core on redb, one file
+          on disk.
         </p>
         <div class="flex flex-wrap gap-4 mb-7">
-          <a
-            class="btn btn-primary"
-            href="{{ get_url(path='@/tutorial.md') }}"
+          <a class="btn btn-primary" href="{{ get_url(path='@/tutorial.md') }}"
             >Tutorial</a
           >
           <a class="btn btn-secondary" href="https://github.com/rchowell/MonaDB"
@@ -54,25 +53,21 @@ block content %}
             <span class="console-ver">v0.2</span>
           </div>
           <div class="console-tabs">
-            <button class="console-tab is-active" data-tab>Dict</button>
-            <button class="console-tab" data-tab>Batches</button>
+            <button class="console-tab is-active" data-tab>Insert</button>
+            <button class="console-tab" data-tab>Update</button>
             <button class="console-tab" data-tab>Ranges</button>
             <button class="console-tab" data-tab>Models</button>
           </div>
           <div class="console-body">
-            <pre
-              data-code
-            ><span class="tok-com"># a collection is a dict; a document is its value</span>
+            <pre data-code>
 <span class="tok-kw">import</span><span class="tok-txt"> monadb</span>
+
 <span class="tok-txt">db = monadb.</span><span class="tok-kw">open</span><span class="tok-txt">(</span><span class="tok-lit">"app.db"</span><span class="tok-txt">)</span>
-<span class="tok-txt">db[</span><span class="tok-lit">"users"</span><span class="tok-txt">][</span><span class="tok-lit">"alice"</span><span class="tok-txt">] = {</span><span class="tok-lit">"age"</span><span class="tok-txt">: </span><span class="tok-lit">30</span><span class="tok-txt">}</span>
-<span class="tok-txt">db[</span><span class="tok-lit">"users"</span><span class="tok-txt">][</span><span class="tok-lit">"alice"</span><span class="tok-txt">]</span><span class="tok-com">   # {"age": 30}</span></pre>
-          </div>
-          <div class="console-status">
-            <span class="ok"
-              ><span class="tick">✓</span>&nbsp; committed</span
-            >
-            <span class="meta">redb · BSON</span>
+
+<span class="tok-txt">users = db.</span><span class="tok-kw">collection</span><span class="tok-txt">(</span><span class="tok-lit">"users"</span><span class="tok-txt">)</span>
+<span class="tok-txt">users[</span><span class="tok-lit">"alice"</span><span class="tok-txt">] = {</span><span class="tok-lit">"age"</span><span class="tok-txt">: </span><span class="tok-lit">30</span><span class="tok-txt">}</span>
+<span class="tok-txt">users[</span><span class="tok-lit">"alice"</span><span class="tok-txt">]</span>
+</pre>
           </div>
         </div>
       </div>
@@ -93,7 +88,7 @@ block content %}
         <div
           class="font-label text-[10px] tracking-[0.12em] uppercase text-mist mt-2"
         >
-          No server, no configs
+          In-process, one file, no server
         </div>
       </div>
       <div
@@ -105,166 +100,142 @@ block content %}
         <div
           class="font-label text-[10px] tracking-[0.12em] uppercase text-mist mt-2"
         >
-          Nested objects, arrays, no schema
+          BSON documents, nested, untyped
         </div>
       </div>
       <div
         class="px-8 py-[34px] border-r-hair first:pl-0 last:border-r-0 last:pr-0 max-sm:px-5 max-sm:py-6 max-sm:border-r-0 max-sm:border-b-hair max-sm:last:border-b-0"
       >
-        <div class="font-display font-black text-[46px] leading-none">Dict</div>
+        <div class="font-display font-black text-[46px] leading-none">Pythonic</div>
         <div
           class="font-label text-[10px] tracking-[0.12em] uppercase text-mist mt-2"
         >
-          The API you already know
+          Collections are MutableMappings
         </div>
       </div>
     </div>
   </div>
 </section>
 
-<!-- ── Features ───────────────────────────────────────── -->
-<section class="border-b-rule" id="features">
+<!-- ── 01 · Dict ──────────────────────────────────────── -->
+<section class="border-b-rule" id="dict">
   <div class="max-w-wrap mx-auto px-8 pt-14 pb-[70px]">
     <div class="flex items-baseline gap-3.5 mb-[38px] pb-3.5 border-b-rule">
       <span class="font-label text-[11px] tracking-[0.1em] text-mist">01</span>
-      <h2 class="font-display text-[26px] font-bold">Why Use MonaDB?</h2>
+      <h2 class="font-display text-[26px] font-bold">Dict</h2>
       <span
         class="font-label text-[10px] tracking-[0.1em] uppercase text-mist ml-auto max-sm:hidden"
-        >Use cases</span
+        >MutableMapping</span
       >
     </div>
 
-    <div class="grid grid-cols-[repeat(auto-fit,minmax(250px,1fr))] gap-[26px]">
-      <div class="feature">
-        <div class="feature-card">
-          <div class="feature-cap feature-cap--dots"></div>
-          <div class="p-4">
-            <div
-              class="font-label text-[10px] tracking-[0.12em] uppercase text-mist mb-2"
-            >
-              01 · Interface
-            </div>
-            <h3 class="font-display text-[18px] font-bold mb-2">Dict</h3>
-            <p class="text-[12.5px] leading-[1.6] text-shadow">
-              Subscript, <code>in</code>, <code>len</code>, iteration,
-              <code>update</code>, <code>pop</code>. It is a
-              <code>MutableMapping</code>, so the methods you expect are simply
-              there.
-            </p>
-          </div>
-        </div>
-      </div>
+    <div
+      class="grid grid-cols-[repeat(auto-fit,minmax(330px,1fr))] gap-[52px] items-start"
+    >
+      <p class="text-[13px] leading-[1.7] text-shadow max-w-[52ch]">
+        A collection is a <code>MutableMapping</code> of keys to documents.
+        Subscript, <code>in</code>, <code>len</code>, and iteration go to
+        storage; <code>get</code>, <code>pop</code>, <code>setdefault</code>,
+        and <code>clear</code> come from the ABC. Assignment is an upsert and
+        missing keys raise <code>KeyError</code>. Every operation is its own
+        commit, and <code>update()</code> commits a whole mapping at once.
+      </p>
+      <pre class="snippet min-w-0">
+<span class="tok-kw">import</span> monadb
 
-      <div class="feature">
-        <div class="feature-card">
-          <div class="feature-cap feature-cap--lines"></div>
-          <div class="p-4">
-            <div
-              class="font-label text-[10px] tracking-[0.12em] uppercase text-mist mb-2"
-            >
-              02 · Ordering
-            </div>
-            <h3 class="font-display text-[18px] font-bold mb-2">Ordered</h3>
-            <p class="text-[12.5px] leading-[1.6] text-shadow">
-              Keys use an order-preserving encoding, so iteration is sorted and
-              range and prefix scans come free from the b-tree.
-            </p>
-          </div>
-        </div>
-      </div>
+db = monadb.<span class="tok-kw">open</span>(<span class="tok-lit">"app.db"</span>)
+users = db[<span class="tok-lit">"users"</span>]                  <span class="tok-com"># a handle; made on first write</span>
 
-      <div class="feature">
-        <div class="feature-card">
-          <div class="feature-cap feature-cap--cross"></div>
-          <div class="p-4">
-            <div
-              class="font-label text-[10px] tracking-[0.12em] uppercase text-mist mb-2"
-            >
-              03 · Runtime
-            </div>
-            <h3 class="font-display text-[18px] font-bold mb-2">Embedded</h3>
-            <p class="text-[12.5px] leading-[1.6] text-shadow">
-              Backed by redb and running in-process alongside your code. One
-              file on disk. No server, no daemon, no config to babysit.
-            </p>
-          </div>
-        </div>
-      </div>
+users[<span class="tok-lit">"alice"</span>] = {<span class="tok-lit">"age"</span>: <span class="tok-lit">30</span>}         <span class="tok-com"># upsert, one commit</span>
+users[<span class="tok-lit">"alice"</span>]                       <span class="tok-com"># {'age': 30}</span>
+<span class="tok-lit">"alice"</span> <span class="tok-kw">in</span> users                     <span class="tok-com"># True</span>
+<span class="tok-kw">len</span>(users)                           <span class="tok-com"># 1</span>
 
-      <div class="feature is-accent">
-        <div class="feature-card">
-          <div class="feature-cap feature-cap--accent"></div>
-          <div class="p-4">
-            <div
-              class="font-label text-[10px] tracking-[0.12em] uppercase text-mist mb-2"
-            >
-              04 · Concurrency
-            </div>
-            <h3 class="font-display text-[18px] font-bold mb-2">
-              One commit each
-            </h3>
-            <p class="text-[12.5px] leading-[1.6] text-shadow">
-              Every operation is its own commit, and <code>update()</code>
-              commits a whole mapping at once. Readers never block; writers
-              serialize.
-            </p>
-          </div>
-        </div>
-      </div>
+users.<span class="tok-kw">update</span>({<span class="tok-lit">"bob"</span>: {<span class="tok-lit">"age"</span>: <span class="tok-lit">41</span>},    <span class="tok-com"># one commit for the mapping</span>
+              <span class="tok-lit">"cy"</span>: {<span class="tok-lit">"age"</span>: <span class="tok-lit">9</span>}})
+<span class="tok-kw">del</span> users[<span class="tok-lit">"bob"</span>]                     <span class="tok-com"># KeyError if absent</span>
+</pre>
     </div>
   </div>
 </section>
 
-<!-- ── Principles ─────────────────────────────────────── -->
-<section class="border-b-rule" id="principles">
+<!-- ── 02 · Ordered ───────────────────────────────────── -->
+<section class="border-b-rule" id="ordered">
   <div class="max-w-wrap mx-auto px-8 pt-14 pb-[70px]">
     <div class="flex items-baseline gap-3.5 mb-[38px] pb-3.5 border-b-rule">
       <span class="font-label text-[11px] tracking-[0.1em] text-mist">02</span>
-      <h2 class="font-display text-[26px] font-bold">How It Holds</h2>
+      <h2 class="font-display text-[26px] font-bold">Ordered</h2>
+      <span
+        class="font-label text-[10px] tracking-[0.1em] uppercase text-mist ml-auto max-sm:hidden"
+        >Keys</span
+      >
     </div>
 
     <div
-      class="grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))] gap-x-[40px] gap-y-9"
+      class="grid grid-cols-[repeat(auto-fit,minmax(330px,1fr))] gap-[52px] items-start"
     >
-      <div class="border-t-heavy pt-4">
-        <div class="font-display text-[18px] font-bold mb-2">
-          No query language.
-        </div>
-        <p class="text-[13px] leading-[1.65] text-shadow">
-          There is nothing to learn beyond the mapping protocol. Filtering is a
-          comprehension over an iteration or a range — ordinary Python, on
-          ordinary dicts.
-        </p>
-      </div>
-      <div class="border-t-heavy pt-4">
-        <div class="font-display text-[18px] font-bold mb-2">
-          Small enough to read.
-        </div>
-        <p class="text-[13px] leading-[1.65] text-shadow">
-          The Rust core is seven files and three dependencies, and it compiles
-          with <code>unsafe</code> forbidden outright.
-        </p>
-      </div>
-      <div class="border-t-heavy pt-4">
-        <div class="font-display text-[18px] font-bold mb-2">
-          The database is a library.
-        </div>
-        <p class="text-[13px] leading-[1.65] text-shadow">
-          MonaDB runs in the same process as your code and reads from a single
-          file on disk. There is no network hop between your application and
-          your data.
-        </p>
-      </div>
-      <div class="border-t-heavy pt-4">
-        <div class="font-display text-[18px] font-bold mb-2">
-          Honest about the differences.
-        </div>
-        <p class="text-[13px] leading-[1.65] text-shadow">
-          It is not quite a <code>dict</code>: iteration is key order, keys are
-          typed, values are documents. All six differences are written down and
-          asserted in the test suite.
-        </p>
-      </div>
+      <p class="text-[13px] leading-[1.7] text-shadow max-w-[52ch]">
+        Keys are <code>str</code>, <code>int</code>, <code>bytes</code>, or a
+        flat tuple of those, held in an order-preserving encoding:
+        <code>encode(a) &lt; encode(b)</code> exactly when <code>a &lt; b</code>.
+        Iteration is key order, not insertion order, so range and prefix scans
+        are b-tree seeks rather than filters. Across types the order is
+        <code>int &lt; str &lt; bytes</code>.
+      </p>
+      <pre class="snippet min-w-0">
+events = db[<span class="tok-lit">"events"</span>]
+<span class="tok-kw">for</span> ts <span class="tok-kw">in</span> [<span class="tok-lit">3</span>, <span class="tok-lit">1</span>, <span class="tok-lit">2</span>]:
+    events[ts] = {<span class="tok-lit">"at"</span>: ts}
+
+<span class="tok-kw">list</span>(events)                     <span class="tok-com"># [1, 2, 3]</span>
+<span class="tok-kw">list</span>(<span class="tok-kw">reversed</span>(events))           <span class="tok-com"># [3, 2, 1]</span>
+events.<span class="tok-kw">first</span>()                   <span class="tok-com"># (1, {'at': 1})</span>
+
+<span class="tok-kw">list</span>(events.<span class="tok-kw">range</span>(<span class="tok-lit">1</span>, <span class="tok-lit">3</span>))         <span class="tok-com"># half-open; None is unbounded</span>
+[k <span class="tok-kw">for</span> k, _ <span class="tok-kw">in</span> db[<span class="tok-lit">"logs"</span>].<span class="tok-kw">prefix</span>(<span class="tok-lit">"2026-08"</span>)]
+</pre>
+    </div>
+  </div>
+</section>
+
+<!-- ── 03 · Models ────────────────────────────────────── -->
+<section class="border-b-rule" id="models">
+  <div class="max-w-wrap mx-auto px-8 pt-14 pb-[70px]">
+    <div class="flex items-baseline gap-3.5 mb-[38px] pb-3.5 border-b-rule">
+      <span class="font-label text-[11px] tracking-[0.1em] text-mist">03</span>
+      <h2 class="font-display text-[26px] font-bold">Models</h2>
+      <span
+        class="font-label text-[10px] tracking-[0.1em] uppercase text-mist ml-auto max-sm:hidden"
+        >Documents</span
+      >
+    </div>
+
+    <div
+      class="grid grid-cols-[repeat(auto-fit,minmax(330px,1fr))] gap-[52px] items-start"
+    >
+      <p class="text-[13px] leading-[1.7] text-shadow max-w-[52ch]">
+        A document is any mapping. Bind a handle to a dataclass or a pydantic
+        model and it converts on write and rebuilds instances on read. The
+        binding lives on the handle, not in the file, so the same documents
+        still read as dicts. Values store as BSON: <code>None</code>,
+        <code>bool</code>, <code>int</code>, <code>float</code>,
+        <code>str</code>, <code>bytes</code>, <code>datetime</code>,
+        <code>list</code>, and nested mappings.
+      </p>
+      <pre class="snippet min-w-0">
+<span class="tok-kw">from</span> dataclasses <span class="tok-kw">import</span> dataclass
+
+<span class="tok-kw">@dataclass</span>
+<span class="tok-kw">class</span> User:
+    age: <span class="tok-kw">int</span>
+    email: <span class="tok-kw">str</span>
+
+users = db.<span class="tok-kw">collection</span>(<span class="tok-lit">"users"</span>, User)
+users[<span class="tok-lit">"gwen"</span>] = User(age=<span class="tok-lit">44</span>, email=<span class="tok-lit">"g@corp.io"</span>)
+
+users[<span class="tok-lit">"gwen"</span>]         <span class="tok-com"># User(age=44, email='g@corp.io')</span>
+db[<span class="tok-lit">"users"</span>][<span class="tok-lit">"gwen"</span>]   <span class="tok-com"># {'age': 44, 'email': 'g@corp.io'}</span>
+</pre>
     </div>
   </div>
 </section>
@@ -280,12 +251,12 @@ block content %}
     <h2
       class="font-display font-black text-[clamp(34px,4.6vw,50px)] leading-[1.06] mb-[22px]"
     >
-      Try <span class="text-accent">MonaDB</span>.
+      Install <span class="text-accent">MonaDB</span>.
     </h2>
     <p
       class="text-[14px] leading-[1.7] text-shadow max-w-[44ch] mx-auto mb-[30px]"
     >
-      Install MonaDB and open a Python shell. One import, one file, no servers.
+      Python 3.9 and up. One import, one file on disk, no server to run.
     </p>
     <div
       class="install is-center mb-6 max-w-[440px]"
@@ -299,9 +270,7 @@ block content %}
       </div>
     </div>
     <div class="flex flex-wrap gap-4 justify-center">
-      <a
-        class="btn btn-primary"
-        href="{{ get_url(path='@/tutorial.md') }}"
+      <a class="btn btn-primary" href="{{ get_url(path='@/tutorial.md') }}"
         >Tutorial</a
       >
       <a class="btn btn-secondary" href="https://github.com/rchowell/MonaDB"

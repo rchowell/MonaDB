@@ -12,15 +12,17 @@ This tutorial walks through the entire MonaDB python API.
 ```python
 import monadb
 
-db = monadb.open()              # in-memory, discarded on close
-db = monadb.open("app.db")      # file-backed
+db = monadb.open()          # in-memory
+db = monadb.open("app.db")  # file-backed
 ```
 
 A `Database` is a mapping of collection names to collections, and a collection is
 a mapping of keys to documents. You can think of collections as persistant
 python dicts.
 
-## Writing and reading
+## Collections
+
+Collections are automatically created on the first write.
 
 ```python
 # Creates a 'users' collection
@@ -30,15 +32,13 @@ users = db["users"]
 users["alice"] = {"age": 30, "email": "alice@example.com"}
 
 # Fetch a document by its key
-users["alice"]
-# out:{'age': 30, 'email': 'alice@example.com'}
+users["alice"]  # {'age': 30, 'email': 'alice@example.com'}
 ```
 
-Collections are automatically created on the first write.
-
-## The dict protocol
+## MutableMapping
 
 Each collection is a `MutableMapping` and behaves like a Python dict.
+Missing keys raise `KeyError`, exactly as a dict does.
 
 ```python
 # Returns the 'users' collection
@@ -56,20 +56,19 @@ users.get("bob", {})
 # Returns document for "bob" if it exists, otherwise sets it.
 users.setdefault("bob", {"age": 41})
 
-# 
+# Updates given documents
 users.update({"carol": {"age": 22}, "dan": {"age": 51}})
 
-users.pop("dan")                # {'age': 51}
+# Removes and returns the document at key "dan"
+users.pop("dan")  # {'age': 51}
 
 # Deletes the document at key "bob"
 del users["bob"]
 
-# Iterate of key, document pairs
+# Iterate all key, document pairs
 for key, doc in users.items():
     print(key, doc)
 ```
-
-Missing keys raise `KeyError`, exactly as a dict does.
 
 ## Ordering
 
@@ -131,13 +130,12 @@ users = db.collection("users", User)
 # Insert dataclass instances
 users["gwen"] = User(age=44, email="gwen@example.com")
 
-# Fetch a document
+# Fetch a document, returning the data class instance
 users["gwen"]  # User(age=44, email='gwen@example.com')
 ```
 
-The binding lives on the collection handle, not in the file, so the same data is
-still readable as dicts. In this example we read user from an anonymous collection
-handle:
+The model binding lives on the collection handle, so if you read
+from an anonymous collection handle, then you get back a dict.
 
 ```python
 db["users"]["gwen"]  # {'age': 44, 'email': 'gwen@example.com'}
@@ -157,7 +155,7 @@ with monadb.open("app.db") as db:
 ```
 
 
-## Where to go next
+## See also
 
 - [Keys](@/guide/keys.md) — what can be a key, and how ordering works
 - [Documents](@/guide/documents.md) — what can go in a value

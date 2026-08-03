@@ -5,7 +5,7 @@ template = "docs/page.html"
 weight = 5
 +++
 
-## `monadb.open`
+## MonaDB
 
 ```python
 monadb.open(path=None, *, durable=True) -> Database
@@ -19,7 +19,7 @@ file is created if it does not exist.
 | `path`    | file path, or `None` for in-memory                |
 | `durable` | `False` relaxes commit durability, for bulk loads |
 
-## `Database`
+## Database
 
 A `Mapping[str, Collection]`, and a context manager that closes on exit.
 
@@ -37,7 +37,7 @@ A `Mapping[str, Collection]`, and a context manager that closes on exit.
 first write. So a collection that has never been written reads as empty and does
 not appear in `list(db)`.
 
-## `Collection`
+## Collection
 
 A `MutableMapping`. Every method below the divider comes from the ABC.
 
@@ -67,15 +67,16 @@ A `MutableMapping`. Every method below the divider comes from the ABC.
 
 ## Keys
 
-`str`, `int`, `bytes`, or a flat tuple of those. Ordering is int < str < bytes,
-componentwise for tuples. `"a"` and `("a",)` are the same key.
+Keys are of type: `str`, `int`, `bytes`, or a flat tuple of those. Ordering is
+int < str < bytes, componentwise for tuples. `"a"` and `("a",)` are the same
+key.
 
-`float`, `bool`, `None`, and nested tuples raise `TypeError`; an `int` outside 64
-bits raises `ValueError`.
+Using `float`, `bool`, `None`, or nested tuples raise `TypeError`; an `int` outside 64
+bits will raise a `ValueError`.
 
 ## Documents
 
-A mapping whose values are `None`, `bool`, `int`, `float`, `str`, `bytes`,
+Documents are mappings whose values are `None`, `bool`, `int`, `float`, `str`, `bytes`,
 `datetime`, `list`, or a nested mapping. Datetimes store at millisecond
 precision, and naive ones are treated as UTC.
 
@@ -88,7 +89,7 @@ precision, and naive ones are treated as UTC.
 | `TypeError`               | bad key type, non-mapping document, unsupported value type               |
 | `ValueError`              | int out of range, or an empty collection name                            |
 
-## Differences from `dict`
+## Differences from Dict
 
 1. Iteration is key order, not insertion order.
 2. Keys are restricted to `str | int | bytes | tuple`.

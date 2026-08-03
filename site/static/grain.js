@@ -89,11 +89,12 @@
   var KW = 'tok-kw', COM = 'tok-com', LIT = 'tok-lit', TXT = 'tok-txt';
   var PROGRAMS = [
     [ // Dict
-      [['# a collection is a dict; a document is its value', COM]],
       [['import', KW], [' monadb', TXT]],
-      [['db = monadb.', TXT], ['open', KW], ['(', TXT], ['"app.db"', LIT], [')', TXT]],
-      [['db[', TXT], ['"users"', LIT], ['][', TXT], ['"alice"', LIT], ['] = {', TXT], ['"age"', LIT], [': ', TXT], ['30', LIT], ['}', TXT]],
-      [['db[', TXT], ['"users"', LIT], ['][', TXT], ['"alice"', LIT], [']', TXT], ['   # {"age": 30}', COM]]
+      [['', TXT]],
+      [['db', TXT], [' =  ', TXT], ['monadb.', TXT], ['open', KW], ['(', TXT], ['"app.db"', LIT], [')', TXT]],
+      [['users', TXT], [' = ', TXT], ['db.', TXT], ['collection', KW], ['(', TXT], ['"users"', LIT], [')', TXT]],
+      [['users[', TXT], ['"alice"', LIT], ['] = { ', TXT], ['"age"', LIT], [': ', TXT], ['30', LIT], [' }', TXT]],
+      [['users[', TXT], ['"alice"', LIT], [']', TXT]],
     ],
     [ // Batches
       [['# update() is one commit; a bad item writes nothing', COM]],
@@ -190,102 +191,9 @@
     });
   }
 
-  /* ── Prose code highlighting ────────────────────────── */
-  // Keep in sync with reserved tokens in src/lexer.rs (keywords, type names, literals).
-  var KEYWORDS = {
-    all: 1, and: 1, any: 1, array: 1, as: 1, asc: 1, at: 1, between: 1, bool: 1,
-    by: 1, clear: 1, copy: 1, create: 1, delete: 1, desc: 1, drop: 1, exists: 1,
-    false: 1, float: 1, from: 1, group: 1, having: 1, in: 1, insert: 1, into: 1,
-    int: 1, is: 1, limit: 1, not: 1, null: 1, number: 1, object: 1, or: 1,
-    order: 1, pivot: 1, select: 1, string: 1, table: 1, to: 1, true: 1,
-    unknown: 1, unpivot: 1, where: 1
-  };
-
-  function appendTok(parent, text, cls) {
-    if (!text) return;
-    var span = document.createElement('span');
-    span.className = cls;
-    span.textContent = text;
-    parent.appendChild(span);
-  }
-
-  function isIdentStart(ch) {
-    return /[A-Za-z_$`]/.test(ch);
-  }
-
-  function isIdentPart(ch) {
-    return /[A-Za-z0-9_$`]/.test(ch);
-  }
-
-  function tokenizeLine(line) {
-    var tokens = [];
-    var i = 0;
-    while (i < line.length) {
-      var ch = line[i];
-      var rest = line.slice(i);
-
-      if (rest.slice(0, 2) === '--') {
-        tokens.push([line.slice(i), COM]);
-        break;
-      }
-
-      if (ch === '"' || ch === "'") {
-        var j = i + 1;
-        while (j < line.length) {
-          if (line[j] === '\\' && j + 1 < line.length) { j += 2; continue; }
-          if (line[j] === ch) { j++; break; }
-          j++;
-        }
-        tokens.push([line.slice(i, j), LIT]);
-        i = j;
-        continue;
-      }
-
-      if (/[0-9]/.test(ch) || (ch === '.' && i + 1 < line.length && /[0-9]/.test(line[i + 1]))) {
-        var k = i + (/[0-9]/.test(ch) ? 1 : 2);
-        while (k < line.length && /[0-9.]/.test(line[k])) k++;
-        tokens.push([line.slice(i, k), LIT]);
-        i = k;
-        continue;
-      }
-
-      if (isIdentStart(ch)) {
-        var m = i + 1;
-        while (m < line.length && isIdentPart(line[m])) m++;
-        var word = line.slice(i, m);
-        var key = word.replace(/^`|`$/g, '').toLowerCase();
-        tokens.push([word, KEYWORDS[key] ? KW : TXT]);
-        i = m;
-        continue;
-      }
-
-      tokens.push([ch, TXT]);
-      i++;
-    }
-    return tokens;
-  }
-
-  function highlightCodeBlock(code) {
-    if (code.dataset.highlighted) return;
-    if (code.closest('[data-code]')) return;
-
-    var text = code.textContent.replace(/\n$/, '');
-    var lines = text.split('\n');
-    code.textContent = '';
-    code.dataset.highlighted = 'true';
-
-    lines.forEach(function (line, li) {
-      tokenizeLine(line).forEach(function (tok) {
-        if (tok[1] === KW) appendTok(code, tok[0], KW);
-        else code.appendChild(document.createTextNode(tok[0]));
-      });
-      if (li < lines.length - 1) code.appendChild(document.createTextNode('\n'));
-    });
-  }
-
-  function highlightProseCode() {
-    document.querySelectorAll('.lang-content pre > code, .prose-page pre > code').forEach(highlightCodeBlock);
-  }
+  /* Docs code blocks are highlighted at build time by Zola — see
+     [markdown.highlighting] in config.toml and the z-* rules in input.css.
+     Nothing here touches them. */
 
   /* ── Docs sidebar search ─────────────────────────────── */
   function initDocsSidebarSearch(root) {
@@ -442,7 +350,6 @@
     document.querySelectorAll('[data-console]').forEach(initConsole);
     document.querySelectorAll('[data-copy]').forEach(initCopy);
     initCopyMarkdown();
-    highlightProseCode();
     initDocsSidebarSearch();
     initDocsSidebarGroups();
     initMobileSidebar();

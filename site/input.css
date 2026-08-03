@@ -227,27 +227,55 @@
   .console-status .ok .tick { color: var(--color-accent); }
   .console-status .meta { color: var(--color-mist); }
 
-  /* ── Feature cards — dot shadow + patterned caps ─────── */
-  .feature { position: relative; }
-  .feature::before {
-    content: ""; position: absolute; inset: 0; z-index: 0; transform: translate(6px, 6px);
-    border: var(--rule); background-color: var(--color-page);
-    background-image: radial-gradient(circle, var(--color-ink) 30%, transparent 30%);
-    background-size: 5px 5px;
+  /* ── Docs code — giallo scopes onto the four-token palette ─ */
+  /* Zola highlights markdown at build time and emits TextMate scope classes.
+     Only these six distinctions are honoured; every other scope stays plain
+     ink, which is what keeps a code block reading as print rather than as a
+     colour chart. The exclusions matter:
+       :not(.z-operator)  keeps `=`, `-`, `*` from bolding as keywords
+       .z-logical         puts the `in` of `k in c` back, it is a real keyword
+       :not(.z-arguments) bolds `update` in users.update(x), not the x
+       :not(.z-string)    keeps the b of b"\x01" a literal, not a type */
+  .lang-content .z-keyword:not(.z-operator),
+  .lang-content .z-keyword.z-logical,
+  .lang-content .z-keyword.z-control,
+  .lang-content .z-storage.z-type:not(.z-string),
+  .lang-content .z-support.z-type,
+  .lang-content .z-support.z-function,
+  .lang-content .z-constant.z-language,
+  .lang-content .z-entity.z-name.z-function,
+  .lang-content .z-meta.z-function-call:not(.z-arguments),
+  .prose-page .z-keyword:not(.z-operator),
+  .prose-page .z-keyword.z-logical,
+  .prose-page .z-keyword.z-control,
+  .prose-page .z-storage.z-type:not(.z-string),
+  .prose-page .z-support.z-type,
+  .prose-page .z-support.z-function,
+  .prose-page .z-constant.z-language,
+  .prose-page .z-entity.z-name.z-function,
+  .prose-page .z-meta.z-function-call:not(.z-arguments) { font-weight: 700; }
+
+  /* .z-constant.z-character catches escapes and format placeholders, which
+     giallo emits as siblings of the string rather than children — without it
+     the \x01 in b"\x01" renders as plain ink between two shadowed quotes. */
+  .lang-content .z-string,
+  .lang-content .z-constant.z-numeric,
+  .lang-content .z-constant.z-character,
+  .prose-page .z-string,
+  .prose-page .z-constant.z-numeric,
+  .prose-page .z-constant.z-character { color: var(--color-shadow); }
+
+  .lang-content .z-comment,
+  .prose-page .z-comment { color: var(--color-mist); font-style: italic; }
+
+  /* ── Landing-page snippets — the console frame, unchromed ─ */
+  .snippet {
+    margin: 0; padding: 16px 18px;
+    overflow-x: auto; white-space: pre;
+    font-family: var(--font-mono); font-size: var(--text-code);
+    line-height: 1.8; color: var(--color-ink);
+    border: var(--rule); background: var(--color-panel);
   }
-  .feature.is-accent::before { background-image: radial-gradient(circle, var(--color-accent) 32%, transparent 32%); }
-  .feature-card { position: relative; z-index: 1; border: var(--rule); background: var(--color-panel); transition: transform 0.12s ease; height: 100%; }
-  .feature-card:hover { transform: translate(-2px, -2px); }
-  .feature-cap { height: 88px; border-bottom: var(--rule); background-color: var(--color-panel); }
-  .feature-cap--dots  { background-image: radial-gradient(circle, var(--color-ink) 27%, transparent 27%); background-size: 7px 7px; }
-  .feature-cap--lines { background-image: repeating-linear-gradient(90deg, var(--color-ink) 0, var(--color-ink) 1px, transparent 1px, transparent 6px); }
-  .feature-cap--cross {
-    background-image:
-      repeating-linear-gradient(0deg,  var(--color-ink) 0, var(--color-ink) 1px, transparent 0, transparent 5px),
-      repeating-linear-gradient(90deg, var(--color-ink) 0, var(--color-ink) 1px, transparent 0, transparent 5px);
-    background-size: 5px 5px;
-  }
-  .feature-cap--accent { background-image: radial-gradient(circle, var(--color-accent) 35%, transparent 35%); background-size: 6px 6px; }
 
   /* ── CTA — hatching backdrop via ::before ────────────── */
   .cta { position: relative; overflow: hidden; }

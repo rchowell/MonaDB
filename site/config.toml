@@ -5,5 +5,18 @@ generate_feeds = false
 minify_html = false
 
 
+[markdown.highlighting]
+# Zola 0.22 highlights with giallo's TextMate grammars. `style = "class"` emits
+# scope classes instead of inline colour, which is what lets the code blocks be
+# styled in the site's own ink — see the z-* rules in input.css.
+#
+# The theme is a granularity switch, not a palette: giallo only emits a class
+# for a scope the theme actually styles, and catppuccin-mocha is the only
+# bundled theme that separates all of keyword / call / string / number /
+# comment / operator. Its colours are never loaded; the generated giallo.css
+# stays unlinked.
+style = "class"
+theme = "catppuccin-mocha"
+
 [extra]
 github = "https://github.com/rchowell/MonaDB"

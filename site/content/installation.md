@@ -6,35 +6,35 @@ weight = 1
 +++
 
 MonaDB ships as a single Python package. There is no server to install and no
-configuration to write.
+configuration to write. You can install from PyPi like so:
 
 ## From PyPI
+
+**pip**
 
 ```sh
 pip install monadb
 ```
 
-Wheels are published for Linux (x86_64, aarch64), macOS (Apple silicon and
-Intel), and Windows (x64). They are `abi3` wheels, so one wheel per platform
-covers every supported Python.
+**uv**
+
+```sh
+uv add monadb
+```
 
 ## Requirements
 
-Python 3.9 or newer.
+Python 3.9+.
 
 ## Verifying
 
 ```python
 import monadb
 
-db = monadb.open()          # in-memory
+db = monadb.open()
 
-# Create a collection
-collection = db["t"]
+items = db["items"]
+items["test"] = {"ok": True}
 
-# Insert a document
-collection["k"] = {"ok": True}
-
-# Fetch a document
-assert collection["k"] == {"ok": True}
+assert items["test"] == {"ok": True}
 ```
