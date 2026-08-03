@@ -17,7 +17,7 @@ pub type Def<'a> = TableDefinition<'a, &'static [u8], &'static [u8]>;
 /// A read snapshot of one collection's table.
 type Snapshot = ReadOnlyTable<&'static [u8], &'static [u8]>;
 
-
+/// The collection class.
 #[pyclass]
 pub struct Collection {
     store: Arc<Store>,
@@ -25,6 +25,7 @@ pub struct Collection {
 }
 
 impl Collection {
+    /// Creates a new collection with the given name and store reference.
     pub fn new(store: Arc<Store>, name: String) -> Self {
         Collection { store, name }
     }
@@ -59,8 +60,6 @@ impl Collection {
         let txn = self.store.begin_write(py)?;
         let out = {
             let mut table = txn.open_table(self.def()).map_err(error::storage)?;
-            // An error here returns without committing, and dropping the
-            // transaction aborts it.
             f(&mut table)?
         };
         py.detach(move || txn.commit().map_err(error::storage))?;
@@ -178,14 +177,17 @@ impl Collection {
         }
     }
 
+    /// Returns true if a value with the given key exists.
     fn contains(&self, key: &Bound<'_, PyAny>) -> PyResult<bool> {
-        let k = encode(&key_from_py(key)?);
+        let key = encode(&key_from_py(key)?);
+        let key = key.as_slice();
         match self.read()? {
-            Some(table) => Ok(table.get(k.as_slice()).map_err(error::storage)?.is_some()),
+            Some(table) => Ok(table.get(key).map_err(error::storage)?.is_some()),
             None => Ok(false),
         }
     }
 
+    /// Returns the length of the collection
     fn len(&self) -> PyResult<u64> {
         match self.read()? {
             Some(table) => table.len().map_err(error::storage),
@@ -268,7 +270,6 @@ pub struct CollectionIter {
 
 #[pymethods]
 impl CollectionIter {
-    #[allow(clippy::self_named_constructors)]
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
         slf
     }

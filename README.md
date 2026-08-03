@@ -1,7 +1,7 @@
 # MonaDB
 
 An embedded document store with Python dict semantics, built on
-[redb](https://github.com/cberner/redb). Documents are stored as BSON.
+[redb](https://github.com/cberner/redb).
 
 ```sh
 pip install monadb
@@ -10,39 +10,59 @@ pip install monadb
 ```python
 import monadb
 
-db = monadb.open("app.db")        # or monadb.open() for in-memory
+# Open a database, no file opens in-memory
+db = monadb.open("app.db")
 
-db["users"]["alice"] = {"age": 30}
-db["users"]["alice"]              # {"age": 30}
-"alice" in db["users"]
-len(db["users"])
-del db["users"]["alice"]
+# Create a collection
+users = db["users"]
+
+# Insert a document
+users["alice"] = {"age": 30}
+
+# Fetch a document
+users["alice"]  # {"age": 30}
+
+# Check document existence
+"alice" in users  # True
+
+# Return collection length
+len(users)
+
+# Delete a document
+del users["alice"]
 ```
 
 Every operation is its own commit. `update()` is one commit for the whole
-mapping, so a bad item leaves nothing behind:
+mapping.
 
 ```python
-db["users"].update({"bob": {"age": 41}, "cy": {"age": 9}})
+# Update all documents
+users.update({"bob": {"age": 41}, "cy": {"age": 9}})
 ```
 
-## Ordered operations
+## Range Reads
 
 Keys use an order-preserving encoding, so the b-tree's ordering is directly
 available:
 
 ```python
-events.range(start, stop)   # half-open [start, stop); None means unbounded
-events.prefix("2026-08")    # str/bytes prefix, or a tuple of leading components
+# Iterate events in iterval [start, stop)
+events.range(start, stop) 
+
+# Iterate by key prefix
+events.prefix("2026-08")
+
+# Return first and last events
 events.first(); events.last()
+
+# Iterate in reverse key order
 reversed(events)
 ```
 
 ## Models
 
 A collection is plain-dict by default and can be bound to a type. Binding is a
-property of the handle — nothing about the type is stored, so the same data is
-always readable as dicts.
+property of the handle.
 
 ```python
 from dataclasses import dataclass
@@ -52,55 +72,32 @@ class User:
     name: str
     age: int
 
+# Collection bound to type 'User'
 users = db.collection("users", User)
+
+# Collection returns a User
 users["alice"] = User(name="alice", age=30)
 users["alice"]                    # User(name='alice', age=30)
+
+# Raw access still returns a dict
 db["users"]["alice"]              # {"name": "alice", "age": 30}
 ```
 
-pydantic models work the same way, recognized by shape — MonaDB never imports
-pydantic.
-
-## How it differs from `dict`
-
-1. **Iteration is key order**, not insertion order.
-2. **Keys** are `str | int | bytes | tuple` of those. `float`, `bool`, and
-   `None` raise `TypeError`; an `int` outside 64 bits raises `ValueError`.
-3. **Values must be mappings** — a dict, dataclass instance, or model.
-4. **`keys()`, `values()`, `items()` are snapshot iterators**, not live views.
-5. **`"a"` and `("a",)` are the same key** — a scalar is a 1-component tuple.
+MonaDB also supports pydantic models.
 
 ## Concurrency
 
-Readers never block: redb is MVCC, so an open iterator keeps its own snapshot.
-Writers serialize — a second writer waits for the first to commit.
-
-**Only one process may open a database for writing.** redb takes an exclusive
-file lock; several processes may open the same file read-only. This is the one
-capability 0.2 gives up relative to 0.1, which used LMDB.
+- Readers never block
+- Writers serialize; a second writer waits for the first to commit.
+- Only one process may open a database for writing.
 
 ## Durability
 
-`durable=False` trades commit durability for speed, which suits bulk loads:
+The option `durable=False` trades commit durability for speed, which suits bulk loads:
 
 ```python
 db = monadb.open("app.db", durable=False)
 ```
-
-## Exceptions
-
-`monadb.Error` covers storage faults and use of a closed database. Everything
-else is a Python builtin — `KeyError`, `TypeError`, `ValueError`.
-
-## Requirements
-
-Python 3.9+. Building from source needs Rust 1.85+ (edition 2024).
-
-## Versions
-
-0.2 is a rewrite. The SQL engine MonaDB shipped through 0.1 is preserved under
-the `v0.1.0-sql` git tag, and `pip install "monadb<0.2"` still installs it.
-Databases written by 0.1 cannot be read by 0.2.
 
 ## License
 

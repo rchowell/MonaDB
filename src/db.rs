@@ -8,17 +8,21 @@ use crate::collection::{Collection, Def};
 use crate::error;
 use crate::store::Store;
 
+/// The database instance.
 #[pyclass]
 pub struct Database {
+    /// The redb storage engine.
     pub store: Arc<Store>,
 }
 
 #[pymethods]
 impl Database {
+    /// Returns all collection names
     fn names(&self) -> PyResult<Vec<String>> {
         self.store.names()
     }
 
+    /// Returns true if the collection with given name exists.
     fn has(&self, name: &str) -> PyResult<bool> {
         Ok(self.store.names()?.iter().any(|n| n == name))
     }
@@ -35,16 +39,19 @@ impl Database {
         py.detach(move || txn.commit().map_err(error::storage))
     }
 
+    /// Returns a collection with the given name.
     fn collection(&self, name: String) -> PyResult<Collection> {
         check_name(&name)?;
         Ok(Collection::new(Arc::clone(&self.store), name))
     }
 
+    /// Closes the database (redb).
     fn close(&self) {
         self.store.close();
     }
 }
 
+/// Opens a database with optional file path.
 #[pyfunction]
 #[pyo3(signature = (path=None, durable=true))]
 pub fn open(path: Option<PathBuf>, durable: bool) -> PyResult<Database> {

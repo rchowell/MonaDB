@@ -1,10 +1,3 @@
-//! Document codec: `PyObject` -> `bson::Document` on writes, `RawDocument` -> `PyDict` on reads.
-//!
-//! The two directions are deliberately asymmetric. Writing builds an owned
-//! [`Document`] because that is what BSON serialization needs. Reading borrows
-//! the stored bytes as a [`RawDocument`] and walks them straight into a
-//! `PyDict`, so no owned `Document` is ever allocated on the read path.
-
 use bson::raw::{RawBsonRef, RawDocument};
 use bson::spec::BinarySubtype;
 use bson::{Binary, Bson, Document};
@@ -13,10 +6,6 @@ use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyBytes, PyDateTime, PyDict, PyFloat, PyInt, PyList, PyString};
 
 /// Serializes a Python mapping to BSON bytes.
-///
-/// The top level must be a mapping — BSON has no other top-level form. Errors
-/// name the offending path within the document, e.g. `unsupported type set at
-/// $.a.b[2]`.
 pub fn doc_to_bytes(obj: &Bound<'_, PyAny>) -> PyResult<Vec<u8>> {
     let dict = obj.cast::<PyDict>().map_err(|_| {
         PyTypeError::new_err(format!(
